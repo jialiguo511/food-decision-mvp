@@ -30,6 +30,8 @@ npm install
 1. Go to [supabase.com](https://supabase.com) → **New project** (free tier is fine).
 2. Open the **SQL Editor**, paste the entire contents of `supabase/schema.sql`,
    and hit **Run**. This creates the five tables and the security policies.
+   It is safe to re-run: if your database predates a newer column (such as
+   `daily_calorie_target_kcal`), running the whole file again adds it.
 3. Go to **Project Settings → API** and copy the **Project URL** and the
    **anon public** key.
 
@@ -80,7 +82,7 @@ bar to use the page that's actually built.
 | `/results` | Placeholder (NOW — the recommendation flow) |
 | `/inbox` | Placeholder (NEXT) |
 | `/my-food` | Placeholder (NEXT) |
-| **`/profile`** | **Built** — set goal, protein, budget, cuisines, dislikes, equipment, fridge, time |
+| **`/profile`** | **Built** — set goal, protein, optional daily calories, budget, cuisines, dislikes, equipment, fridge, time |
 
 To confirm the profile actually persists: set some chips, press **Save
 profile**, reload the page — the choices come back. Then look at

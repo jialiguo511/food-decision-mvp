@@ -5,12 +5,26 @@
 // is no REST endpoint to write and no fetch() on the client.
 
 import { revalidatePath } from "next/cache";
+import { CALORIE_TARGET } from "@/lib/options";
 import { createClient } from "@/lib/supabase/server";
 import type { ProfileInput } from "@/lib/types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
 export async function saveProfile(input: ProfileInput): Promise<SaveResult> {
+  // Unlike the sliders, this is typed, so an out-of-range value is rejected
+  // rather than clamped — silently saving a different number would mislead.
+  const calories = input.daily_calorie_target_kcal;
+  if (
+    calories !== null &&
+    (!Number.isInteger(calories) || calories < CALORIE_TARGET.min || calories > CALORIE_TARGET.max)
+  ) {
+    return {
+      ok: false,
+      error: `Daily calorie target should be between ${CALORIE_TARGET.min.toLocaleString("en-US")} and ${CALORIE_TARGET.max.toLocaleString("en-US")} kcal, or left blank.`,
+    };
+  }
+
   const supabase = await createClient();
 
   const {
@@ -25,6 +39,7 @@ export async function saveProfile(input: ProfileInput): Promise<SaveResult> {
     display_name: input.display_name?.trim() || null,
     goal: input.goal,
     protein_target_g: clamp(input.protein_target_g, 40, 300),
+    daily_calorie_target_kcal: calories,
     budget_per_meal_usd: clamp(input.budget_per_meal_usd, 1, 100),
     fridge_size: input.fridge_size,
     default_cook_minutes: clamp(input.default_cook_minutes, 5, 180),

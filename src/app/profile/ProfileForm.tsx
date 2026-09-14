@@ -17,6 +17,7 @@ import {
 } from "@/lib/options";
 import type { FridgeSize, Goal, ProfileInput } from "@/lib/types";
 import { saveProfile } from "./actions";
+import CalorieTargetField from "./CalorieTargetField";
 
 export default function ProfileForm({ initial }: { initial: ProfileInput }) {
   const [values, setValues] = useState<ProfileInput>(initial);
@@ -60,6 +61,10 @@ export default function ProfileForm({ initial }: { initial: ProfileInput }) {
             step={PROTEIN_TARGET.step}
             format={(v) => `${v}g / day`}
             onChange={(value) => set("protein_target_g", value)}
+          />
+          <CalorieTargetField
+            value={values.daily_calorie_target_kcal}
+            onChange={(value) => set("daily_calorie_target_kcal", value)}
           />
           <Slider
             label="Normal budget per meal"

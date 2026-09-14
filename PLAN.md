@@ -47,10 +47,17 @@ Context → Recommendation → Selection → Actual eating → Feedback
 - [~] **Today context page** — implementation complete; founder UX review
       pending. `Find my meal` currently renders the captured `MealContext`
       for inspection instead of calling anything.
-- [ ] **`/api/recommend`** — *the next engineering milestone, once the Today
-      UX review is done.* Assemble profile + context + pantry + saved recipes
-      into a structured prompt. Hard constraints stated explicitly. Return
-      validated JSON.
+- [~] **`/api/recommend`** — implementation complete; founder review of real
+      recommendation quality in progress. Sends profile + Today context (pantry
+      and saved recipes are Extended MVP and not sent). Hard constraints stated
+      explicitly; validated JSON; recipes use everyday measures first.
+      Currently triggered only by the debug button on Today.
+- [~] **Optional daily calorie target** — manually entered on Profile. Needs
+      the `schema.sql` migration run, then manual verification. No BMR/TDEE,
+      no "Suggest for me".
+- [~] **Prompt-level calorie guidance** — calories as a soft energy envelope:
+      meal ranges computed from the daily target when set, qualitative goal
+      guidance when not. No server-side calorie validator.
 - [ ] **Exactly 3 recommendations** — `best_match`, `lowest_effort`,
       `alternative`. Never a longer list.
 - [ ] **Select a recommendation** — writes `decision_sessions.chosen_index`.
@@ -75,9 +82,13 @@ contents into NOW.
 - Favorites
 - Recent-meal awareness
 - Basic preference learning
-- Nutrition target refinement — suggested daily calorie target
-  (BMR → TDEE → goal adjustment), protein kept prominent, carbs and fat
-  optional. Must not turn the product into macro tracking. See `PRODUCT.md`.
+- "Suggest for me" calorie target — BMR → TDEE → activity → goal adjustment.
+  The manual target is already in NOW. Must not turn the product into macro
+  tracking. See `PRODUCT.md` → Nutrition target refinement.
+- Remaining daily nutrition context — estimated calories and protein left
+  today from confirmed-eaten meals; always approximate, never manual logging
+- Food occasion — full meal / small meal / snack / dessert
+- Measurement-style preference — everyday measures / precise weights / both
 - Basic product analytics
 - Recruit the first 5–15 external testers
 
@@ -87,7 +98,8 @@ contents into NOW.
 
 Parked. These correspond to `PRODUCT.md` → Possible future directions.
 
-- Grocery intelligence — pricing, store integrations, shopping convenience
+- Grocery intelligence — pricing, store integrations, shopping convenience;
+  would replace today's model-only cost estimates
 - Advanced recipe importing — social ingestion, video extraction, browser and
   share extensions, automatic adaptation of imported recipes
 - Personal recipe capture — "I made something I liked", described by text or

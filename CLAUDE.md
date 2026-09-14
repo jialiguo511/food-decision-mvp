@@ -172,12 +172,30 @@ TikTok scraping · browser extensions · iOS share extensions.
   > "The probability that the user will actually eat this meal tonight while
   > still moving toward their health goal."
 - Always exactly **three** recommendations, with distinct purposes:
-  `best_match`, `lowest_effort`, `alternative` (e.g. highest-protein or simply
-  different).
+  `best_match`, `lowest_effort`, and `alternative` — a meaningfully different
+  option in cuisine, style, or protein source; it may be somewhat higher in
+  protein when useful, but does not optimize for the maximum protein possible.
 - Validate the JSON shape before it reaches the UI. If the model returns
   something unusable, fail visibly rather than rendering half a card.
 - **Nutrition numbers are estimates.** Display them as "~32g protein",
   "~550 cal". Never imply precision we do not have.
+- **Two costs, one budget.** `estimated_meal_cost_usd` is the approximate value
+  of everything eaten, including food already owned. `estimated_extra_cost_usd`
+  is the approximate money spent tonight on missing ingredients. The budget
+  ceiling applies to extra cost only. Display as "~$9 meal · ~$2 more to buy".
+  Both are model-only guesses with no price data — low confidence.
+- **Protein is a range, not a maximum.** Anchor each meal on roughly a third of
+  the daily target, somewhat higher when very hungry or asking for protein,
+  lower for a light meal. It is a soft preference ranked last, after likelihood
+  of eating, context and craving, feasibility, and the health goal. There is no
+  server-side protein validator; do not add one.
+- **Calories are a soft envelope, not a minimum.** With a daily calorie target,
+  meal ranges are computed from it and scaled by hunger. Without one, give
+  qualitative goal direction only — never assume a number or reuse an example
+  range as a default. Never imply knowledge of calories remaining today. No
+  server-side calorie validator.
+- **Recipes must not need a kitchen scale.** Everyday or visual measure first,
+  approximate weight second only where it helps the nutrition estimate.
 
 ## UX principles
 

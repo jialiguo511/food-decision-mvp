@@ -29,6 +29,12 @@ create table if not exists public.profiles (
   updated_at            timestamptz not null default now()
 );
 
+-- Optional, entered by the user. Null means "no target". Added as ALTER so that
+-- re-running this file upgrades a database created before the column existed.
+alter table public.profiles
+  add column if not exists daily_calorie_target_kcal integer
+  check (daily_calorie_target_kcal between 1000 and 5000);
+
 -- ---------------------------------------------------------------------------
 -- pantry_items — what's in the kitchen. Names only, no quantities, no expiry.
 -- ---------------------------------------------------------------------------

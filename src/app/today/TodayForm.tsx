@@ -11,25 +11,45 @@ import {
   HUNGER_LEVELS,
   QUICK_INGREDIENTS,
 } from "@/lib/options";
-import type { Effort, Hunger, MealContext } from "@/lib/types";
+import type { ActiveSession, Effort, Hunger, MealContext } from "@/lib/types";
 import BudgetCard from "./BudgetCard";
-import CapturedContext from "./CapturedContext";
+import type { FeedbackData } from "./MealFeedback";
+import RecommendationResults from "./RecommendationResults";
+import { useRecommend } from "./useRecommend";
 
 const NO_CRAVING = "__none__";
 
 export default function TodayForm({
   initial,
   usualBudget,
+  initialSession,
+  initialChosenIndex,
+  initialFeedback,
 }: {
   initial: MealContext;
   usualBudget: number;
+  /** The most recent decision_sessions row, restored server-side — null on a
+   *  first visit with no prior session. Restoring never calls the model. */
+  initialSession: ActiveSession | null;
+  initialChosenIndex: 0 | 1 | 2 | null;
+  /** meal_feedback already recorded for that same session, if any. */
+  initialFeedback: FeedbackData | null;
 }) {
   const [values, setValues] = useState<MealContext>(initial);
-  const [captured, setCaptured] = useState<MealContext | null>(null);
+  const { session, selection, request, run, retry, choose } = useRecommend({
+    session: initialSession,
+    chosenIndex: initialChosenIndex,
+  });
+
+  // initialFeedback was only ever read for initialSession. The moment a
+  // regenerate or "Show me 3 more" swaps in a new session, that restored
+  // feedback no longer applies to whatever is now active — a brand-new
+  // session has no feedback yet regardless of what the last one had.
+  const feedbackForCurrentSession =
+    session && initialSession && session.session_id === initialSession.session_id ? initialFeedback : null;
 
   function set<K extends keyof MealContext>(key: K, value: MealContext[K]) {
     setValues((current) => ({ ...current, [key]: value }));
-    setCaptured(null);
   }
 
   // The craving is a single value, not a tag list: either one of the presets or
@@ -42,14 +62,30 @@ export default function TodayForm({
       : null;
   const customCraving = preset === null ? (values.craving ?? "") : "";
 
-  /** Pressing the button finalizes whatever is in the craving box. */
-  function capture() {
+  /** Finalizes whatever is in the craving box, then asks the recommender with
+   *  the current form values. Used for both the first "Find my meal" and
+   *  "Regenerate recommendations" — a regenerate is just another call with
+   *  whatever the form says right now, edited or not. Runs only from the
+   *  click handlers below — never from an effect — so one click is one
+   *  request, and it always creates a new decision_sessions row. */
+  function generate() {
     const finalized: MealContext = {
       ...values,
       craving: values.craving === null ? null : normalizeCraving(values.craving),
     };
     setValues(finalized);
-    setCaptured(finalized);
+    void run(finalized);
+  }
+
+  /** "Show me 3 more": same context as the current session, ignoring any
+   *  unsaved edits sitting in the form, so it's a true re-roll rather than a
+   *  regenerate in disguise. Sends the current set along as exclusions, so
+   *  the model avoids near-duplicates instead of minor variations. Also
+   *  creates a new decision_sessions row. */
+  function showMore() {
+    if (!session) return;
+    setValues(session.context);
+    void run(session.context, session.recommendations);
   }
 
   return (
@@ -152,17 +188,41 @@ export default function TodayForm({
         onChange={(value) => set("budget_override_usd", value)}
       />
 
-      {captured && <CapturedContext context={captured} usualBudget={usualBudget} />}
+      <RecommendationResults
+        session={session}
+        selection={selection}
+        request={request}
+        initialFeedback={feedbackForCurrentSession}
+        onRetry={retry}
+        onChoose={choose}
+      />
 
-      {/* Sticky so the button is always reachable on a phone. */}
-      <div className="sticky bottom-24 pt-2">
+      {/* Sticky so the action is always reachable on a phone. Once a session
+          exists, selecting a card does not remove or disable these — picking
+          one should not lock the user out of trying again. */}
+      <div className="sticky bottom-24 space-y-2 pt-2">
         <button
           type="button"
-          onClick={capture}
-          className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20"
+          onClick={generate}
+          disabled={request.kind === "loading"}
+          className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
         >
-          Find my meal
+          {request.kind === "loading"
+            ? "Finding your meal…"
+            : session
+              ? "Regenerate recommendations"
+              : "Find my meal"}
         </button>
+        {session && (
+          <button
+            type="button"
+            onClick={showMore}
+            disabled={request.kind === "loading"}
+            className="w-full rounded-2xl border border-accent bg-card py-3 text-sm font-semibold text-accent disabled:opacity-60"
+          >
+            Show me 3 more
+          </button>
+        )}
       </div>
     </div>
   );

@@ -34,6 +34,8 @@ export default async function ProfilePage() {
           display_name: data.display_name ?? null,
           goal: data.goal,
           protein_target_g: Number(data.protein_target_g),
+          daily_calorie_target_kcal:
+            data.daily_calorie_target_kcal == null ? null : Number(data.daily_calorie_target_kcal),
           budget_per_meal_usd: Number(data.budget_per_meal_usd),
           fridge_size: data.fridge_size,
           default_cook_minutes: Number(data.default_cook_minutes),

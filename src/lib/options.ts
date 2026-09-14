@@ -60,6 +60,9 @@ export const COMMON_DISLIKES = [
 ] as const;
 
 export const PROTEIN_TARGET = { min: 60, max: 220, step: 5 };
+/** Accepted range for the optional daily calorie target. Matches the database
+ *  check constraint in supabase/schema.sql. */
+export const CALORIE_TARGET = { min: 1000, max: 5000 };
 export const BUDGET_PER_MEAL = { min: 3, max: 40, step: 1 };
 export const COOK_MINUTES = [10, 20, 30, 45, 60] as const;
 
@@ -69,6 +72,7 @@ export const DEFAULT_PROFILE = {
   display_name: null,
   goal: "general_health" as Goal,
   protein_target_g: 120,
+  daily_calorie_target_kcal: null as number | null,
   budget_per_meal_usd: 12,
   fridge_size: "standard" as FridgeSize,
   default_cook_minutes: 30,
@@ -125,3 +129,25 @@ export const QUICK_INGREDIENTS = [
   "Cheese",
   "Yogurt",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Meal feedback — the core loop's final step. Stored in meal_feedback.note,
+// so these values are also what's written to the database, not just labels.
+// ---------------------------------------------------------------------------
+
+/** Optional reason when the user didn't eat the meal they chose. */
+export const REJECTION_REASONS: { value: string; label: string }[] = [
+  { value: "changed_my_mind", label: "Changed my mind" },
+  { value: "too_much_effort", label: "Too much effort" },
+  { value: "ingredients_unavailable", label: "Ingredients unavailable" },
+  { value: "ate_something_else", label: "Ate something else" },
+  { value: "not_appealing", label: "Not appealing" },
+  { value: "other", label: "Other" },
+];
+
+/** Optional follow-up when the user did eat the meal they chose. */
+export const WOULD_EAT_AGAIN: { value: string; label: string }[] = [
+  { value: "yes", label: "Yes" },
+  { value: "maybe", label: "Maybe" },
+  { value: "no", label: "No" },
+];

@@ -140,6 +140,7 @@ Context → Recommendation → Selection → Actual eating → Feedback
 
 - primary health goal
 - protein target
+- optional daily calorie target, entered manually
 - normal food budget
 - cuisine preferences
 - disliked foods
@@ -159,7 +160,40 @@ Context → Recommendation → Selection → Actual eating → Feedback
 
 1. best overall match
 2. lowest-effort option
-3. a useful alternative — highest-protein, or simply something different
+3. a meaningfully different option in cuisine, style, or protein source — it
+   may be somewhat higher in protein when useful, but does not optimize for the
+   maximum protein possible
+
+Each recommendation carries approximate time, calories, protein, and two
+costs: what the meal is worth (`~$9 meal`) and what the user would spend
+tonight on missing ingredients (`~$2 more to buy`). The budget limit applies to
+the second — food already owned never makes a meal fail the budget.
+
+**Cost estimates are low confidence.** They come from the model alone, with no
+grocery-price data, store, or region behind them. They are useful for "cheap
+versus expensive", not for real budgeting, and should eventually be replaced
+or supplemented by real price data (see Grocery intelligence).
+
+**Protein is a target range, not something to maximize.** A daily target
+covers the whole day and the app does not know what else the user ate, so each
+meal aims for roughly a third of the daily target — somewhat more when very
+hungry or asking for high protein, somewhat less for a light meal. When
+priorities conflict, recommendations weigh, in order: likelihood the user will
+actually eat it, tonight's context and craving, feasibility, the health goal
+and a reasonable energy range, and adequate protein. Hard constraints override
+all of these.
+
+**Calories are a soft energy envelope, not "lower is always better."** A meal
+too small to satisfy is a bad recommendation too. When the user has entered a
+daily calorie target, it sets an approximate range for this meal, scaled by
+hunger and meal size. Without one, the goal gives direction only — moderate,
+filling portions for fat loss, ordinary portions to maintain, substantial meals
+welcome for muscle gain — and no calorie number is assumed. The app never
+pretends to know how many calories the user has left today.
+
+**Recipes shouldn't need a kitchen scale.** Quantities lead with everyday
+measures ("1 medium salmon fillet, about palm-sized") and add an approximate
+weight only where it helps the nutrition estimate ("~6 oz / 170 g").
 
 **4. Select a recommendation** — the user picks one of the three.
 
@@ -180,7 +214,10 @@ Useful early extensions. **Build only after the core loop works end to end:**
 - Favorites
 - Recent-meal awareness
 - Basic preference learning
-- Nutrition target refinement — see below
+- Nutrition target refinement — "Suggest for me" calorie target; see below
+- Remaining daily nutrition context — see below
+- Food occasion — full meal, small meal, snack, dessert; see below
+- Measurement-style preference — see below
 
 Having a screen shell for one of these does not make it core. `My Food` and
 `Inbox` exist in the navigation today as empty containers; the functionality
@@ -188,9 +225,9 @@ inside them is Extended MVP.
 
 #### Nutrition target refinement
 
-Today the profile stores only a protein target. For users with fat-loss or
-muscle-building goals, a more useful *daily nutrition envelope* may help
-recommendations fit better.
+The Core-loop MVP stores a protein target and an optional, manually entered
+daily calorie target. For users with fat-loss or muscle-building goals, a more
+complete *daily nutrition envelope* may help recommendations fit better.
 
 **Guardrail: Food Decision must not become a macro-tracking app.** Targets
 exist to shape recommendations, not to make the user log, count, or reconcile
@@ -198,7 +235,7 @@ what they ate.
 
 A future profile flow may support:
 
-- **estimated daily calorie target**
+- **"Suggest for me" daily calorie target**, for users who don't know theirs
 - **protein target** — stays the prominent target
 - optional carbohydrate target
 - optional fat target
@@ -224,6 +261,48 @@ Calories: ~1,850 / day   [Suggest for me]
 
 Like every nutrition number in the product, it is an estimate and should be
 shown as one.
+
+**Usual eating pattern** — 2 meals, 3 meals, or 3 meals plus snacks — may also
+belong in the profile. The same daily target implies very different meal sizes
+depending on how many times someone eats, and today's guidance assumes roughly
+three meals for both protein and calories.
+
+#### Remaining daily nutrition context
+
+Today each meal aims for a share of the daily targets because the app has no
+idea what else the user ate. Once the core loop records which recommended
+meals were actually eaten, the app could estimate both:
+
+```
+daily calorie target − estimated calories from confirmed eaten meals
+daily protein target − estimated protein from confirmed eaten meals
+```
+
+and adapt later meals that day — a lighter dinner after a large lunch, more
+protein after a low-protein day — **without the user logging anything**. The
+goal is specifically to avoid turning the product into manual macro logging.
+
+Two caveats are part of the idea, not footnotes:
+
+- **It depends on the core feedback loop.** Without knowing whether a
+  recommended meal was actually eaten, there is no intake to subtract.
+- **It undercounts.** Food eaten outside the app — a snack, a coffee, a meal
+  out — is invisible, so every "remaining" figure is an estimate that errs
+  high, never ground truth.
+
+#### Food occasion
+
+The user may eventually be looking for a **full meal, small meal, snack, or
+dessert**. Reasonable calorie and protein guidance differs a lot between them —
+a third of the daily target is sensible for dinner and absurd for a snack. For
+now the Core-loop MVP is about meals only, and the Today flow does not change.
+
+#### Measurement style
+
+A possible profile preference: **Everyday measures**, **Precise weights**, or
+**Both**. Until it exists, every recipe uses *Both*, with the everyday measure
+first and an approximate weight only where it materially helps the nutrition
+estimate.
 
 ---
 
@@ -297,7 +376,8 @@ Ordinary Recipe Inbox does **not** appear here — it is an intended early
 capability and lives in the Extended MVP above.
 
 - **Grocery intelligence** — recommend meals using local stores, prices,
-  sales, and shopping convenience.
+  sales, and shopping convenience. Would replace or supplement today's
+  model-only cost estimates.
 - **Advanced recipe importing** — Instagram / TikTok / social recipe
   ingestion, automatic video recipe extraction, browser and share extensions,
   and automatic adaptation of imported recipes to the user's equipment, time,

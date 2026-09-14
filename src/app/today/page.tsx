@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_PROFILE } from "@/lib/options";
+import { parseStoredSession } from "@/lib/recommend/session";
 import type { MealContext } from "@/lib/types";
 import TodayForm from "./TodayForm";
 
@@ -32,7 +33,38 @@ export default async function TodayPage() {
     DEFAULT_PROFILE.budget_per_meal_usd,
   );
 
-  const initial: MealContext = {
+  // Resume the most recent recommendation session, if any — a plain read, so
+  // this never calls the model. No day-boundary/expiry logic yet: "most
+  // recent" is the whole rule for this MVP.
+  const { data: sessionRow } = await supabase
+    .from("decision_sessions")
+    .select("id, context, recommendations, chosen_index")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const restored = sessionRow ? parseStoredSession(sessionRow) : null;
+
+  // If that session already had a recommendation chosen, it may also already
+  // have feedback recorded — restore it so Today doesn't ask again.
+  let initialFeedback: { id: string; didEat: boolean; note: string | null } | null = null;
+  if (restored && restored.chosenIndex !== null) {
+    const { data: feedbackRow } = await supabase
+      .from("meal_feedback")
+      .select("id, did_eat, note")
+      .eq("session_id", restored.session.session_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (feedbackRow && typeof feedbackRow.id === "string" && typeof feedbackRow.did_eat === "boolean") {
+      initialFeedback = {
+        id: feedbackRow.id,
+        didEat: feedbackRow.did_eat,
+        note: typeof feedbackRow.note === "string" ? feedbackRow.note : null,
+      };
+    }
+  }
+
+  const initial: MealContext = restored?.session.context ?? {
     cook_minutes: usualCookMinutes,
     hunger: "normal",
     effort: "some",
@@ -44,7 +76,13 @@ export default async function TodayPage() {
 
   return (
     <AppShell title="Today" subtitle="Tell me about tonight.">
-      <TodayForm initial={initial} usualBudget={usualBudget} />
+      <TodayForm
+        initial={initial}
+        usualBudget={usualBudget}
+        initialSession={restored?.session ?? null}
+        initialChosenIndex={restored?.chosenIndex ?? null}
+        initialFeedback={initialFeedback}
+      />
     </AppShell>
   );
 }
