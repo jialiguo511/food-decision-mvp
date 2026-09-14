@@ -58,6 +58,11 @@ npm run dev
 
 Open <http://localhost:3000>. You'll be sent to `/login`.
 
+`npm run dev` clears stale `.next` development manifests before startup and
+uses Turbopack. This avoids the intermittent Webpack React Client Manifest
+desynchronization seen after long Fast Refresh sessions. The old Webpack
+server remains available as `npm run dev:webpack` only for troubleshooting.
+
 ### 5. Sign in
 
 Enter your email and click the button. Supabase emails you a one-time link.
