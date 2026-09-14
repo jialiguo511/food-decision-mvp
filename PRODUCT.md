@@ -76,15 +76,67 @@ Need food → open Food Decision → provide minimal current context
           → choose one → actually eat it
 ```
 
+The framing is **"tell me your situation right now → I help you decide what
+to eat,"** not "tell me your ingredients → I generate recipes." Cooking is
+one important mode of that decision. It is not the whole product — one of
+the highest-risk moments for this user is exactly when they *don't* want to
+cook: hungry, tired, craving something, about to order delivery or default
+to whatever's easiest. That moment is in scope too.
+
 ## Core product loop
 
 ```
-Context → 3 meal options → choose → actually eat → feedback
+Context → 3 options → choose → actually eat → feedback
         → better future recommendations
 ```
 
 The real success event is **recommendation → actual eating.**
 Generating recipes alone is not success.
+
+## Two decision modes
+
+The first thing the product asks is not "what's in your kitchen" — it's
+**what kind of decision is this**:
+
+- **I can cook** — the original flow. Ingredients, kitchen equipment, cook
+  time, a recipe with steps.
+- **I want to order food** — a lightweight decision-support flow for when
+  cooking isn't happening tonight: hungry, tired, or just craving something.
+  Recommendations are meal *categories* to search for in whatever delivery or
+  takeout app the user already has — not recipes, not restaurant names.
+
+Both modes share the same profile, the same "exactly 3 recommendations"
+principle, the same selection step, and the same actual-eating feedback.
+Only the dynamic context asked and the shape of what comes back differ. See
+"Order Food" below.
+
+### Order Food — coaching philosophy
+
+This mode is **harm reduction, not diet enforcement.** The job is to meet the
+user where they are and improve the decision, not to replace their craving
+with the theoretically healthiest option.
+
+- If the user wants fried chicken, the recommendation is built around fried
+  chicken — a reasonable portion, a lighter or vegetable side, fries as an
+  option rather than a forbidden one, no drink added just because a combo
+  includes it. Never "eat grilled chicken and vegetables instead."
+- No moralizing language: no "good food" / "bad food," "clean" / "cheat,"
+  "guilty," "you shouldn't eat this."
+- No reflexive calorie restriction. Someone who says they're starving is not
+  well served by a 300–400 kcal salad — that isn't a useful intervention.
+- A recommendation may include **one** simple, realistic modification (sauce
+  on the side, a lighter side instead of fries) — never a list of
+  prohibitions, and never mandatory if the order is already reasonable.
+
+### Order Food — what it is not
+
+Explicitly out of scope for this mode, same as the rest of the product:
+restaurant discovery, restaurant APIs (DoorDash, Uber Eats, Google Maps),
+live menus or prices, geolocation, and automatic ordering. The output is a
+category to search for — "search DoorDash or Uber Eats for 'chicken shawarma
+plate'" — never a specific restaurant or an order placed on the user's
+behalf. This is a text decision aid built on the existing recommendation
+infrastructure, not a new product surface.
 
 ---
 
@@ -147,22 +199,36 @@ Context → Recommendation → Selection → Actual eating → Feedback
 - kitchen equipment
 - fridge / storage constraints
 
-**2. Today context** — the dynamic half, re-entered each time:
+**2. Today context** — the dynamic half, re-entered each time. The user first
+picks a decision mode, then answers only what that mode needs:
 
-- available cooking time
-- hunger level
-- desired effort
-- craving
-- optional budget override
-- ingredients available right now
+- **I can cook**: available cooking time, hunger level, desired effort,
+  craving, optional budget override, ingredients available right now.
+- **I want to order food**: hunger level, a craving category (meaty / warm &
+  comforting / fresh & light / something sweet / no strong preference, plus
+  optional free text), and how they're getting the food (delivery / pickup /
+  eat nearby). Reuses the same profile fields as cooking — goal, protein
+  target, dislikes — rather than asking again.
 
-**3. Exactly 3 recommendations** — no more, no fewer:
+**3. Exactly 3 recommendations** — no more, no fewer, in both modes:
 
 1. best overall match
-2. lowest-effort option
+2. lowest-effort option — for ordering, the simplest thing to find and order
+   right now
 3. a meaningfully different option in cuisine, style, or protein source — it
    may be somewhat higher in protein when useful, but does not optimize for the
    maximum protein possible
+
+For "I want to order food," a recommendation is a **meal category**, not a
+recipe: what to search for in a delivery app, a suggested order
+configuration, and why it fits right now — no steps, no ingredient list, no
+cooking equipment. See "Order Food" above for the coaching philosophy and the
+explicit non-goals (no restaurant APIs, no restaurant discovery, no
+ordering).
+
+Regenerating ("Show me 3 more") must produce genuinely different categories,
+not cosmetic renamings of the same meal or the same three cuisines every
+time — the same rule the cook flow already follows.
 
 Each recommendation carries approximate time, calories, protein, and two
 costs: what the meal is worth (`~$9 meal`) and what the user would spend
@@ -358,8 +424,10 @@ the only thing that authorizes work.
 Do not build during the current MVP phase:
 
 native iOS app · native Android app · live grocery pricing · Instacart
-integration · grocery delivery · restaurant ordering · restaurant discovery ·
-receipt scanning · barcode scanning · exact pantry quantities ·
+integration · grocery delivery · restaurant ordering (DoorDash/Uber Eats/any
+ordering API — placing an order on the user's behalf) · restaurant discovery
+(finding specific nearby restaurants, live menus, geolocation) · receipt
+scanning · barcode scanning · exact pantry quantities ·
 expiration-date tracking · Apple Health integration · wearable integration ·
 automatic calorie logging · social or community features · family accounts ·
 weekly meal planning · recommendation ML models · vector databases ·

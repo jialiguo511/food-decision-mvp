@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { Effort, FridgeSize, Goal, Hunger } from "./types";
+import type { DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -109,6 +109,37 @@ export const COMMON_CRAVINGS = [
   "Carbs",
   "Soup",
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Decision mode — the first choice on Today. See PRODUCT.md → "Two decision
+// modes".
+// ---------------------------------------------------------------------------
+
+export const DECISION_MODES: { value: DecisionMode; label: string; hint: string }[] = [
+  { value: "cook", label: "I can cook", hint: "Get a recipe" },
+  { value: "order", label: "I want to order food", hint: "Get what to search for" },
+];
+
+// ---------------------------------------------------------------------------
+// Order Food — the lightweight alternative to cooking. Asks only what
+// materially changes the recommendation; everything else (goal, protein
+// target, dislikes) is reused from the profile. See PRODUCT.md → "Order
+// Food" for the coaching philosophy behind these categories.
+// ---------------------------------------------------------------------------
+
+export const ORDER_CRAVINGS: { value: OrderCravingCategory; label: string }[] = [
+  { value: "meaty", label: "Meaty / high protein" },
+  { value: "warm_comforting", label: "Warm & comforting" },
+  { value: "fresh_light", label: "Fresh / light" },
+  { value: "sweet", label: "Something sweet" },
+  { value: "no_preference", label: "No strong preference" },
+];
+
+export const ORDER_METHODS: { value: OrderMethod; label: string }[] = [
+  { value: "delivery", label: "Delivery" },
+  { value: "pickup", label: "Pickup / takeout" },
+  { value: "eat_nearby", label: "Eat nearby" },
+];
 
 /** The staples worth a one-tap chip. Anything else is typed. */
 export const QUICK_INGREDIENTS = [

@@ -5,7 +5,7 @@
 // parallel check, so a corrupted or hand-edited row is discarded, not
 // rendered.
 
-import { mealContextSchema } from "./input";
+import { contextSchema } from "./input";
 import { storedRecommendationsSchema } from "./output";
 import type { ActiveSession } from "../types";
 
@@ -17,8 +17,8 @@ export type RestoredSession = {
 export function parseStoredSession(row: unknown): RestoredSession | null {
   if (!isRecord(row) || typeof row.id !== "string") return null;
 
-  const context = mealContextSchema.safeParse(row.context);
-  const recommendations = storedRecommendationsSchema.safeParse(row.recommendations);
+  const context = contextSchema.safeParse(withDefaultMode(row.context));
+  const recommendations = storedRecommendationsSchema.safeParse(taggedRecommendations(row.recommendations));
   if (!context.success || !recommendations.success) return null;
 
   const chosenIndex =
@@ -36,6 +36,25 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
     },
     chosenIndex,
   };
+}
+
+/** Rows written before the "I want to order food" mode existed have no
+ *  `decision_mode` on their context — they all predate the field, and are
+ *  all cook sessions. Tag them so they still restore instead of being
+ *  silently dropped. New rows always write the field themselves, so this is
+ *  a no-op for anything written by the current code. */
+function withDefaultMode(context: unknown): unknown {
+  if (!isRecord(context) || "decision_mode" in context) return context;
+  return { ...context, decision_mode: "cook" };
+}
+
+/** Same backward-compat shim, applied per recommendation — old rows have
+ *  `steps`/`ingredients`/etc. but no `decision_mode` tag on each item. */
+function taggedRecommendations(recommendations: unknown): unknown {
+  if (!Array.isArray(recommendations)) return recommendations;
+  return recommendations.map((r) =>
+    isRecord(r) && !("decision_mode" in r) ? { ...r, decision_mode: "cook" } : r,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_PROFILE } from "@/lib/options";
 import { parseStoredSession } from "@/lib/recommend/session";
-import type { MealContext } from "@/lib/types";
+import type { DecisionContext } from "@/lib/types";
 import TodayForm from "./TodayForm";
 
 export default async function TodayPage() {
@@ -64,7 +64,10 @@ export default async function TodayPage() {
     }
   }
 
-  const initial: MealContext = restored?.session.context ?? {
+  // Defaults to the cook flow. If the most recent session was an order
+  // session, that's what's restored and shown instead — see TodayForm.
+  const initial: DecisionContext = restored?.session.context ?? {
+    decision_mode: "cook",
     cook_minutes: usualCookMinutes,
     hunger: "normal",
     effort: "some",
@@ -78,6 +81,7 @@ export default async function TodayPage() {
     <AppShell title="Today" subtitle="Tell me about tonight.">
       <TodayForm
         initial={initial}
+        usualCookMinutes={usualCookMinutes}
         usualBudget={usualBudget}
         initialSession={restored?.session ?? null}
         initialChosenIndex={restored?.chosenIndex ?? null}

@@ -31,8 +31,17 @@ export type ProfileInput = Omit<
   "id" | "created_at" | "updated_at" | "prefs"
 >;
 
-/** The dynamic context captured on Today. */
+/**
+ * The first-level choice on Today: cook something, or decide what to order.
+ * Both share the same profile, the "exactly 3 recommendations" principle,
+ * selection, and actual-eating feedback — only the dynamic context and the
+ * shape of what comes back differ. See PRODUCT.md → "Two decision modes".
+ */
+export type DecisionMode = "cook" | "order";
+
+/** The dynamic context captured on Today for the "I can cook" flow. */
 export type MealContext = {
+  decision_mode: "cook";
   cook_minutes: number;
   hunger: Hunger;
   effort: Effort;
@@ -43,12 +52,40 @@ export type MealContext = {
   budget_override_usd: number | null;
 };
 
+export type OrderMethod = "delivery" | "pickup" | "eat_nearby";
+/** A preset from ORDER_CRAVINGS. Coarser than the cook flow's free-text
+ *  craving — see options.ts for why: ordering asks for very little effort. */
+export type OrderCravingCategory =
+  | "meaty"
+  | "warm_comforting"
+  | "fresh_light"
+  | "sweet"
+  | "no_preference";
+
+/** The dynamic context captured on Today for the "I want to order food"
+ *  flow. Deliberately smaller than MealContext — only what materially
+ *  changes the recommendation. Goal, protein target, and dislikes come from
+ *  the profile, the same as cooking. */
+export type OrderContext = {
+  decision_mode: "order";
+  hunger: Hunger;
+  craving_category: OrderCravingCategory;
+  /** Optional elaboration beyond the category, e.g. "fried chicken". Craving
+   *  is one of the few fields free text is allowed for — see CLAUDE.md. */
+  craving_note: string | null;
+  method: OrderMethod;
+};
+
+/** Either half of Today's dynamic context, discriminated on decision_mode. */
+export type DecisionContext = MealContext | OrderContext;
+
 export type RecommendationRole = "best_match" | "lowest_effort" | "alternative";
 
-/** One of the exactly-three recommendations.
- *  Used by the recommendation and results flows. Every number is an estimate;
- *  costs in particular are model guesses with no grocery-price data behind them. */
-export type Recommendation = {
+/** One of the exactly-three recommendations for the "I can cook" flow.
+ *  Every number is an estimate; costs in particular are model guesses with
+ *  no grocery-price data behind them. */
+export type CookRecommendation = {
+  decision_mode: "cook";
   role: RecommendationRole;
   title: string;
   /** One or two user-facing sentences on why this fits tonight. */
@@ -68,9 +105,36 @@ export type Recommendation = {
   steps: string[];
 };
 
-/** The constraints a recommendation set was generated under, echoed back so
- *  the caller can see which budget and equipment were actually applied. */
-export type ActiveConstraints = {
+/** One of the exactly-three recommendations for the "I want to order food"
+ *  flow. A meal *category*, not a recipe: no steps, no ingredients, no
+ *  equipment. No cost fields either — there is no real menu-price data
+ *  behind them, unlike the cook flow's ingredient-cost estimates. */
+export type OrderRecommendation = {
+  decision_mode: "order";
+  role: RecommendationRole;
+  title: string;
+  /** One or two user-facing sentences on why this fits right now. */
+  reason: string;
+  /** What to type into whatever delivery/takeout app the user already has.
+   *  Plain food descriptions, never a restaurant name — no restaurant data
+   *  exists behind this product. */
+  search_terms: string[];
+  /** The suggested order in plain language: protein, sides, extras, sauce. */
+  order_notes: string;
+  /** Optional, and only when it genuinely helps — one realistic tweak, never
+   *  a list of prohibitions. See PRODUCT.md → "Order Food" coaching
+   *  philosophy: this is harm reduction, not diet enforcement. */
+  modification: string | null;
+  estimated_calories: number;
+  estimated_protein_g: number;
+};
+
+export type Recommendation = CookRecommendation | OrderRecommendation;
+
+/** The constraints a cook recommendation set was generated under, echoed back
+ *  so the caller can see which budget and equipment were actually applied. */
+export type CookConstraints = {
+  decision_mode: "cook";
   max_minutes: number;
   budget_usd: number;
   budget_source: "profile" | "override";
@@ -78,6 +142,16 @@ export type ActiveConstraints = {
   no_cooking: boolean;
   avoid: string[];
 };
+
+/** The constraints an order recommendation set was generated under. Ordering
+ *  has no real time/budget/equipment limits to enforce — the only hard
+ *  constraint is what the user won't eat. */
+export type OrderConstraints = {
+  decision_mode: "order";
+  avoid: string[];
+};
+
+export type ActiveConstraints = CookConstraints | OrderConstraints;
 
 /** Body of a successful POST /api/recommend. The tuple type is the "exactly
  *  three" rule expressed where TypeScript can enforce it. */
@@ -114,9 +188,10 @@ export type RecommendFailure = {
  *  chosen_index. Deliberately excludes chosen_index itself — that maps to UI
  *  selection state, not the identity of the recommendation set — and excludes
  *  model/constraints, which are not persisted on the row. Used both for a
- *  freshly generated set and for one restored from the database. */
+ *  freshly generated set and for one restored from the database. Works for
+ *  either decision mode; context and recommendations always agree on mode. */
 export type ActiveSession = {
   session_id: string;
-  context: MealContext;
+  context: DecisionContext;
   recommendations: [Recommendation, Recommendation, Recommendation];
 };

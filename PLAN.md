@@ -64,6 +64,21 @@ Context → Recommendation → Selection → Actual eating → Feedback
 - [ ] **Record whether it was actually eaten** — writes `meal_feedback`. This
       is the success event the whole product is measured by.
 - [ ] **Basic rejection / feedback reason** — why they did not eat it.
+- [ ] **Decision mode: "I can cook" / "I want to order food"** — added
+      2026-09-14. A first-level choice on Today, before the rest of the
+      context. "I can cook" is the existing flow above, unchanged. "I want to
+      order food" is a lightweight alternative for when cooking isn't
+      happening tonight: hunger, a craving category, and delivery / pickup /
+      eat nearby, reusing goal/protein/dislikes from the profile. Recommends
+      three meal *categories* — what to search for in a delivery app, a
+      suggested order, why it fits — not recipes. See `PRODUCT.md` → "Two
+      decision modes" for the coaching philosophy (harm reduction, no
+      moralizing language, no reflexive calorie restriction) and the explicit
+      boundary: no restaurant APIs, no restaurant discovery, no automatic
+      ordering, no menu or price data. This does not change the meaning of
+      `PRODUCT.md`'s existing "restaurant ordering / restaurant discovery"
+      non-goals — those mean an ordering integration or finding a specific
+      nearby restaurant, neither of which this does.
 - [ ] **Founder self-use for at least 7 days** — Stage 1 in `PRODUCT.md`. A
       real roadmap item, not an afterthought. Shipping the rest without it
       proves nothing.
@@ -104,7 +119,13 @@ Parked. These correspond to `PRODUCT.md` → Possible future directions.
   share extensions, automatic adaptation of imported recipes
 - Personal recipe capture — "I made something I liked", described by text or
   voice, converted into a reviewable structured recipe
-- Nearby restaurant alternatives
+- Nearby restaurant alternatives — actual restaurant discovery (specific
+  places, live menus, geolocation). Distinct from the "I want to order food"
+  mode in NOW, which only names a meal category to search for, never a
+  restaurant.
+- Restaurant/delivery ordering APIs (DoorDash, Uber Eats, etc.) and automatic
+  ordering — the "I want to order food" mode in NOW deliberately stops at
+  "search for X," never places an order.
 - Cook / assemble / buy comparison
 - Weekly meal planning
 - Native mobile app
@@ -162,12 +183,18 @@ Five tables, plus Supabase's built-in `auth.users`.
 | `profiles` | persistent preferences | scalars as columns, lists as JSONB |
 | `pantry_items` | what's in the kitchen | name + coarse category only, no quantities |
 | `recipes` | Recipe Inbox | raw text/URL + optional LLM-structured JSONB |
-| `decision_sessions` | one "Find my meal" event | context JSONB + the 3 recs JSONB |
+| `decision_sessions` | one "Find my meal" event | context JSONB + the 3 recs JSONB, either mode |
 | `meal_feedback` | did they actually eat it | links back to a session |
 
 Lists (cuisines, dislikes, equipment) are JSONB rather than join tables. They
 are read and written as a whole, never queried across users, so a normalized
 table would add migrations and joins and buy us nothing.
+
+`decision_sessions.context` and `.recommendations` carry a `decision_mode:
+"cook" | "order"` field inside the JSONB. Adding the order mode required no
+migration — the shape of "one context in, three recommendations out" already
+lived in flexible JSONB columns, only the TypeScript/Zod types on top of it
+became a discriminated union.
 
 Nutrition is **estimates stored alongside each recommendation**, not a
 nutrition database. We are not building a calorie tracker.

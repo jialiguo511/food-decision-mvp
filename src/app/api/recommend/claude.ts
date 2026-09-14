@@ -33,7 +33,7 @@ export async function generateRecommendations(
       output_config: {
         effort: "high",
         // Constrains decoding to the schema. Parsing stays ours, below.
-        format: zodOutputFormat(buildOutputSchema()),
+        format: zodOutputFormat(buildOutputSchema(input.decision_mode)),
       },
       system: buildSystemPrompt(input),
       messages: [{ role: "user", content: buildUserMessage(input) }],

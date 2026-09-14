@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ActiveSession, MealContext, RecommendFailure, RecommendSuccess } from "@/lib/types";
+import type { ActiveSession, DecisionContext, RecommendFailure, RecommendSuccess } from "@/lib/types";
 import { chooseRecommendation } from "./actions";
 
 export type Selection =
@@ -49,7 +49,7 @@ export function useRecommend(initial: { session: ActiveSession | null; chosenInd
   // specific attempt made, whether that was the first generate, a regenerate
   // with edited fields, or "Show me 3 more" with the prior context and
   // recommendations attached as exclusions.
-  const lastRequest = useRef<{ context: MealContext; previousRecommendations?: ActiveSession["recommendations"] } | null>(
+  const lastRequest = useRef<{ context: DecisionContext; previousRecommendations?: ActiveSession["recommendations"] } | null>(
     null,
   );
   // Lets `choose` notice its session changed (a regenerate landed) while its
@@ -65,7 +65,7 @@ export function useRecommend(initial: { session: ActiveSession | null; chosenInd
   /** `previousRecommendations` is only ever passed by "Show me 3 more" — see
    *  TodayForm. Anything else (first generate, "Regenerate recommendations")
    *  omits it, so the request and the resulting prompt are unchanged. */
-  async function run(context: MealContext, previousRecommendations?: ActiveSession["recommendations"]) {
+  async function run(context: DecisionContext, previousRecommendations?: ActiveSession["recommendations"]) {
     if (inFlight.current) return;
     inFlight.current = true;
     lastRequest.current = { context, previousRecommendations };

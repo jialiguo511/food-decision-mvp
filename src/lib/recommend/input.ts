@@ -3,16 +3,23 @@
 // purpose: the prompt treats the first as non-negotiable and the second as
 // ranking signals, and mixing them is how a craving ends up overriding a
 // dislike.
+//
+// Both decision modes (cook / order) go through this file, discriminated on
+// `decision_mode` throughout — see types.ts.
 
 import { z } from "zod";
-import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS } from "../options";
+import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, ORDER_CRAVINGS, ORDER_METHODS } from "../options";
 import type {
   ActiveConstraints,
+  DecisionContext,
   Effort,
   FridgeSize,
   Goal,
   Hunger,
   MealContext,
+  OrderContext,
+  OrderCravingCategory,
+  OrderMethod,
   ProfileInput,
   Recommendation,
   RecommendationRole,
@@ -21,9 +28,10 @@ import { storedRecommendationsSchema } from "./output";
 
 const NO_COOKING = "No cooking at all";
 
-/** The dynamic context, as sent from Today. It comes from the browser, so
- *  nothing in it is trusted until it passes this schema. */
-export const mealContextSchema = z.object({
+/** The dynamic context for "I can cook", as sent from Today. It comes from
+ *  the browser, so nothing in it is trusted until it passes this schema. */
+export const cookContextSchema = z.object({
+  decision_mode: z.literal("cook"),
   cook_minutes: z.number().int().min(5).max(180),
   hunger: z.enum(["light", "normal", "very_hungry"]),
   effort: z.enum(["minimal", "some", "happy_to_cook"]),
@@ -36,6 +44,26 @@ export const mealContextSchema = z.object({
   budget_override_usd: z.number().min(1).max(100).nullable(),
 }) satisfies z.ZodType<MealContext>;
 
+const orderCravingCategories = ORDER_CRAVINGS.map((c) => c.value) as [OrderCravingCategory, ...OrderCravingCategory[]];
+const orderMethods = ORDER_METHODS.map((m) => m.value) as [OrderMethod, ...OrderMethod[]];
+
+/** The dynamic context for "I want to order food". Deliberately smaller than
+ *  cookContextSchema — see OrderContext in types.ts. */
+export const orderContextSchema = z.object({
+  decision_mode: z.literal("order"),
+  hunger: z.enum(["light", "normal", "very_hungry"]),
+  craving_category: z.enum(orderCravingCategories),
+  craving_note: z
+    .string()
+    .max(200)
+    .nullable()
+    .transform((value) => value?.trim().replace(/\s+/g, " ") || null),
+  method: z.enum(orderMethods),
+}) satisfies z.ZodType<OrderContext>;
+
+/** Either half of Today's dynamic context. */
+export const contextSchema = z.discriminatedUnion("decision_mode", [cookContextSchema, orderContextSchema]);
+
 /** The full POST /api/recommend body. `previous_recommendations` is only ever
  *  sent by "Show me 3 more" — the exact set the user is asking to move away
  *  from, so the model can avoid near-duplicates instead of minor variations.
@@ -43,16 +71,20 @@ export const mealContextSchema = z.object({
  *  the same "three recommendations already in decision_sessions" data,
  *  round-tripped from the client instead of read back from the database. */
 export const recommendRequestSchema = z.object({
-  context: mealContextSchema,
+  context: contextSchema,
   previous_recommendations: storedRecommendationsSchema.optional(),
 });
 
-export type RecommendationInput = {
-  hard_constraints: ActiveConstraints;
-  soft_preferences: {
-    goal: Goal;
-    daily_protein_target_g: number;
-    daily_calorie_target_kcal: number | null;
+type SoftGoalPreferences = {
+  goal: Goal;
+  daily_protein_target_g: number;
+  daily_calorie_target_kcal: number | null;
+};
+
+export type CookRecommendationInput = {
+  decision_mode: "cook";
+  hard_constraints: Extract<ActiveConstraints, { decision_mode: "cook" }>;
+  soft_preferences: SoftGoalPreferences & {
     preferred_cuisines: string[];
     craving: string | null;
     ingredients_on_hand: string[];
@@ -67,11 +99,49 @@ export type RecommendationInput = {
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
 };
 
+export type OrderRecommendationInput = {
+  decision_mode: "order";
+  hard_constraints: Extract<ActiveConstraints, { decision_mode: "order" }>;
+  soft_preferences: SoftGoalPreferences & {
+    preferred_cuisines: string[];
+    hunger: Hunger;
+    craving_category: OrderCravingCategory;
+    craving_note: string | null;
+    method: OrderMethod;
+  };
+  previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+};
+
+export type RecommendationInput = CookRecommendationInput | OrderRecommendationInput;
+
 export function resolveRecommendationInput(
   profile: ProfileInput,
-  context: MealContext,
+  context: DecisionContext,
   previousRecommendations?: readonly Recommendation[],
 ): RecommendationInput {
+  const previous =
+    previousRecommendations && previousRecommendations.length > 0
+      ? previousRecommendations.map((r) => ({ role: r.role, title: r.title, reason: r.reason }))
+      : undefined;
+
+  if (context.decision_mode === "order") {
+    return {
+      decision_mode: "order",
+      hard_constraints: { decision_mode: "order", avoid: profile.dislikes },
+      soft_preferences: {
+        goal: profile.goal,
+        daily_protein_target_g: profile.protein_target_g,
+        daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
+        preferred_cuisines: profile.cuisines,
+        hunger: context.hunger,
+        craving_category: context.craving_category,
+        craving_note: context.craving_note,
+        method: context.method,
+      },
+      ...(previous ? { previous_recommendations: previous } : {}),
+    };
+  }
+
   // Only equipment from the controlled vocabulary counts. "No cooking at all"
   // wins over everything else, and owning nothing means the same thing.
   const owned = profile.equipment.filter((item) =>
@@ -83,7 +153,9 @@ export function resolveRecommendationInput(
   const overriding = context.budget_override_usd !== null;
 
   return {
+    decision_mode: "cook",
     hard_constraints: {
+      decision_mode: "cook",
       max_minutes: context.cook_minutes,
       budget_usd: context.budget_override_usd ?? profile.budget_per_meal_usd,
       budget_source: overriding ? "override" : "profile",
@@ -103,15 +175,7 @@ export function resolveRecommendationInput(
       fridge_size: profile.fridge_size,
       fridge_note: FRIDGE_SIZES.find((f) => f.value === profile.fridge_size)?.hint ?? "",
     },
-    ...(previousRecommendations && previousRecommendations.length > 0
-      ? {
-          previous_recommendations: previousRecommendations.map((r) => ({
-            role: r.role,
-            title: r.title,
-            reason: r.reason,
-          })),
-        }
-      : {}),
+    ...(previous ? { previous_recommendations: previous } : {}),
   };
 }
 

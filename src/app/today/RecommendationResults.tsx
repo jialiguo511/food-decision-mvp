@@ -94,33 +94,57 @@ export default function RecommendationResults({
             return (
               <Card key={r.role} title={ROLE_LABELS[r.role]} highlighted={isThisChosen}>
                 <h3 className="text-base font-semibold">{r.title}</h3>
-                <p className="mt-1 text-xs text-muted">
-                  ~{r.estimated_minutes} min · ~{r.estimated_calories} cal · ~
-                  {r.estimated_protein_g}g protein · ~${r.estimated_meal_cost_usd} meal
-                  · ~${r.estimated_extra_cost_usd} more to buy
-                </p>
-                <p className="mt-2 text-sm">{r.reason}</p>
 
-                <p className="mt-3 text-xs">
-                  <span className="text-muted">Have:</span>{" "}
-                  {r.ingredients_on_hand.join(", ") || "—"}
-                </p>
-                <p className="text-xs">
-                  <span className="text-muted">Need:</span>{" "}
-                  {r.ingredients_needed.join(", ") || "—"}
-                </p>
-                {r.equipment.length > 0 && (
-                  <p className="text-xs">
-                    <span className="text-muted">Equipment:</span>{" "}
-                    {r.equipment.join(", ")}
-                  </p>
+                {r.decision_mode === "cook" ? (
+                  <>
+                    <p className="mt-1 text-xs text-muted">
+                      ~{r.estimated_minutes} min · ~{r.estimated_calories} cal · ~
+                      {r.estimated_protein_g}g protein · ~${r.estimated_meal_cost_usd} meal
+                      · ~${r.estimated_extra_cost_usd} more to buy
+                    </p>
+                    <p className="mt-2 text-sm">{r.reason}</p>
+
+                    <p className="mt-3 text-xs">
+                      <span className="text-muted">Have:</span>{" "}
+                      {r.ingredients_on_hand.join(", ") || "—"}
+                    </p>
+                    <p className="text-xs">
+                      <span className="text-muted">Need:</span>{" "}
+                      {r.ingredients_needed.join(", ") || "—"}
+                    </p>
+                    {r.equipment.length > 0 && (
+                      <p className="text-xs">
+                        <span className="text-muted">Equipment:</span> {r.equipment.join(", ")}
+                      </p>
+                    )}
+
+                    <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
+                      {r.steps.map((step, stepIndex) => (
+                        <li key={stepIndex}>{step}</li>
+                      ))}
+                    </ol>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-muted">
+                      ~{r.estimated_calories} cal · ~{r.estimated_protein_g}g protein
+                    </p>
+                    <p className="mt-2 text-sm">{r.reason}</p>
+
+                    <p className="mt-3 text-xs">
+                      <span className="text-muted">Search for:</span>{" "}
+                      {r.search_terms.map((term) => `"${term}"`).join(" or ")}
+                    </p>
+                    <p className="text-xs">
+                      <span className="text-muted">Order:</span> {r.order_notes}
+                    </p>
+                    {r.modification && (
+                      <p className="mt-2 text-xs">
+                        <span className="text-muted">Tip:</span> {r.modification}
+                      </p>
+                    )}
+                  </>
                 )}
-
-                <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
-                  {r.steps.map((step, stepIndex) => (
-                    <li key={stepIndex}>{step}</li>
-                  ))}
-                </ol>
 
                 {isThisFailed && (
                   <p className="mt-3 text-xs text-red-600">
