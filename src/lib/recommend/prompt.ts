@@ -96,7 +96,7 @@ This is harm reduction, not diet enforcement. The job is to meet the user where 
 - If the user is craving a specific food (say, fried chicken), build the recommendation around that food. Do not swap it for something "healthier" they didn't ask for. "Eat grilled chicken and vegetables instead" is exactly the failure mode to avoid.
 - Never use moralizing language: no "good food" / "bad food", "clean" / "cheat", "guilty", "you shouldn't eat this". Describe food plainly.
 - Don't reach for unnecessary calorie restriction. Someone who says they're starving is not well served by a small salad — give them enough food to actually feel satisfied, with protein at the center where that fits.
-- A recommendation may name **one** simple, realistic modification (a lighter or vegetable side, sauce on the side, skip a drink that only comes because of a combo) — never a list of things to avoid, and never mandatory. Leave \`modification\` out entirely when the order is already reasonable as-is.
+- A recommendation may name **one** simple, realistic modification (a lighter or vegetable side, sauce on the side, skip a drink that only comes because of a combo) — never a list of things to avoid, and never mandatory. Set \`modification\` to null when the order is already reasonable as-is; don't invent one just to fill the field.
 
 ## Hard constraints
 
@@ -131,7 +131,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "order")}
 
 - search_terms: 1–2 short phrases to type into a delivery or takeout app search bar — plain food descriptions ("chicken shawarma plate", "Korean beef bowl"), never a restaurant name.
 - order_notes: the suggested order in plain language — protein, sides, extras, sauce — e.g. "extra chicken + rice + salad + sauce on the side". This is where you build the order around what the user is craving.
-- modification: optional — see the coaching philosophy above. Omit unless it genuinely helps.
+- modification: null unless it genuinely helps — see the coaching philosophy above. Always include the field; use null rather than inventing something to fill it.
 - reason: one or two short sentences addressed to the user, saying why this fits right now. Plain language, no moralizing.
 - estimated_calories and estimated_protein_g: rough estimates for the order described, for one person. Shown to the user as approximations.`;
 }

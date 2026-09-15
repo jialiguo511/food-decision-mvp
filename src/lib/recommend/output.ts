@@ -47,12 +47,14 @@ const orderRecommendationFields = z.object({
   reason: z.string().min(1),
   search_terms: z.array(z.string().min(1)).min(1).max(4),
   order_notes: z.string().min(1),
-  modification: z
-    .string()
-    .min(1)
-    .nullable()
-    .optional()
-    .transform((value) => value ?? null),
+  // `.default(null)` rather than `.optional()`: this schema is also handed
+  // to zodOutputFormat to constrain the model's decoding, and a `.transform()`
+  // there throws ("Transforms cannot be represented in JSON Schema") — a
+  // `.default()` doesn't, and it keeps the field required in the JSON
+  // schema (the model always returns it, null when there's no modification)
+  // while still giving `modification: string | null` here, matching
+  // OrderRecommendation, with no undefined to normalize afterward.
+  modification: z.string().min(1).nullable().default(null),
   estimated_calories: z.number().int().nonnegative(),
   estimated_protein_g: z.number().int().nonnegative(),
 });
