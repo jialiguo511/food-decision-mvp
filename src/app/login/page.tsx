@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured, siteUrl } from "@/lib/env";
+import { isSupabaseConfigured } from "@/lib/env";
 import SetupNotice from "@/components/SetupNotice";
 
 /**
@@ -19,9 +19,16 @@ export default function LoginPage() {
   async function send(event: React.FormEvent) {
     event.preventDefault();
     setState("sending");
+    // window.location.origin is always the domain the user is actually on —
+    // localhost in dev, the real Vercel origin in production or a preview
+    // deploy — so the redirect never depends on an env var being set at
+    // deploy time. NEXT_PUBLIC_SITE_URL remains available as an explicit
+    // override, e.g. once a canonical custom domain exists.
     const { error } = await createClient().auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: `${siteUrl()}/auth/callback` },
+      options: {
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/callback`,
+      },
     });
     if (error) {
       setError(error.message);
