@@ -14,17 +14,46 @@ import type { Selection } from "./useRecommend";
  * in place, so this keeps showing those three cards under the error banner
  * instead of wiping them out.
  *
- * Once a card is chosen, MealFeedback renders below the cards asking "Did
- * you eat this?" — keyed by session_id so it starts fresh for a new session
+ * Once a card is chosen, MealFeedback renders below the cards asking what
+ * happened next — the exact question depends on decision_mode, see
+ * MealFeedback.tsx — keyed by session_id so it starts fresh for a new session
  * (selection always resets to "none" the moment a new session replaces this
  * one, so the two never show at the same time for the same render anyway).
  */
 
-const ROLE_LABELS: Record<Recommendation["role"], string> = {
+// Role labels are mode-specific: "best_match" / "lowest_effort" /
+// "alternative" are the recommender's internal categories (see CLAUDE.md and
+// prompt.ts), but the words that fit a recipe don't fit a food-ordering
+// decision. "Lowest effort" reads as "cook the laziest thing"; for ordering
+// the same role actually means "the easiest thing to find and order right
+// now" — a different idea, so it gets a different label.
+const COOK_ROLE_LABELS: Record<Recommendation["role"], string> = {
   best_match: "Best match",
   lowest_effort: "Lowest effort",
   alternative: "Alternative",
 };
+
+const ORDER_ROLE_LABELS: Record<Recommendation["role"], string> = {
+  best_match: "Top pick",
+  lowest_effort: "Easy to order",
+  alternative: "Something different",
+};
+
+// Same reasoning as the other two label sets: "lowest effort" doesn't mean
+// anything for a store snack (everything here is a quick grab), so that role
+// is relabeled around how much it leans into the craving instead. Never
+// "healthiest" / "cleanest" / "guilt-free" — see CLAUDE.md and prompt.ts.
+const STORE_SNACK_ROLE_LABELS: Record<Recommendation["role"], string> = {
+  best_match: "Best fit",
+  lowest_effort: "Most satisfying",
+  alternative: "Lighter option",
+};
+
+function roleLabel(recommendation: Recommendation): string {
+  if (recommendation.decision_mode === "order") return ORDER_ROLE_LABELS[recommendation.role];
+  if (recommendation.decision_mode === "store_snack") return STORE_SNACK_ROLE_LABELS[recommendation.role];
+  return COOK_ROLE_LABELS[recommendation.role];
+}
 
 export default function RecommendationResults({
   session,
@@ -84,7 +113,13 @@ export default function RecommendationResults({
 
       {session && (
         <>
-          <p className="text-xs text-muted">All numbers below are estimates.</p>
+          <p className="text-xs text-muted">
+            {session.context.decision_mode === "order"
+              ? "All numbers are estimates — exact dishes aren't guaranteed to be available nearby."
+              : session.context.decision_mode === "store_snack"
+                ? "All numbers are estimates — exact products aren't guaranteed to be in stock nearby."
+                : "All numbers below are estimates."}
+          </p>
           {session.recommendations.map((r, i) => {
             const index = i as 0 | 1 | 2;
             const isThisChosen = somethingChosen && selection.index === index;
@@ -92,7 +127,7 @@ export default function RecommendationResults({
             const isThisFailed = selection.status === "failed" && selection.index === index;
 
             return (
-              <Card key={r.role} title={ROLE_LABELS[r.role]} highlighted={isThisChosen}>
+              <Card key={r.role} title={roleLabel(r)} highlighted={isThisChosen}>
                 <h3 className="text-base font-semibold">{r.title}</h3>
 
                 {r.decision_mode === "cook" ? (
@@ -124,6 +159,32 @@ export default function RecommendationResults({
                       ))}
                     </ol>
                   </>
+                ) : r.decision_mode === "order" ? (
+                  <>
+                    <p className="mt-1 text-xs text-muted">
+                      ~{r.estimated_calories} cal · ~{r.estimated_protein_g}g protein
+                    </p>
+                    <p className="mt-2 text-sm">{r.reason}</p>
+
+                    {/* Three distinct things, deliberately not merged into one
+                        line: broad terms to type into a search bar (not a
+                        guarantee any of them return a result — there's no
+                        menu data behind this app), what to look for once
+                        results come up, and an optional tweak to the order
+                        itself. */}
+                    <p className="mt-3 text-xs">
+                      <span className="text-muted">Try searching:</span>{" "}
+                      {r.search_terms.join(" · ")}
+                    </p>
+                    <p className="text-xs">
+                      <span className="text-muted">Look for:</span> {r.order_notes}
+                    </p>
+                    {r.modification && (
+                      <p className="mt-2 text-xs">
+                        <span className="text-muted">Customize:</span> {r.modification}
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <>
                     <p className="mt-1 text-xs text-muted">
@@ -132,15 +193,11 @@ export default function RecommendationResults({
                     <p className="mt-2 text-sm">{r.reason}</p>
 
                     <p className="mt-3 text-xs">
-                      <span className="text-muted">Search for:</span>{" "}
-                      {r.search_terms.map((term) => `"${term}"`).join(" or ")}
+                      <span className="text-muted">Look for:</span> {r.what_to_look_for}
                     </p>
-                    <p className="text-xs">
-                      <span className="text-muted">Order:</span> {r.order_notes}
-                    </p>
-                    {r.modification && (
-                      <p className="mt-2 text-xs">
-                        <span className="text-muted">Tip:</span> {r.modification}
+                    {r.backup && (
+                      <p className="text-xs">
+                        <span className="text-muted">If you can&apos;t find that:</span> {r.backup}
                       </p>
                     )}
                   </>
@@ -179,6 +236,7 @@ export default function RecommendationResults({
               key={session.session_id}
               sessionId={session.session_id}
               mealTitle={session.recommendations[selection.index].title}
+              decisionMode={session.context.decision_mode}
               initial={initialFeedback ?? { id: null, didEat: null, note: null }}
             />
           )}

@@ -3,7 +3,7 @@
 // on decision_mode — cook and order need different instructions but share
 // the protein/energy guidance, since both are still "how much food, roughly".
 
-import type { CookRecommendationInput, OrderRecommendationInput, RecommendationInput } from "./input";
+import type { CookRecommendationInput, OrderRecommendationInput, RecommendationInput, StoreSnackRecommendationInput } from "./input";
 
 /** Stated verbatim to the model — see CLAUDE.md, "LLM rules". */
 export const OPTIMIZATION_TARGET =
@@ -18,8 +18,20 @@ export const MEAL_ENERGY_SHARE = {
   substantial: [0.3, 0.39],
 } as const;
 
+/** Same idea as MEAL_ENERGY_SHARE, scaled down for a snack rather than a
+ *  meal — a snack sized like a "light meal" share would be a plate of food,
+ *  not a grab-from-the-store treat. At 1,800 kcal/day these give roughly
+ *  110–160, 160–250, and 250–360 kcal. */
+export const SNACK_ENERGY_SHARE = {
+  light: [0.06, 0.09],
+  normal: [0.09, 0.14],
+  substantial: [0.14, 0.2],
+} as const;
+
 export function buildSystemPrompt(input: RecommendationInput): string {
-  return input.decision_mode === "order" ? buildOrderSystemPrompt(input) : buildCookSystemPrompt(input);
+  if (input.decision_mode === "order") return buildOrderSystemPrompt(input);
+  if (input.decision_mode === "store_snack") return buildStoreSnackSystemPrompt(input);
+  return buildCookSystemPrompt(input);
 }
 
 function buildCookSystemPrompt(input: CookRecommendationInput): string {
@@ -129,11 +141,99 @@ ${previousRecommendationsSection(input.previous_recommendations, "order")}
 
 ## Fields
 
-- search_terms: 1–2 short phrases to type into a delivery or takeout app search bar — plain food descriptions ("chicken shawarma plate", "Korean beef bowl"), never a restaurant name.
-- order_notes: the suggested order in plain language — protein, sides, extras, sauce — e.g. "extra chicken + rice + salad + sauce on the side". This is where you build the order around what the user is craving.
+- search_terms: 2–3 short, broad search phrases to type into a delivery or takeout app search bar — common menu/category words likely to turn up results across many restaurants ("chicken curry", "curry bowl"), not one hyper-specific dish name. There is no menu data behind this app, so these are starting points for a search, not a guaranteed match — favor breadth over precision. Plain food descriptions, never a restaurant name.
+- order_notes: what to look for once search results come up, and how to build the order — protein, sides, extras, sauce — e.g. "a chicken curry with rice; ask for extra protein or vegetables if available". This is where you translate the craving into an actual order.
 - modification: null unless it genuinely helps — see the coaching philosophy above. Always include the field; use null rather than inventing something to fill it.
 - reason: one or two short sentences addressed to the user, saying why this fits right now. Plain language, no moralizing.
 - estimated_calories and estimated_protein_g: rough estimates for the order described, for one person. Shown to the user as approximations.`;
+}
+
+function buildStoreSnackSystemPrompt(input: StoreSnackRecommendationInput): string {
+  return `You recommend snacks for Food Decision, an app that helps one person decide what to eat right now. This is the "grab a snack" mode: the user is willing to make a quick trip into a nearby grocery, convenience, or drug store, but does not want to cook or order a restaurant meal. You are not a chat assistant: the app sends you a structured context and renders your structured output directly as three cards.
+
+Optimize for: "${OPTIMIZATION_TARGET}"
+
+Recommend specific, ready-to-buy snack or dessert items — things a person can realistically find in a typical U.S. grocery store, pharmacy, or convenience store. This product has no store inventory, location, or pricing data: never claim a specific product is in stock anywhere, and never assume one particular store or chain.
+
+## Coaching philosophy — read this before anything else
+
+This is craving satisfaction with reasonable portioning, not diet enforcement. If the user wants something sweet, the job is to help them get a genuinely satisfying sweet thing in a sensible portion — not to talk them out of dessert.
+
+- Never substitute a craving for something unrelated. If the user wants something sweet, every recommendation should actually be sweet. "Have a cucumber instead" or plain chicken breast is exactly the failure mode to avoid.
+- Never use moralizing language: no "good food" / "bad food", "clean" / "guilt-free" / "cheat", "you shouldn't eat this". Describe food plainly.
+- The goal is a well-portioned version of what satisfies the craving — a single-serve ice cream bar rather than talking someone out of ice cream, a small frozen yogurt rather than a pint. Avoid recommending large-format or share-size packaging.
+- A genuinely satisfying smaller treat is a better recommendation than a bigger "healthier" one that satisfies the craving less. Do not force protein or low-calorie framing onto every option — see the protein and energy notes below.
+
+## Hard constraints
+
+Everything in \`hard_constraints.avoid\` is non-negotiable — never suggest anything containing it. Read each entry for what the user means: "Very spicy" rules out foods that are spicy by nature.
+
+## Soft preferences
+
+\`soft_preferences\` decide which items you choose and how you rank them. When they pull in different directions, weigh them in this order:
+
+1. How likely the user is to actually go get and enjoy this right now — the craving is the strongest signal.
+2. Tonight's context — \`hunger\` should shape how substantial the pick is; someone who is very hungry is not well served by a tiny bite-sized snack.
+3. Feasibility — items realistically available across ordinary U.S. grocery/convenience/drug stores, not a specialty item.
+4. The health goal, applied gently (see the philosophy above — never at the expense of the craving).
+5. Protein, as a bonus when it fits naturally, never as a requirement.
+
+- \`craving_type\` is the strongest signal in this whole context: sweet, salty, crunchy, creamy, or anything. Take it literally — every recommendation should fit it (unless it's "anything").
+- Feasibility here is about realism of the category, not availability at one specific store: assume common grocery/drugstore snack and dessert aisles, refrigerated and frozen sections exist, but don't name a specific chain or brand as if you know their current stock.
+
+${storeSnackProteinSection()}
+
+${storeSnackEnergySection(input.soft_preferences.daily_calorie_target_kcal)}
+
+## The three roles
+
+- best_match: the single best overall fit for the craving and context right now — a natural balance of satisfying and sensible.
+- lowest_effort: leans further into the craving than best_match — a more indulgent, straightforwardly satisfying pick, still one realistic portion (not a share-size package).
+- alternative: a lighter or smaller option that still genuinely fits the craving, in a meaningfully different format from the other two.
+
+Across all three, vary the format — for example a frozen item, a shelf-stable packaged snack, and a refrigerated creamy/dairy item — rather than three variations of the same base food (three kinds of yogurt, three chocolate items). The three must be different items.
+${previousRecommendationsSection(input.previous_recommendations, "store_snack")}
+
+## Fields
+
+- reason: one or two short sentences addressed to the user, saying why this fits the craving right now. Plain language, no moralizing.
+- what_to_look_for: the single most important field. Guidance for walking around the store — a category plus a rough, useful spec, specific enough to act on but not tied to one product. Good: "Single-serve Greek yogurt with 12–20g protein", "Mini or single-serve ice cream bar, around 150–250 kcal", "Individual bag of popcorn plus a small pack of jerky". Too vague: "a healthy snack", "some fruit". Too specific: naming an exact SKU, aisle number, or claiming a specific store has it. A common brand name may be mentioned as a familiar example, but the recommendation must stay useful even if that exact brand isn't available.
+- backup: optional — a realistic substitute if the first isn't found (e.g. "If you can't find that, a protein yogurt drink works too"). Set to null when there's no natural substitute worth naming; never invent one just to fill the field.
+- estimated_calories and estimated_protein_g: rough estimates for the portion described. Shown to the user as approximations.`;
+}
+
+function storeSnackProteinSection(): string {
+  return `## Protein
+
+Protein is a bonus here, not a requirement — this is a snack, not a meal, and the daily protein target is for the whole day. Lean toward it when it fits naturally (a yogurt, a protein bar, a glass of milk alongside something) or when \`craving_type\` is "anything" and hunger is high, but never let a protein target push out a more satisfying option. A genuinely satisfying 150–250 kcal dessert with little protein can be the better recommendation than a maximum-protein version that satisfies the craving less.`;
+}
+
+function storeSnackEnergySection(dailyTarget: number | null): string {
+  const intro = `## Energy
+
+Calories are a soft, practical guide, not something to minimize. This is a snack-sized portion, meaningfully smaller than a meal. The app does not know what the user has eaten today, so never act as if you know how many calories they have left. \`hunger\` adjusts portion size within the guidance below.`;
+
+  if (dailyTarget === null) {
+    return `${intro}
+
+The user has not set a daily calorie target, so their energy needs are unknown. Don't assume a number. Use the goal as direction only:
+
+- fat_loss: favor single-serve or smaller portions — a controlled, satisfying treat rather than a large one. Don't be so restrictive that it fails to satisfy the craving.
+- maintain or general_health: an ordinary snack-sized portion is fine.
+- muscle_gain: a slightly more substantial snack is fine, especially when \`hunger\` is high. Don't restrict unnecessarily.`;
+  }
+
+  const range = ([low, high]: readonly [number, number]) =>
+    `${kcal(dailyTarget * low)}–${kcal(dailyTarget * high)} kcal`;
+  return `${intro}
+
+The user's daily calorie target is ${dailyTarget.toLocaleString("en-US")} kcal. Use it as soft context for this snack, scaled well below meal size:
+
+- Light hunger: roughly ${range(SNACK_ENERGY_SHARE.light)}.
+- Normal hunger: roughly ${range(SNACK_ENERGY_SHARE.normal)}.
+- Very hungry, or a more substantial pick: roughly ${range(SNACK_ENERGY_SHARE.substantial)}.
+
+These are rough guides, not limits — a craving that calls for a bit more is still a better recommendation than an undersized one that won't satisfy. For fat_loss, favor the lower end of the relevant range without abandoning the craving.`;
 }
 
 function proteinSection(): string {
@@ -186,13 +286,15 @@ function kcal(value: number): string {
  *  edited-context prompt is unchanged. */
 function previousRecommendationsSection(
   previous: RecommendationInput["previous_recommendations"],
-  mode: "cook" | "order",
+  mode: "cook" | "order" | "store_snack",
 ): string {
   if (!previous || previous.length === 0) return "";
   const modeSpecific =
     mode === "order"
       ? " For ordering specifically: vary the cuisine and protein source across this new set, and don't return the same three categories in the same order every time — a genuinely different set of three, not a shuffle."
-      : "";
+      : mode === "store_snack"
+        ? " For snacks specifically: vary the format across this new set (for example frozen, packaged/shelf-stable, and refrigerated/creamy), and don't just re-flavor the same base food from the previous set (three kinds of yogurt, three kinds of chocolate) — a genuinely different set of three, not a shuffle."
+        : "";
   return `
 
 ## Avoiding repeats

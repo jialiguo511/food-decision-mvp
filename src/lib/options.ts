@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
+import type { CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -118,6 +118,7 @@ export const COMMON_CRAVINGS = [
 export const DECISION_MODES: { value: DecisionMode; label: string; hint: string }[] = [
   { value: "cook", label: "I can cook", hint: "Get a recipe" },
   { value: "order", label: "I want to order food", hint: "Get what to search for" },
+  { value: "store_snack", label: "I want a snack", hint: "Get something to grab nearby" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -164,10 +165,13 @@ export const QUICK_INGREDIENTS = [
 // ---------------------------------------------------------------------------
 // Meal feedback — the core loop's final step. Stored in meal_feedback.note,
 // so these values are also what's written to the database, not just labels.
+// Cook and order modes use different vocabularies here — see MealFeedback.tsx
+// — because "ingredients unavailable" or "too much effort" don't describe why
+// an order didn't happen, and vice versa.
 // ---------------------------------------------------------------------------
 
-/** Optional reason when the user didn't eat the meal they chose. */
-export const REJECTION_REASONS: { value: string; label: string }[] = [
+/** Optional reason when the user didn't cook/eat the meal they chose. */
+export const COOK_REJECTION_REASONS: { value: string; label: string }[] = [
   { value: "changed_my_mind", label: "Changed my mind" },
   { value: "too_much_effort", label: "Too much effort" },
   { value: "ingredients_unavailable", label: "Ingredients unavailable" },
@@ -176,9 +180,59 @@ export const REJECTION_REASONS: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
-/** Optional follow-up when the user did eat the meal they chose. */
+/** Optional follow-up when the user did cook/eat the meal they chose. */
 export const WOULD_EAT_AGAIN: { value: string; label: string }[] = [
   { value: "yes", label: "Yes" },
   { value: "maybe", label: "Maybe" },
   { value: "no", label: "No" },
+];
+
+/** Order mode's first post-selection question. Choosing a card only means
+ *  "planning to order this" — not that the user has eaten, or even ordered,
+ *  anything yet. This is where that gets resolved. */
+export const ORDER_OUTCOMES: { value: string; label: string }[] = [
+  { value: "ordered_it", label: "I ordered it" },
+  { value: "ordered_similar", label: "I ordered something similar" },
+  { value: "didnt_order", label: "Didn't end up ordering it" },
+];
+
+/** Optional follow-up reason when the order didn't happen. */
+export const ORDER_REJECTION_REASONS: { value: string; label: string }[] = [
+  { value: "couldnt_find_it", label: "Couldn't find it" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "delivery_too_slow", label: "Delivery too slow" },
+  { value: "didnt_sound_good", label: "Didn't sound good anymore" },
+  { value: "changed_my_mind", label: "Changed my mind" },
+  { value: "ordered_something_else", label: "Ordered something else" },
+  { value: "too_much_food", label: "Too heavy / too much food" },
+  { value: "other", label: "Other" },
+];
+
+// ---------------------------------------------------------------------------
+// Grab a snack — the third decision mode. Deliberately the lightest of the
+// three: a single craving chip, no store/location/inventory data. See
+// PRODUCT.md → "Two decision modes" (this is the third) and prompt.ts for the
+// craving-satisfaction philosophy behind it.
+// ---------------------------------------------------------------------------
+
+export const STORE_SNACK_CRAVINGS: { value: CravingType; label: string }[] = [
+  { value: "sweet", label: "Sweet" },
+  { value: "salty", label: "Salty" },
+  { value: "crunchy", label: "Crunchy" },
+  { value: "creamy", label: "Creamy" },
+  { value: "anything", label: "Anything" },
+];
+
+/** Optional reason when the user didn't end up eating the snack they chose.
+ *  Reuses ORDER_REJECTION_REASONS' value strings where the meaning is
+ *  identical ("couldnt_find_it", "too_expensive", "changed_my_mind",
+ *  "too_much_food") rather than inventing parallel vocabulary for the same
+ *  outcomes. */
+export const STORE_SNACK_REJECTION_REASONS: { value: string; label: string }[] = [
+  { value: "not_what_i_wanted", label: "Not what I wanted" },
+  { value: "couldnt_find_it", label: "Couldn't find it" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "not_filling_enough", label: "Not filling enough" },
+  { value: "too_much_food", label: "Too much food" },
+  { value: "changed_my_mind", label: "Changed my mind" },
 ];

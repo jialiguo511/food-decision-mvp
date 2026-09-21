@@ -8,9 +8,10 @@
 // `decision_mode` throughout — see types.ts.
 
 import { z } from "zod";
-import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, ORDER_CRAVINGS, ORDER_METHODS } from "../options";
+import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS } from "../options";
 import type {
   ActiveConstraints,
+  CravingType,
   DecisionContext,
   Effort,
   FridgeSize,
@@ -23,6 +24,7 @@ import type {
   ProfileInput,
   Recommendation,
   RecommendationRole,
+  StoreSnackContext,
 } from "../types";
 import { storedRecommendationsSchema } from "./output";
 
@@ -61,8 +63,22 @@ export const orderContextSchema = z.object({
   method: z.enum(orderMethods),
 }) satisfies z.ZodType<OrderContext>;
 
-/** Either half of Today's dynamic context. */
-export const contextSchema = z.discriminatedUnion("decision_mode", [cookContextSchema, orderContextSchema]);
+const cravingTypes = STORE_SNACK_CRAVINGS.map((c) => c.value) as [CravingType, ...CravingType[]];
+
+/** The dynamic context for "grab a snack". Deliberately the smallest of the
+ *  three — see StoreSnackContext in types.ts. */
+export const storeSnackContextSchema = z.object({
+  decision_mode: z.literal("store_snack"),
+  hunger: z.enum(["light", "normal", "very_hungry"]),
+  craving_type: z.enum(cravingTypes),
+}) satisfies z.ZodType<StoreSnackContext>;
+
+/** Any of Today's three dynamic contexts. */
+export const contextSchema = z.discriminatedUnion("decision_mode", [
+  cookContextSchema,
+  orderContextSchema,
+  storeSnackContextSchema,
+]);
 
 /** The full POST /api/recommend body. `previous_recommendations` is only ever
  *  sent by "Show me 3 more" — the exact set the user is asking to move away
@@ -112,7 +128,17 @@ export type OrderRecommendationInput = {
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
 };
 
-export type RecommendationInput = CookRecommendationInput | OrderRecommendationInput;
+export type StoreSnackRecommendationInput = {
+  decision_mode: "store_snack";
+  hard_constraints: Extract<ActiveConstraints, { decision_mode: "store_snack" }>;
+  soft_preferences: SoftGoalPreferences & {
+    hunger: Hunger;
+    craving_type: CravingType;
+  };
+  previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+};
+
+export type RecommendationInput = CookRecommendationInput | OrderRecommendationInput | StoreSnackRecommendationInput;
 
 export function resolveRecommendationInput(
   profile: ProfileInput,
@@ -137,6 +163,21 @@ export function resolveRecommendationInput(
         craving_category: context.craving_category,
         craving_note: context.craving_note,
         method: context.method,
+      },
+      ...(previous ? { previous_recommendations: previous } : {}),
+    };
+  }
+
+  if (context.decision_mode === "store_snack") {
+    return {
+      decision_mode: "store_snack",
+      hard_constraints: { decision_mode: "store_snack", avoid: profile.dislikes },
+      soft_preferences: {
+        goal: profile.goal,
+        daily_protein_target_g: profile.protein_target_g,
+        daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
+        hunger: context.hunger,
+        craving_type: context.craving_type,
       },
       ...(previous ? { previous_recommendations: previous } : {}),
     };

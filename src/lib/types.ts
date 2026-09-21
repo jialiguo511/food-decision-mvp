@@ -32,12 +32,13 @@ export type ProfileInput = Omit<
 >;
 
 /**
- * The first-level choice on Today: cook something, or decide what to order.
- * Both share the same profile, the "exactly 3 recommendations" principle,
- * selection, and actual-eating feedback — only the dynamic context and the
- * shape of what comes back differ. See PRODUCT.md → "Two decision modes".
+ * The first-level choice on Today: cook something, decide what to order, or
+ * grab a snack/dessert from a nearby store. All three share the same profile,
+ * the "exactly 3 recommendations" principle, selection, and actual-eating
+ * feedback — only the dynamic context and the shape of what comes back
+ * differ. See PRODUCT.md → "Two decision modes" (store_snack is the third).
  */
-export type DecisionMode = "cook" | "order";
+export type DecisionMode = "cook" | "order" | "store_snack";
 
 /** The dynamic context captured on Today for the "I can cook" flow. */
 export type MealContext = {
@@ -76,8 +77,23 @@ export type OrderContext = {
   method: OrderMethod;
 };
 
-/** Either half of Today's dynamic context, discriminated on decision_mode. */
-export type DecisionContext = MealContext | OrderContext;
+/** A preset from STORE_SNACK_CRAVINGS — see options.ts. Coarser than the cook
+ *  flow's free-text craving: this mode is deliberately a single tap. */
+export type CravingType = "sweet" | "salty" | "crunchy" | "creamy" | "anything";
+
+/** The dynamic context captured on Today for the "grab a snack" flow —
+ *  deliberately the smallest of the three: no store, location, or inventory
+ *  data exists behind this product, so there is nothing else to ask. Goal,
+ *  protein target, and dislikes come from the profile, same as the other
+ *  modes. */
+export type StoreSnackContext = {
+  decision_mode: "store_snack";
+  hunger: Hunger;
+  craving_type: CravingType;
+};
+
+/** Any of Today's three dynamic contexts, discriminated on decision_mode. */
+export type DecisionContext = MealContext | OrderContext | StoreSnackContext;
 
 export type RecommendationRole = "best_match" | "lowest_effort" | "alternative";
 
@@ -129,7 +145,28 @@ export type OrderRecommendation = {
   estimated_protein_g: number;
 };
 
-export type Recommendation = CookRecommendation | OrderRecommendation;
+/** One of the exactly-three recommendations for the "grab a snack" flow — a
+ *  ready-to-buy item, not a recipe or a search term for a delivery app. No
+ *  cost fields: there is no real grocery-price data behind this product,
+ *  same reasoning as the order flow's missing menu prices. */
+export type StoreSnackRecommendation = {
+  decision_mode: "store_snack";
+  role: RecommendationRole;
+  title: string;
+  /** One or two user-facing sentences on why this fits the craving right now. */
+  reason: string;
+  /** Guidance for walking around a grocery/convenience/drug store — a
+   *  category and rough spec ("single-serve Greek yogurt with 12–20g
+   *  protein"), never an exact SKU or a claim about live inventory. */
+  what_to_look_for: string;
+  /** Optional second option if the first isn't found. Null when there's no
+   *  natural substitute worth naming. */
+  backup: string | null;
+  estimated_calories: number;
+  estimated_protein_g: number;
+};
+
+export type Recommendation = CookRecommendation | OrderRecommendation | StoreSnackRecommendation;
 
 /** The constraints a cook recommendation set was generated under, echoed back
  *  so the caller can see which budget and equipment were actually applied. */
@@ -151,7 +188,15 @@ export type OrderConstraints = {
   avoid: string[];
 };
 
-export type ActiveConstraints = CookConstraints | OrderConstraints;
+/** The constraints a store-snack recommendation set was generated under. Like
+ *  ordering, there is no time/budget/equipment limit to enforce — only what
+ *  the user won't eat. */
+export type StoreSnackConstraints = {
+  decision_mode: "store_snack";
+  avoid: string[];
+};
+
+export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints;
 
 /** Body of a successful POST /api/recommend. The tuple type is the "exactly
  *  three" rule expressed where TypeScript can enforce it. */

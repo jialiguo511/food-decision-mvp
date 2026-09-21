@@ -3,7 +3,14 @@
 import { useRef, useState } from "react";
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { REJECTION_REASONS, WOULD_EAT_AGAIN } from "@/lib/options";
+import {
+  COOK_REJECTION_REASONS,
+  ORDER_OUTCOMES,
+  ORDER_REJECTION_REASONS,
+  STORE_SNACK_REJECTION_REASONS,
+  WOULD_EAT_AGAIN,
+} from "@/lib/options";
+import type { DecisionMode } from "@/lib/types";
 import { recordMealFeedback, setMealFeedbackNote } from "./actions";
 
 export type FeedbackData = {
@@ -14,9 +21,23 @@ export type FeedbackData = {
 };
 
 /**
- * The core loop's final step: did the user actually eat the meal they chose?
- * Shown once a card is selected — see RecommendationResults. Writes to the
- * existing meal_feedback table only; no new schema, no rating, no comments.
+ * The core loop's final step. Shown once a card is selected — see
+ * RecommendationResults. Writes to the existing meal_feedback table only; no
+ * new schema, no rating, no comments.
+ *
+ * The three modes ask different questions here, not just different labels on
+ * the same question:
+ *  - Cook mode: "Did you eat this?" — choosing a recipe and eating it are
+ *    close together in time, so a plain yes/no still fits.
+ *  - Store-snack mode: same "Did you eat this?" shape as cook mode — choosing
+ *    a card means going to buy it, which is just as close in time — but with
+ *    its own rejection reasons (STORE_SNACK_REJECTION_REASONS) instead of
+ *    cooking-specific ones like "missing ingredients".
+ *  - Order mode: choosing a card only means "planning to order this", not
+ *    that anything has arrived yet — see PRODUCT.md / the order flow. The
+ *    first question is "What happened?", and its own outcomes ("I ordered
+ *    it" / "I ordered something similar" / "Didn't end up ordering it") fold
+ *    in what cook mode asks as a separate yes/no.
  *
  * `didEat` and `note` are both write-once: once answered, that question
  * stops rendering and shows the recorded answer instead, and the handlers
@@ -25,10 +46,12 @@ export type FeedbackData = {
 export default function MealFeedback({
   sessionId,
   mealTitle,
+  decisionMode,
   initial,
 }: {
   sessionId: string;
   mealTitle: string;
+  decisionMode: DecisionMode;
   initial: FeedbackData;
 }) {
   const [feedback, setFeedback] = useState<FeedbackData>(initial);
@@ -71,34 +94,87 @@ export default function MealFeedback({
     }
   }
 
-  if (feedback.didEat === null) {
-    return (
-      <Card title="Did you eat this?">
-        <SingleChipGroup
-          options={[
-            { value: "yes", label: "Yes" },
-            { value: "no", label: "No" },
-          ]}
-          value=""
-          onChange={(value) => answer(value === "yes")}
-        />
-        {saving && <p className="mt-2 text-xs text-muted">Saving…</p>}
-        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      </Card>
-    );
+  /** Order mode's first question. "Didn't end up ordering it" is just a
+   *  plain no — reuses `answer`, and the reason gets asked next, the same
+   *  shape as cook mode. The two positive outcomes record both the yes and
+   *  the specific outcome in one tap, since asking "did you order it?" and
+   *  then "which — exactly this, or something similar?" as two questions
+   *  would be needless friction for an MVP. */
+  async function answerOrderOutcome(value: string) {
+    if (value === "didnt_order") {
+      await answer(false);
+      return;
+    }
+    if (answering.current || feedback.id !== null) return;
+    answering.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await recordMealFeedback(sessionId, mealTitle, true);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      const noteResult = await setMealFeedbackNote(result.id, value);
+      setFeedback({ id: result.id, didEat: true, note: noteResult.ok ? value : result.note });
+      if (!noteResult.ok) setError(noteResult.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save your answer.");
+    } finally {
+      setSaving(false);
+      answering.current = false;
+    }
   }
 
-  if (feedback.didEat) {
+  if (decisionMode === "order") return renderOrder();
+  return renderCook(decisionMode === "store_snack" ? STORE_SNACK_REJECTION_REASONS : COOK_REJECTION_REASONS);
+
+  function renderCook(rejectionReasons: { value: string; label: string }[]) {
+    if (feedback.didEat === null) {
+      return (
+        <Card title="Did you eat this?">
+          <SingleChipGroup
+            options={[
+              { value: "yes", label: "Yes" },
+              { value: "no", label: "No" },
+            ]}
+            value=""
+            onChange={(value) => answer(value === "yes")}
+          />
+          {saving && <p className="mt-2 text-xs text-muted">Saving…</p>}
+          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        </Card>
+      );
+    }
+
+    if (feedback.didEat) {
+      return (
+        <Card title="✓ You ate this">
+          {feedback.note === null ? (
+            <>
+              <p className="mb-2 text-xs text-muted">Would you eat this again? (optional)</p>
+              <SingleChipGroup options={WOULD_EAT_AGAIN} value="" onChange={answerNote} />
+            </>
+          ) : (
+            <p className="text-xs text-muted">
+              Would eat again: {WOULD_EAT_AGAIN.find((o) => o.value === feedback.note)?.label ?? feedback.note}
+            </p>
+          )}
+          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        </Card>
+      );
+    }
+
     return (
-      <Card title="✓ You ate this">
+      <Card title="Noted — you didn't eat this">
         {feedback.note === null ? (
           <>
-            <p className="mb-2 text-xs text-muted">Would you eat this again? (optional)</p>
-            <SingleChipGroup options={WOULD_EAT_AGAIN} value="" onChange={answerNote} />
+            <p className="mb-2 text-xs text-muted">Why not? (optional)</p>
+            <SingleChipGroup options={rejectionReasons} value="" onChange={answerNote} />
           </>
         ) : (
           <p className="text-xs text-muted">
-            Would eat again: {WOULD_EAT_AGAIN.find((o) => o.value === feedback.note)?.label ?? feedback.note}
+            Reason: {rejectionReasons.find((o) => o.value === feedback.note)?.label ?? feedback.note}
           </p>
         )}
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
@@ -106,19 +182,41 @@ export default function MealFeedback({
     );
   }
 
-  return (
-    <Card title="Noted — you didn't eat this">
-      {feedback.note === null ? (
-        <>
-          <p className="mb-2 text-xs text-muted">Why not? (optional)</p>
-          <SingleChipGroup options={REJECTION_REASONS} value="" onChange={answerNote} />
-        </>
-      ) : (
-        <p className="text-xs text-muted">
-          Reason: {REJECTION_REASONS.find((o) => o.value === feedback.note)?.label ?? feedback.note}
-        </p>
-      )}
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-    </Card>
-  );
+  function renderOrder() {
+    if (feedback.didEat === null) {
+      return (
+        <Card title="What happened?" hint="Choosing a card just means you're planning to order it.">
+          <SingleChipGroup options={ORDER_OUTCOMES} value="" onChange={answerOrderOutcome} />
+          {saving && <p className="mt-2 text-xs text-muted">Saving…</p>}
+          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        </Card>
+      );
+    }
+
+    if (feedback.didEat) {
+      return (
+        <Card
+          title={feedback.note === "ordered_similar" ? "✓ You ordered something similar" : "✓ You ordered it"}
+        >
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </Card>
+      );
+    }
+
+    return (
+      <Card title="Noted — you didn't order this">
+        {feedback.note === null ? (
+          <>
+            <p className="mb-2 text-xs text-muted">What happened? (optional)</p>
+            <SingleChipGroup options={ORDER_REJECTION_REASONS} value="" onChange={answerNote} />
+          </>
+        ) : (
+          <p className="text-xs text-muted">
+            Reason: {ORDER_REJECTION_REASONS.find((o) => o.value === feedback.note)?.label ?? feedback.note}
+          </p>
+        )}
+        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      </Card>
+    );
+  }
 }

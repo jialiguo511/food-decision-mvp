@@ -59,6 +59,19 @@ const orderRecommendationFields = z.object({
   estimated_protein_g: z.number().int().nonnegative(),
 });
 
+/** Fields for a store-snack recommendation — a ready-to-buy item, not a
+ *  recipe or a delivery-app search term. No cost fields: same reasoning as
+ *  the order flow's missing menu prices. */
+const storeSnackRecommendationFields = z.object({
+  title: z.string().min(1),
+  reason: z.string().min(1),
+  what_to_look_for: z.string().min(1),
+  // Same `.default(null)` reasoning as order's `modification` above.
+  backup: z.string().min(1).nullable().default(null),
+  estimated_calories: z.number().int().nonnegative(),
+  estimated_protein_g: z.number().int().nonnegative(),
+});
+
 /**
  * The schema sent to the API as structured output. One key per role, rather
  * than an array, so the model cannot return two recommendations, four, or the
@@ -71,7 +84,12 @@ const orderRecommendationFields = z.object({
  * breach is reported as the constraint violation it is.
  */
 export function buildOutputSchema(mode: DecisionMode) {
-  const fields = mode === "cook" ? cookRecommendationFields : orderRecommendationFields;
+  const fields =
+    mode === "cook"
+      ? cookRecommendationFields
+      : mode === "order"
+        ? orderRecommendationFields
+        : storeSnackRecommendationFields;
   return z.object({
     best_match: fields,
     lowest_effort: fields,
@@ -91,6 +109,7 @@ export const storedRecommendationsSchema = z
     z.discriminatedUnion("decision_mode", [
       cookRecommendationFields.extend({ decision_mode: z.literal("cook"), role: z.enum(ROLES) }),
       orderRecommendationFields.extend({ decision_mode: z.literal("order"), role: z.enum(ROLES) }),
+      storeSnackRecommendationFields.extend({ decision_mode: z.literal("store_snack"), role: z.enum(ROLES) }),
     ]),
   )
   .length(3);
@@ -126,11 +145,17 @@ export function parseRecommendations(text: string, constraints: ActiveConstraint
           { decision_mode: "cook", role: "lowest_effort", ...parsed.data.lowest_effort },
           { decision_mode: "cook", role: "alternative", ...parsed.data.alternative },
         ]
-      : [
-          { decision_mode: "order", role: "best_match", ...parsed.data.best_match },
-          { decision_mode: "order", role: "lowest_effort", ...parsed.data.lowest_effort },
-          { decision_mode: "order", role: "alternative", ...parsed.data.alternative },
-        ]
+      : mode === "order"
+        ? [
+            { decision_mode: "order", role: "best_match", ...parsed.data.best_match },
+            { decision_mode: "order", role: "lowest_effort", ...parsed.data.lowest_effort },
+            { decision_mode: "order", role: "alternative", ...parsed.data.alternative },
+          ]
+        : [
+            { decision_mode: "store_snack", role: "best_match", ...parsed.data.best_match },
+            { decision_mode: "store_snack", role: "lowest_effort", ...parsed.data.lowest_effort },
+            { decision_mode: "store_snack", role: "alternative", ...parsed.data.alternative },
+          ]
   ) as RecommendSuccess["recommendations"];
 
   const titles = new Set(recommendations.map((r) => r.title.trim().toLowerCase()));
@@ -148,13 +173,13 @@ export function findConstraintViolations(
   recommendations: readonly Recommendation[],
   constraints: ActiveConstraints,
 ): string[] {
-  if (constraints.decision_mode === "order") {
-    // No time/budget/equipment to check — there is no menu-price or
-    // real-world availability data behind this product. `avoid` is free-text
-    // (dislikes read against a generated title/reason), the same as every
-    // other soft-preference-shaped free text the prompt is trusted with, and
-    // there is deliberately no server-side content validator for it — the
-    // same reasoning CLAUDE.md gives for protein and calories.
+  if (constraints.decision_mode === "order" || constraints.decision_mode === "store_snack") {
+    // No time/budget/equipment to check — there is no menu-price, grocery-
+    // price, or real-world availability data behind this product. `avoid` is
+    // free-text (dislikes read against a generated title/reason), the same as
+    // every other soft-preference-shaped free text the prompt is trusted
+    // with, and there is deliberately no server-side content validator for
+    // it — the same reasoning CLAUDE.md gives for protein and calories.
     return [];
   }
 
