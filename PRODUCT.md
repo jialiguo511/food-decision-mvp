@@ -93,7 +93,7 @@ Context → 3 options → choose → actually eat → feedback
 The real success event is **recommendation → actual eating.**
 Generating recipes alone is not success.
 
-## Two decision modes
+## Three decision modes
 
 The first thing the product asks is not "what's in your kitchen" — it's
 **what kind of decision is this**:
@@ -104,11 +104,18 @@ The first thing the product asks is not "what's in your kitchen" — it's
   cooking isn't happening tonight: hungry, tired, or just craving something.
   Recommendations are meal *categories* to search for in whatever delivery or
   takeout app the user already has — not recipes, not restaurant names.
+- **Grab a snack** — for when the user wants something sweet, salty, or
+  snack-sized right now and is willing to walk into a nearby grocery,
+  convenience, or drug store, but isn't cooking or ordering a meal.
+  Recommendations are specific, ready-to-buy items with guidance on what to
+  look for in the store — not a recipe, not a delivery search term, and not
+  dependent on any store's real inventory.
 
-Both modes share the same profile, the same "exactly 3 recommendations"
+All three modes share the same profile, the same "exactly 3 recommendations"
 principle, the same selection step, and the same actual-eating feedback.
 Only the dynamic context asked and the shape of what comes back differ. See
-"Order Food" below.
+"Order Food" below for that mode's coaching philosophy — the same
+craving-first, no-moralizing approach applies to Grab a Snack.
 
 ### Order Food — coaching philosophy
 
@@ -209,8 +216,12 @@ picks a decision mode, then answers only what that mode needs:
   optional free text), and how they're getting the food (delivery / pickup /
   eat nearby). Reuses the same profile fields as cooking — goal, protein
   target, dislikes — rather than asking again.
+- **Grab a snack**: hunger level and a one-tap craving type (sweet / salty /
+  crunchy / creamy / anything). The lightest of the three — no free text, no
+  store or method question, since there's no store data behind this mode to
+  ask about. Reuses goal, protein target, and dislikes from the profile.
 
-**3. Exactly 3 recommendations** — no more, no fewer, in both modes:
+**3. Exactly 3 recommendations** — no more, no fewer, in every mode:
 
 1. best overall match
 2. lowest-effort option — for ordering, the simplest thing to find and order
@@ -226,9 +237,15 @@ cooking equipment. See "Order Food" above for the coaching philosophy and the
 explicit non-goals (no restaurant APIs, no restaurant discovery, no
 ordering).
 
-Regenerating ("Show me 3 more") must produce genuinely different categories,
-not cosmetic renamings of the same meal or the same three cuisines every
-time — the same rule the cook flow already follows.
+For "Grab a snack," a recommendation is a **ready-to-buy item**: what to look
+for while walking around the store (a category and a rough, useful spec —
+"single-serve Greek yogurt with 12–20g protein" — never an exact SKU or a
+claim about live inventory), why it fits the craving, and an optional backup
+if the first isn't found.
+
+Regenerating ("Show me 3 more") must produce genuinely different options, not
+cosmetic renamings of the same meal, category, or item — the same rule every
+mode follows.
 
 Each recommendation carries approximate time, calories, protein, and two
 costs: what the meal is worth (`~$9 meal`) and what the user would spend
@@ -443,9 +460,16 @@ may be built until it has been explicitly promoted into `PLAN.md` NOW or NEXT.
 Ordinary Recipe Inbox does **not** appear here — it is an intended early
 capability and lives in the Extended MVP above.
 
-- **Grocery intelligence** — recommend meals using local stores, prices,
-  sales, and shopping convenience. Would replace or supplement today's
-  model-only cost estimates.
+- **Location-aware recommendations** — nearby restaurant and grocery-store
+  discovery, restaurant-specific menu recommendations, and eventually
+  store-specific grocery products — moving the system from "the model
+  invents three foods" toward "retrieve real nearby options, rank them,
+  explain the top 3." Likely the first high-value post-MVP direction; see
+  below.
+- **Grocery intelligence** — store-specific products, live prices, and
+  inventory-aware grocery recommendations. Covered as grocery Level B under
+  "Location-aware recommendations" below; would replace or supplement
+  today's model-only cost estimates.
 - **Advanced recipe importing** — Instagram / TikTok / social recipe
   ingestion, automatic video recipe extraction, browser and share extensions,
   and automatic adaptation of imported recipes to the user's equipment, time,
@@ -458,6 +482,8 @@ capability and lives in the Extended MVP above.
   assemble it with minimal preparation, or buy something nearby.
 - **Adaptive preference learning** — learn cuisine preference, effort
   tolerance, ingredient preferences, and meal patterns from actual behavior.
+  Related to the future ranking engine's `historical_acceptance` signal;
+  see "Location-aware recommendations" below.
 - **Household mode** — potentially support couples or families.
 
 ### Personal recipe capture
@@ -504,4 +530,230 @@ Personal recipes feed back into recommendations when the context fits. For
 example, the user previously made and loved a chicken rice meal; today they
 have chicken, want something warm, and have 20 minutes — so the recommender can
 surface that recipe again instead of inventing a new one.
+
+### Location-aware recommendations
+
+**Future direction. Not part of the core loop, not scheduled.** Nothing in
+this section changes the current MVP or is authorized to build. It exists so
+the long-term shape of the system is written down before any piece of it is
+explicitly promoted into `PLAN.md` NOW or NEXT, the same rule as every other
+future direction in this document.
+
+#### The shift this represents
+
+The current MVP asks the model to invent three plausible options from context
+alone:
+
+```
+User context → LLM invents 3 foods → explain
+```
+
+The long-term direction retrieves real candidates from the real world first,
+then ranks and explains them:
+
+```
+User context + real-world nearby food supply
+  → retrieve realistic candidate options
+  → rank them
+  → recommend 3 actionable choices
+```
+
+The LLM's job shifts from *inventing* candidates to *interpreting context,
+ranking, and explaining* real ones. This is a real architecture change, not a
+copy change, and it should happen in stages, each justified by evidence that
+the previous stage is working — see "Two kinds of 'not now'" above.
+
+#### Phase 1 — current MVP (for contrast)
+
+Cook / Order / Grab a snack, as they exist today. Recommendations come from
+user context alone: no nearby-place retrieval, no live menu or inventory
+lookup, generic but actionable search/category guidance. This should stay
+fast and low-friction, and should not be delayed for any external
+integration below.
+
+Primary MVP validation question:
+
+> When I am hungry, tired, craving something, or about to make an impulsive
+> food decision, do I open Nutrition Coach and does it change what I choose?
+
+This restates the "Current hypothesis" and "What we need to prove" sections
+above in the sharpest form — nothing below substitutes for answering it
+first.
+
+#### Phase 1.5 — location-aware "Near me"
+
+The first likely post-MVP integration. A user taps **"Near me"**; the browser
+requests geolocation **only at that moment**; the app retrieves nearby
+restaurants, grocery stores, and convenience stores from a places/location
+provider (for example Google Places or an equivalent) and shows **places**,
+not dishes:
+
+> "Here are 3 nearby places that fit what you want right now" — a nearby Thai
+> restaurant, a nearby Sweetgreen, a nearby grocery store.
+
+Potential metadata per place: business name, category, address, distance,
+open/closed status if available, rating if useful, price level if available,
+website/menu link if available. This is deliberately **not** dish-level menu
+intelligence yet — it answers "where," not "what to order there."
+
+**Privacy principle:** do not store precise user location by default. Request
+it only when the user explicitly taps "Near me," and prefer a temporary,
+session-scoped location over a persisted one.
+
+This phase does **not** depend on DoorDash/Uber Eats access.
+
+#### Phase 2 — restaurant-specific recommendations
+
+Once a user selects a real nearby restaurant (for example "Sweetgreen – 0.4
+mi"), the product can recommend what to order there, one useful modification,
+an approximate calorie/protein range, and why it fits — the same coaching
+philosophy as today's Order Food mode, applied to a real menu instead of a
+category:
+
+```
+restaurant/location data → menu data → candidate menu items
+  → nutrition/personal-preference ranking → top 3 → LLM explanation
+```
+
+**The hard part is not generating nutritional advice once menu items are
+known — it's reliably obtaining current, structured restaurant menu data.**
+Likely acquisition strategies, in increasing complexity:
+
+- **A. MVP shortcut** — restaurant website/menu URLs, publicly available
+  structured menu data, manually curated menu data for common chains.
+- **B. Chain-specific support** — maintain menu data for common,
+  high-frequency chains (Chipotle, Sweetgreen, CAVA, Panda Express, Subway,
+  Shake Shack, Starbucks, etc.). More realistic to sustain early than
+  depending immediately on a marketplace API.
+- **C. Later** — official restaurant delivery/marketplace integrations, if
+  and when approved and commercially appropriate.
+
+#### Marketplace / delivery platform integration
+
+DoorDash, Uber Eats, and similar platforms. Do **not** treat their menu APIs
+as guaranteed infrastructure — access typically requires partnership,
+approval, a commercial agreement, or integration-partner status, none of
+which is assumed here. The architecture must not depend on full DoorDash/Uber
+Eats menu access during early product stages; these integrations belong
+after product validation and meaningful usage, not before.
+
+Potential future capabilities, roughly in order of how little they depend on
+formal access: opening a recommended restaurant in the delivery app,
+deep-linking to a search/results page with a restaurant name or search query,
+and — only if formal access exists — structured menu access and an eventual
+ordering handoff. Do not claim direct ordering integration will definitely be
+available.
+
+#### Grocery recommendations — two levels
+
+**Level A: store-agnostic grocery list.** Lower difficulty, useful earlier.
+Given "sweet snacks for tonight + easy breakfast tomorrow," the app suggests
+a plain list — Greek yogurt, berries, mini ice cream bars, rotisserie
+chicken, tortillas, bagged salad — optionally alongside nearby grocery stores
+surfaced by the Phase 1.5 location layer. Requires no exact product
+inventory, no SKU-level search, no live prices. This can be implemented
+relatively early.
+
+**Level B: store-specific products.** Later, and significantly harder — "At
+this exact Whole Foods location: Product X, $X.XX, currently available."
+Requires external retailer/catalog/inventory data: grocery retailer APIs,
+Instacart-like integrations, product catalog APIs, store-level inventory
+systems. Challenges: rapidly changing inventory, store-specific availability,
+pricing differences, catalog inconsistencies, and API access restrictions.
+Do not put this in the MVP.
+
+#### Future system architecture (conceptual)
+
+```
+User context
+    |
+    v
+Decision Engine
+  /     |      \
+Cook   Order   Grab
+         |       |
+         v       v
+   Location Service
+         |
+         v
+ Nearby place retrieval
+   /             \
+Restaurants     Grocery
+   |               |
+   v               v
+Menu data      Product/catalog data
+   \               /
+    \             /
+      Candidate options
+            |
+            v
+      Ranking engine
+            |
+            v
+       Top 3 options
+            |
+            v
+      LLM explanation
+```
+
+The evolution in one line: the current MVP has the **LLM generate candidate
+foods**; the future system has **retrieval generate realistic candidates**,
+**ranking select the best of them**, and the **LLM explain** the result.
+
+#### Future ranking engine
+
+Recommendation quality should eventually move beyond a pure prompt-based
+system. Potential ranking features: `craving_match`, `hunger_fit`,
+`calorie_fit`, `protein_fit`, `user_preference`, `historical_acceptance`
+(the signal Adaptive preference learning above would feed), `distance`,
+`price_fit`, `effort`, store/restaurant availability, time of day, and prior
+feedback.
+
+A conceptual scoring shape only — **not an equation to implement now**:
+
+```
+score = craving_match + protein_fit + calorie_fit + distance_fit
+      + price_fit + user_preference + historical_acceptance
+```
+
+As retrieval and ranking take on more of "which options exist and which are
+best," the LLM's job should shift further toward interpretation, contextual
+reasoning, explanation, and natural-language presentation — not inventing
+every candidate from scratch.
+
+#### Key technical challenges
+
+1. **Location permission** — browser geolocation, user consent, temporary vs.
+   persistent location, mobile UX.
+2. **Nearby place search** — API cost, request limits, filtering relevant
+   place types, open-now status, distance/radius.
+3. **Restaurant menu acquisition** — likely the single biggest challenge:
+   inconsistent menu formats, frequently changing menus, no universal menu
+   API, restaurant websites that don't expose structured data, and delivery
+   marketplace API restrictions.
+4. **Nutrition estimation** — menu items may not list calories, macros, or
+   portion sizes; the product may need official nutrition data where
+   available, estimation elsewhere, and uncertainty ranges throughout.
+5. **Grocery inventory** — much harder than locating grocery stores:
+   store-specific catalogs, live inventory, prices, SKU matching, changing
+   stock.
+6. **API/platform dependence** — avoid building the product around an
+   external platform that can restrict access, change API terms, become
+   expensive, or require commercial approval it hasn't earned.
+7. **Recommendation reliability** — avoid hallucinating restaurants, menu
+   items, product availability, or prices. Once real-world retrieval exists,
+   recommendations must be grounded in retrieved candidates, never invented.
+
+#### Prioritization principle
+
+Do not build a technically impressive integration before validating the core
+behavior. The current core question is still the one in "Current hypothesis"
+above: **does Nutrition Coach meaningfully improve real food decisions?**
+External APIs should increase actionability *after* that is validated, not
+substitute for validating it.
+
+Location-awareness is the most likely first high-value external integration:
+it moves recommendations from "what could you eat" to "what can you
+realistically eat or buy around you right now" — without requiring full
+delivery-marketplace integration.
 

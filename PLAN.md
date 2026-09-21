@@ -71,7 +71,7 @@ Context → Recommendation → Selection → Actual eating → Feedback
       happening tonight: hunger, a craving category, and delivery / pickup /
       eat nearby, reusing goal/protein/dislikes from the profile. Recommends
       three meal *categories* — what to search for in a delivery app, a
-      suggested order, why it fits — not recipes. See `PRODUCT.md` → "Two
+      suggested order, why it fits — not recipes. See `PRODUCT.md` → "Three
       decision modes" for the coaching philosophy (harm reduction, no
       moralizing language, no reflexive calorie restriction) and the explicit
       boundary: no restaurant APIs, no restaurant discovery, no automatic
@@ -79,6 +79,20 @@ Context → Recommendation → Selection → Actual eating → Feedback
       `PRODUCT.md`'s existing "restaurant ordering / restaurant discovery"
       non-goals — those mean an ordering integration or finding a specific
       nearby restaurant, neither of which this does.
+- [ ] **Decision mode: "grab a snack" (`store_snack`)** — added 2026-09-21,
+      promoted directly into NOW rather than left at the NEXT-level "Food
+      occasion" item, since it is scoped as a third decision mode (not a
+      pantry/history feature) and ships no grocery-intelligence surface. A
+      third first-level choice on Today for "I want something sweet/salty
+      right now and am willing to walk into a store, but not cook or order a
+      meal." Asks only hunger and a one-tap craving type (sweet / salty /
+      crunchy / creamy / anything), reusing goal/protein/dislikes from the
+      profile. Recommends three specific, ready-to-buy grocery/convenience
+      items — not recipes, not delivery search terms — with a `what_to_look_for`
+      field guiding what to look for in the store. No store inventory,
+      location, pricing, or product-database integration: those remain out of
+      scope per `CLAUDE.md`'s non-goals and `PRODUCT.md`'s "Grocery
+      intelligence" future direction.
 - [ ] **Founder self-use for at least 7 days** — Stage 1 in `PRODUCT.md`. A
       real roadmap item, not an afterthought. Shipping the rest without it
       proves nothing.
@@ -113,30 +127,76 @@ contents into NOW.
 
 Parked. These correspond to `PRODUCT.md` → Possible future directions.
 
-- Grocery intelligence — pricing, store integrations, shopping convenience;
-  would replace today's model-only cost estimates
 - Advanced recipe importing — social ingestion, video extraction, browser and
   share extensions, automatic adaptation of imported recipes
 - Personal recipe capture — "I made something I liked", described by text or
   voice, converted into a reviewable structured recipe
-- Nearby restaurant alternatives — actual restaurant discovery (specific
-  places, live menus, geolocation). Distinct from the "I want to order food"
-  mode in NOW, which only names a meal category to search for, never a
-  restaurant.
-- Restaurant/delivery ordering APIs (DoorDash, Uber Eats, etc.) and automatic
-  ordering — the "I want to order food" mode in NOW deliberately stops at
-  "search for X," never places an order.
 - Cook / assemble / buy comparison
 - Weekly meal planning
 - Native mobile app
-- Sophisticated recommendation models
 - Household mode
 - Subscriptions
+
+The **location-aware recommendation roadmap** below is its own staged group,
+broken out separately because it is currently the most likely next major
+direction and spans several future versions, not one flat item.
 
 > **LATER items are not promises.** An idea listed only in `PRODUCT.md` Future
 > Directions may not be built. It must first be explicitly promoted into NOW
 > or NEXT in this file. Record the evidence that justifies a promotion in
 > `LEARNINGS.md`.
+
+### Location-aware recommendation roadmap
+
+Staged order for the biggest future direction — see `PRODUCT.md` →
+"Location-aware recommendations" for the full rationale, the conceptual
+architecture, the ranking-engine notes, and the key technical challenges.
+None of this is scheduled. Nothing here is authorized to build until a piece
+of it is explicitly promoted into NOW or NEXT above — same rule as every
+other LATER item.
+
+**POST-MVP / V1.5 — location-aware "Near me"**
+- Browser location permission, requested only on an explicit "Near me" tap,
+  used temporarily rather than stored by default
+- Nearby-place discovery via a places/location provider (e.g. Google Places
+  or equivalent)
+- Nearby restaurants and nearby grocery/convenience stores
+- Recommendations framed around nearby place *categories* — not menus, not
+  inventory. Does not depend on DoorDash/Uber Eats access.
+
+**V2 — restaurant-specific recommendations**
+- User selects one real nearby restaurant
+- Curated/manually-maintained menu data for common, high-frequency chains
+  (data acquisition strategy A/B in `PRODUCT.md`)
+- What to order, one modification, an approximate calorie/protein range, and
+  why — the Order Food coaching philosophy applied to a real menu
+- Store-agnostic grocery lists (grocery Level A in `PRODUCT.md`) — lower
+  difficulty, no inventory or SKU-level data required
+
+**V2.5 / V3 — broader retrieval and ranking**
+- Broader restaurant menu ingestion beyond curated chains
+- A structured ranking engine (distance, price, craving/goal fit, prior
+  feedback) starting to replace pure prompt-based selection
+- Personalized ranking from historical feedback
+- Store-specific grocery products (grocery Level B in `PRODUCT.md`) —
+  requires retailer/catalog/inventory APIs
+
+**LATER / partnerships**
+- DoorDash / Uber Eats integration, only if and when partnership or approved
+  API access exists — never assumed as available
+- Instacart / retailer catalog integrations
+- Deep-link or order-handoff into delivery apps
+- Live prices/inventory, only where officially supported
+
+**Prioritization principle:** do not build a technically impressive
+integration before validating the core behavior. The current core question is
+still "does Nutrition Coach meaningfully improve real food decisions?" (see
+`PRODUCT.md` → Current hypothesis). External APIs should increase
+actionability *after* that is validated, not substitute for validating it.
+Location-awareness is the most likely first one, since it moves
+recommendations from "what could you eat" to "what can you realistically eat
+or buy around you right now" without requiring full delivery-marketplace
+integration.
 
 ---
 
@@ -191,10 +251,10 @@ are read and written as a whole, never queried across users, so a normalized
 table would add migrations and joins and buy us nothing.
 
 `decision_sessions.context` and `.recommendations` carry a `decision_mode:
-"cook" | "order"` field inside the JSONB. Adding the order mode required no
-migration — the shape of "one context in, three recommendations out" already
-lived in flexible JSONB columns, only the TypeScript/Zod types on top of it
-became a discriminated union.
+"cook" | "order" | "store_snack"` field inside the JSONB. Adding the order
+and store_snack modes required no migration — the shape of "one context in,
+three recommendations out" already lived in flexible JSONB columns, only the
+TypeScript/Zod types on top of it became a discriminated union.
 
 Nutrition is **estimates stored alongside each recommendation**, not a
 nutrition database. We are not building a calorie tracker.
