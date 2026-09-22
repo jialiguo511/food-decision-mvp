@@ -78,7 +78,7 @@ export default async function TodayPage() {
   };
 
   return (
-    <AppShell title="Today" subtitle="Tell me about tonight.">
+    <AppShell title="Home" subtitle="Tell me about tonight.">
       <TodayForm
         initial={initial}
         usualCookMinutes={usualCookMinutes}

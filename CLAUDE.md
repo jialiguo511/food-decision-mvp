@@ -90,29 +90,73 @@ for the reader to redirect you before the work exists, not after.
   history · favorites · recent-meal awareness · basic preference learning.
   Useful, but build only after the core loop works end to end.
 
-## The five screens (navigation, not scope)
+## Minimum decisions, progressive disclosure
 
-The app has five navigation areas. They are **UI containers, not a list of MVP
-capabilities** — product capabilities cut across them.
+**The user should make the minimum number of decisions possible.** The
+product's job is to absorb complexity and progressively reveal only what is
+needed for the current task — not to lay out every control at once and let
+the user sort it out.
 
-| screen | what it is |
-|---|---|
-| **Today** | Dynamic context capture + the "Find my meal" button |
-| **Results** | The recommendation flow — exactly three cards |
-| **My Food** | Container where pantry, history and favorites may eventually live |
-| **Inbox** | Recipe Inbox — paste text, paste URL, manual save |
-| **Profile** | My Food Profile — persistent preferences |
+Concretely:
 
-Do not add a sixth area. Do not add features to these areas without being asked.
+- Sequence decisions instead of presenting them together. "Question → answer
+  → next question → recommendation" is the target shape, not "one screen with
+  many chips, sliders, and fields visible at the same time."
+- Hide advanced/optional fields behind a disclosure until the user asks for
+  them, rather than showing every field up front "just in case."
+- When adding a field or control to a decision flow, ask whether it can be a
+  smart default instead of a question. A control that can't yet be removed
+  should still be sequenced, not stacked onto whatever screen is already
+  busiest.
 
-Two things follow:
+This supersedes any earlier assumption that all of a flow's fields belong on
+one screen together (that was the shape of the original Today page, and it is
+what this principle exists to correct — see `PLAN.md` for the in-progress
+refactor).
 
-- **A screen shell existing does not put its contents in scope.** `My Food`
-  and `Inbox` are navigable today and deliberately empty; the functionality
-  inside them is Extended MVP, not Core-loop MVP.
+## The top-level information architecture (navigation, not scope)
+
+The app has **four** top-level navigation areas. As before, they are **UI
+containers, not a list of MVP capabilities** — product capabilities cut
+across them, and a container existing does not put its contents in scope.
+
+| screen | internal route | what it is |
+|---|---|---|
+| **Home** | `/today` (route name kept for now — see below) | "What do you need right now?" Three entry intents: Cook something, Plan ahead, Eat out / order. Dynamic context capture, the "Find my meal" action, and the resulting three recommendation cards all happen inline within this flow — there is no separate "Results" screen. |
+| **Plan** | `/plan` | Container for planning several meals ahead, saving recipes, and generating one grocery list. Deliberately an empty placeholder until its contents are promoted into `PLAN.md`. |
+| **Groceries** | `/groceries` | Container for one consolidated grocery list derived from planned/saved recipes. Deliberately an empty placeholder until its contents are promoted into `PLAN.md`. |
+| **Me** | `/profile` (route name kept for now — see below) | The Food Profile — persistent preferences. Unchanged. |
+
+**Route names are internal and independent of nav labels.** `/today` is
+labeled "Home" in the UI and `/profile` is labeled "Me"; both route names are
+kept as-is to avoid churn while the UX is still stabilizing, and may be
+renamed later. Do not infer product meaning from a route's URL segment — the
+table above and the visible nav label are the source of truth.
+
+Do not add a fifth area. Do not add features to these areas without being
+asked.
+
+Two things follow, same as before:
+
+- **A screen shell existing does not put its contents in scope.** `Plan` and
+  `Groceries` are navigable today and deliberately empty; the functionality
+  inside them is Extended MVP (or later), not Core-loop MVP.
 - **Some capabilities have no screen of their own.** Feedback — "did you
   actually eat it?" — is a core-loop behavior that belongs wherever it fits in
   the flow, not necessarily a dedicated page.
+
+**What changed from the previous five-screen structure (My Food / Inbox /
+Profile / Today / Results):** `My Food` and `Inbox` are no longer separate
+top-level nav areas. Their future functionality doesn't disappear — pantry,
+history, and favorites move conceptually toward `Groceries` and `Me`; Recipe
+Inbox moves conceptually toward `Plan` (saving recipes while planning ahead).
+None of that is built yet; this is a navigation and documentation change, not
+an implementation of any of it. `Results` was never reachable from the bottom
+nav and had become an orphaned placeholder route (`/results`, a leftover
+`ComingNext` stub) now that the real recommendation view renders inline
+within Home — that file was removed as part of this same cleanup. Folding
+`Results` into `Home`'s description here is a documentation correction, not a
+behavior change.
 
 `PRODUCT.md` is the authority on product scope, `PLAN.md` on build priority.
 Neither is settled by this list of screens.

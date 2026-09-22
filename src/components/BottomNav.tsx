@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// Visible labels are the new Home / Plan / Groceries / Me information
+// architecture (see CLAUDE.md → "The top-level information architecture").
+// Route names (/today, /profile) are kept internally to avoid churn while
+// the UX is still stabilizing — do not infer product meaning from them.
 const TABS = [
-  { href: "/today", label: "Today", icon: "🍽️" },
-  { href: "/my-food", label: "My Food", icon: "🧺" },
-  { href: "/inbox", label: "Inbox", icon: "📥" },
-  { href: "/profile", label: "Profile", icon: "👤" },
+  { href: "/today", label: "Home", icon: "🍽️" },
+  { href: "/plan", label: "Plan", icon: "🗓️" },
+  { href: "/groceries", label: "Groceries", icon: "🧺" },
+  { href: "/profile", label: "Me", icon: "👤" },
 ];
 
 export default function BottomNav() {

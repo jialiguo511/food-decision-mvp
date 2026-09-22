@@ -33,6 +33,40 @@ ever read as `anon`.
 
 ---
 
+## Done — Stage 1 navigation/IA refactor, 2026-09-22
+
+Architecture and documentation only — no changes to `/api/recommend`, the
+recommendation prompt, `MealContext`, the Today/Cook form logic, session
+restore, regenerate, recipe persistence, or the database schema.
+
+- [x] `CLAUDE.md` / `PRODUCT.md` updated: the old five-screen structure
+      (Today / Results / My Food / Inbox / Profile) is replaced by four
+      top-level areas — **Home / Plan / Groceries / Me** — and a new explicit
+      product principle ("minimum decisions possible, progressive disclosure")
+      is documented in both files.
+- [x] `BottomNav` now shows Home / Plan / Groceries / Me. Internal routes are
+      unchanged: Home is still served by `/today`, Me by `/profile`.
+- [x] New minimal placeholder pages: `/plan` and `/groceries`, styled with the
+      existing `ComingNext` component — no new components, no functionality.
+- [x] Removed `/my-food` and `/inbox`, which were empty placeholder stubs with
+      no functionality and no incoming links once the nav changed. Their
+      future content is not dropped from scope — see `CLAUDE.md` and
+      `PRODUCT.md` for where it now conceptually belongs (Plan, Groceries,
+      Me) — this only removed dead placeholder routes.
+- [x] Also removed `/results`, discovered during the build check: an orphaned
+      placeholder route never linked from `BottomNav`, superseded by
+      `RecommendationResults` rendering inline within `/today`/Home. Same
+      "dead stub, no functionality" reasoning as `/my-food` and `/inbox`.
+- [x] `/today` page header now reads "Home" instead of "Today" so it matches
+      the nav tab that links to it; no other page content changed.
+
+Not done in this stage, on purpose: the Cook / Plan ahead / Eat out entry
+screen on Home, the CookForm step-by-step split, the $0 budget / "use only
+what I have" change, and any real Plan or Groceries functionality. All
+require explicit approval before starting — see NOW below.
+
+---
+
 ## NOW — the Core-loop MVP
 
 Everything required before the product hypothesis can be tested at all. See

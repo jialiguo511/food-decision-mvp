@@ -147,6 +147,32 @@ infrastructure, not a new product surface.
 
 ---
 
+## Top-level product structure
+
+The app is organized around four top-level areas, not five:
+
+- **Home** — "What do you need right now?" The three decision modes above
+  (cook / order / grab a snack) live here, entered through explicit intents:
+  Cook something, Plan ahead, Eat out or order.
+- **Plan** — planning several meals ahead: browse suggestions, save the ones
+  you want, generate one consolidated grocery list. Extended MVP; not yet
+  built.
+- **Groceries** — one consolidated list from planned/saved recipes,
+  distinguishing already-have / need-to-buy / optional. Extended MVP; not yet
+  built.
+- **Me** — the persistent Food Profile, and eventually the rest of the
+  long-term information described under Core-loop MVP and Extended MVP below
+  (equipment, fridge size, foods at home).
+
+This replaces an earlier five-screen structure (Today / Results / My Food /
+Inbox / Profile). Recipe Inbox and pantry/history/favorites are not removed
+from scope — they move conceptually under Plan and Me/Groceries respectively,
+still gated by the same Extended MVP promotion rule as before. See
+`CLAUDE.md` → "The top-level information architecture" for the routing detail
+and the full screen-by-screen table.
+
+---
+
 ## Product principles
 
 **1. Optimize for execution, not theoretical nutrition.**
@@ -154,7 +180,13 @@ A nutritionally perfect meal the user will not cook is a bad recommendation.
 
 **2. Reduce decisions.**
 The product should reduce cognitive load, not create more forms, menus, or
-choices.
+choices. Concretely: **the user should make the minimum number of decisions
+possible.** The product absorbs complexity and progressively reveals only
+what is needed for the current task — one meaningful decision at a time,
+not every control on one screen. "Question → answer → next question →
+recommendation" is the target shape, not "large form → many dropdowns →
+many controls → output." See `CLAUDE.md` → "Minimum decisions, progressive
+disclosure" for the implementation-level rules this implies.
 
 **3. Three options, not infinite discovery.**
 This is a decision product, not a recipe discovery feed.
@@ -302,8 +334,9 @@ Useful early extensions. **Build only after the core loop works end to end:**
 - Food occasion — full meal, small meal, snack, dessert; see below
 - Measurement-style preference — see below
 
-Having a screen shell for one of these does not make it core. `My Food` and
-`Inbox` exist in the navigation today as empty containers; the functionality
+Having a screen shell for one of these does not make it core. `Plan` and
+`Groceries` exist in the navigation today as empty containers (see
+`CLAUDE.md` → "The top-level information architecture"); the functionality
 inside them is Extended MVP.
 
 #### Nutrition target refinement

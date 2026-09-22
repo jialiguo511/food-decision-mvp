@@ -4,15 +4,15 @@ import SetupNotice from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 
-export default async function ResultsPage() {
+export default async function PlanPage() {
   if (!isSupabaseConfigured) return <SetupNotice />;
   await requireUser();
 
   return (
-    <AppShell title="Your three options" subtitle="Pick one. That's the whole job.">
-      <ComingNext label="Coming next">
-        Best match, lowest effort, and one useful alternative — then we ask
-        whether you actually ate it.
+    <AppShell title="Plan" subtitle="Plan a few meals ahead and shop once.">
+      <ComingNext label="Not available yet">
+        Browse suggested recipes, save the ones you want, and generate one
+        grocery list from them.
       </ComingNext>
     </AppShell>
   );

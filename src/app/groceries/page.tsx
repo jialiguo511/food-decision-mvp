@@ -4,14 +4,15 @@ import SetupNotice from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 
-export default async function MyFoodPage() {
+export default async function GroceriesPage() {
   if (!isSupabaseConfigured) return <SetupNotice />;
   await requireUser();
 
   return (
-    <AppShell title="My Food" subtitle="Pantry, favorites and what you've eaten.">
+    <AppShell title="Groceries" subtitle="Your shopping list will appear here.">
       <ComingNext label="Not available yet">
-        Your pantry list, saved favorites, and the meals you actually ate.
+        One consolidated list from your planned and saved recipes — already
+        have, need to buy, and optional additions.
       </ComingNext>
     </AppShell>
   );
