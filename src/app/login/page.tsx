@@ -20,14 +20,17 @@ export default function LoginPage() {
     event.preventDefault();
     setState("sending");
     // window.location.origin is always the domain the user is actually on —
-    // localhost in dev, the real Vercel origin in production or a preview
-    // deploy — so the redirect never depends on an env var being set at
-    // deploy time. NEXT_PUBLIC_SITE_URL remains available as an explicit
-    // override, e.g. once a canonical custom domain exists.
+    // localhost in dev, the real Vercel origin in production, or a preview
+    // deploy's own origin — so the redirect never depends on an env var
+    // being set (or scoped) correctly at deploy time. A prior version of
+    // this preferred NEXT_PUBLIC_SITE_URL when set, which meant every
+    // preview deploy redirected back to production once that var was set
+    // in Vercel project settings, since NEXT_PUBLIC_ vars apply to preview
+    // builds too unless explicitly scoped otherwise.
     const { error } = await createClient().auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
     if (error) {
