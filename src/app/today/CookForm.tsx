@@ -3,9 +3,9 @@
 import Card from "@/components/ui/Card";
 import TagInput from "@/components/ui/TagInput";
 import { MultiChipGroup, SingleChipGroup } from "@/components/ui/ChipGroup";
-import { COMMON_CRAVINGS, COOK_MINUTES, EFFORT_LEVELS, HUNGER_LEVELS, QUICK_INGREDIENTS } from "@/lib/options";
+import { COMMON_CRAVINGS, COOK_MINUTES, COOK_SHOPPING_MODES, EFFORT_LEVELS, HUNGER_LEVELS, QUICK_INGREDIENTS } from "@/lib/options";
 import { normalizeCraving } from "@/lib/text";
-import type { Effort, Hunger, MealContext } from "@/lib/types";
+import type { CookShopping, Effort, Hunger, MealContext } from "@/lib/types";
 import BudgetCard from "./BudgetCard";
 
 const NO_CRAVING = "__none__";
@@ -16,10 +16,14 @@ export default function CookForm({
   values,
   onChange,
   usualBudget,
+  pantryItems,
 }: {
   values: MealContext;
   onChange: (values: MealContext) => void;
   usualBudget: number;
+  /** Always included automatically — see "Anything you want to use up?"
+   *  below, which shows them rather than asking the user to re-add them. */
+  pantryItems: string[];
 }) {
   function set<K extends keyof MealContext>(key: K, value: MealContext[K]) {
     onChange({ ...values, [key]: value });
@@ -89,7 +93,14 @@ export default function CookForm({
         />
       </Card>
 
-      <Card title="Anything you want to use up?" hint="Optional. Helps us suggest something you can start right now.">
+      <Card
+        title="Anything you want to use up?"
+        hint={
+          pantryItems.length > 0
+            ? `Optional — plus everything in your pantry, already included: ${pantryItems.join(", ")}.`
+            : "Optional. Helps us suggest something you can start right now."
+        }
+      >
         <MultiChipGroup
           options={QUICK_INGREDIENTS}
           values={values.ingredients_on_hand.filter((i) => (QUICK_INGREDIENTS as readonly string[]).includes(i))}
@@ -114,11 +125,26 @@ export default function CookForm({
         </div>
       </Card>
 
-      <BudgetCard
-        usualBudget={usualBudget}
-        value={values.budget_override_usd}
-        onChange={(value) => set("budget_override_usd", value)}
-      />
+      <Card title="Shopping tonight?">
+        <SingleChipGroup
+          options={COOK_SHOPPING_MODES}
+          value={values.shopping}
+          onChange={(value) => set("shopping", value as CookShopping)}
+        />
+        {values.shopping === "inventory_only" && (
+          <p className="mt-3 text-xs text-muted">
+            We&apos;ll only suggest meals from your pantry and what&apos;s added above — nothing to buy tonight.
+          </p>
+        )}
+      </Card>
+
+      {values.shopping === "can_buy" && (
+        <BudgetCard
+          usualBudget={usualBudget}
+          value={values.budget_override_usd}
+          onChange={(value) => set("budget_override_usd", value)}
+        />
+      )}
     </>
   );
 }

@@ -19,6 +19,7 @@ function defaultCookContext(cookMinutes: number): MealContext {
     cook_minutes: cookMinutes,
     hunger: "normal",
     effort: "some",
+    shopping: "can_buy",
     craving: null,
     ingredients_on_hand: [],
     budget_override_usd: null,
@@ -53,6 +54,7 @@ function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
       a.cook_minutes === b.cook_minutes &&
       a.hunger === b.hunger &&
       a.effort === b.effort &&
+      a.shopping === b.shopping &&
       a.craving === b.craving &&
       a.budget_override_usd === b.budget_override_usd &&
       arraysEqual(a.ingredients_on_hand, b.ingredients_on_hand)
@@ -80,6 +82,7 @@ export default function TodayForm({
   initial,
   usualCookMinutes,
   usualBudget,
+  pantryItems,
   initialSession,
   initialChosenIndex,
   initialFeedback,
@@ -87,6 +90,9 @@ export default function TodayForm({
   initial: DecisionContext;
   usualCookMinutes: number;
   usualBudget: number;
+  /** The user's persistent pantry, read server-side — Cook always has access
+   *  to it without the user re-entering anything. */
+  pantryItems: string[];
   /** The most recent decision_sessions row, restored server-side — null on a
    *  first visit with no prior session. Restoring never calls the model. */
   initialSession: ActiveSession | null;
@@ -180,7 +186,12 @@ export default function TodayForm({
       </Card>
 
       {mode === "cook" ? (
-        <CookForm values={cookValues} onChange={setCookValues} usualBudget={usualBudget} />
+        <CookForm
+          values={cookValues}
+          onChange={setCookValues}
+          usualBudget={usualBudget}
+          pantryItems={pantryItems}
+        />
       ) : mode === "order" ? (
         <OrderForm values={orderValues} onChange={setOrderValues} />
       ) : (

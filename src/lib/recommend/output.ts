@@ -205,6 +205,16 @@ function findCookConstraintViolations(
     if (r.estimated_extra_cost_usd > costLimit) {
       problems.push(`${r.role}: ~$${r.estimated_extra_cost_usd} to buy is over the $${constraints.budget_usd} budget.`);
     }
+    // Stricter than the cost check above, and checked independently of it:
+    // "Use what I have" means zero purchases, not just a low estimate. This
+    // catches the model reporting $0 while still listing something needed —
+    // the two fields disagreeing is itself a sign the recommendation isn't
+    // actually inventory-only.
+    if (constraints.no_shopping && r.ingredients_needed.length > 0) {
+      problems.push(
+        `${r.role}: needs ${r.ingredients_needed.join(", ")} to buy, but inventory-only was requested.`,
+      );
+    }
     // With no_cooking, constraints.equipment is empty, so any appliance counts.
     const unowned = r.equipment.filter((item) => !constraints.equipment.includes(item));
     if (unowned.length > 0) {

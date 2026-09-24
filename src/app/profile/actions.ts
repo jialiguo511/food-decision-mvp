@@ -40,7 +40,9 @@ export async function saveProfile(input: ProfileInput): Promise<SaveResult> {
     goal: input.goal,
     protein_target_g: clamp(input.protein_target_g, 40, 300),
     daily_calorie_target_kcal: calories,
-    budget_per_meal_usd: clamp(input.budget_per_meal_usd, 1, 100),
+    // 0 is a valid budget — "no additional spending by default" — not an
+    // error to clamp away.
+    budget_per_meal_usd: clamp(input.budget_per_meal_usd, 0, 100),
     fridge_size: input.fridge_size,
     default_cook_minutes: clamp(input.default_cook_minutes, 5, 180),
     cuisines: dedupe(input.cuisines),
@@ -65,4 +67,48 @@ function clamp(value: number, min: number, max: number) {
 
 function dedupe(values: string[]): string[] {
   return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).slice(0, 40);
+}
+
+/**
+ * The whole pantry list, replaced in one call — the same "read the array,
+ * write the array back" shape as saving cuisines/dislikes, except pantry_items
+ * is a real table (already existed, unused) rather than a JSONB column, so
+ * this diffs by name instead of overwriting a single row. Deliberately no
+ * quantities, categories, or expiry — see CLAUDE.md's current non-goals.
+ */
+export async function setPantryItems(names: string[]): Promise<SaveResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "You are signed out. Please sign in again." };
+
+  const wanted = dedupe(names);
+
+  const { data: existing, error: readError } = await supabase
+    .from("pantry_items")
+    .select("id, name")
+    .eq("user_id", user.id);
+  if (readError) return { ok: false, error: readError.message };
+
+  const existingNames = new Set((existing ?? []).map((row) => row.name as string));
+  const wantedNames = new Set(wanted);
+
+  const toInsert = wanted.filter((name) => !existingNames.has(name));
+  const toDelete = (existing ?? []).filter((row) => !wantedNames.has(row.name as string)).map((row) => row.id);
+
+  if (toDelete.length > 0) {
+    const { error } = await supabase.from("pantry_items").delete().in("id", toDelete);
+    if (error) return { ok: false, error: error.message };
+  }
+  if (toInsert.length > 0) {
+    const { error } = await supabase
+      .from("pantry_items")
+      .insert(toInsert.map((name) => ({ user_id: user.id, name })));
+    if (error) return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/profile");
+  revalidatePath("/today");
+  return { ok: true };
 }

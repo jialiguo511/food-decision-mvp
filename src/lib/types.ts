@@ -40,16 +40,24 @@ export type ProfileInput = Omit<
  */
 export type DecisionMode = "cook" | "order" | "store_snack";
 
+/** Whether the user is willing to buy anything tonight. The explicit signal
+ *  for inventory-only cooking — see CookConstraints.no_shopping — rather than
+ *  inferring that purely from a $0 budget. */
+export type CookShopping = "inventory_only" | "can_buy";
+
 /** The dynamic context captured on Today for the "I can cook" flow. */
 export type MealContext = {
   decision_mode: "cook";
   cook_minutes: number;
   hunger: Hunger;
   effort: Effort;
+  shopping: CookShopping;
   /** A preset from COMMON_CRAVINGS, something the user typed, or null. */
   craving: string | null;
   ingredients_on_hand: string[];
-  /** null means "use the budget from my profile". */
+  /** Maximum additional spend, never money the meal is expected to use.
+   *  null means "use the budget from my profile". Ignored (forced to 0) when
+   *  shopping is "inventory_only". */
   budget_override_usd: number | null;
 };
 
@@ -173,10 +181,16 @@ export type Recommendation = CookRecommendation | OrderRecommendation | StoreSna
 export type CookConstraints = {
   decision_mode: "cook";
   max_minutes: number;
+  /** Maximum additional spend tonight — never an amount the meal is expected
+   *  to use. Forced to 0 when no_shopping is true, regardless of any override
+   *  or profile default. */
   budget_usd: number;
   budget_source: "profile" | "override";
   equipment: string[];
   no_cooking: boolean;
+  /** True when the user chose "Use what I have" — every recommendation must
+   *  need zero additional purchases, not merely stay under a low budget. */
+  no_shopping: boolean;
   avoid: string[];
 };
 

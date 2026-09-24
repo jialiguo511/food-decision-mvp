@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_PROFILE } from "@/lib/options";
 import type { ProfileInput } from "@/lib/types";
+import PantryCard from "./PantryCard";
 import ProfileForm from "./ProfileForm";
 
 export default async function ProfilePage() {
@@ -46,13 +47,23 @@ export default async function ProfilePage() {
       : {}),
   };
 
+  const { data: pantryRows } = await supabase
+    .from("pantry_items")
+    .select("name")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+  const pantryItems = (pantryRows ?? []).map((row) => row.name as string);
+
   return (
     <AppShell
       title="My Food Profile"
       subtitle="Set this once. Every suggestion respects it."
       action={<SignOutButton />}
     >
-      <ProfileForm initial={initial} />
+      <div className="space-y-4">
+        <ProfileForm initial={initial} />
+        <PantryCard initial={pantryItems} />
+      </div>
     </AppShell>
   );
 }

@@ -37,13 +37,16 @@ export const cookContextSchema = z.object({
   cook_minutes: z.number().int().min(5).max(180),
   hunger: z.enum(["light", "normal", "very_hungry"]),
   effort: z.enum(["minimal", "some", "happy_to_cook"]),
+  shopping: z.enum(["inventory_only", "can_buy"]),
   craving: z
     .string()
     .max(200)
     .nullable()
     .transform((value) => value?.trim().replace(/\s+/g, " ") || null),
   ingredients_on_hand: z.array(z.string().trim().min(1).max(60)).max(40),
-  budget_override_usd: z.number().min(1).max(100).nullable(),
+  // 0 is valid and meaningful — "no additional spending" — not just excluded
+  // as a degenerate slider value. See CookConstraints.budget_usd.
+  budget_override_usd: z.number().min(0).max(100).nullable(),
 }) satisfies z.ZodType<MealContext>;
 
 const orderCravingCategories = ORDER_CRAVINGS.map((c) => c.value) as [OrderCravingCategory, ...OrderCravingCategory[]];
@@ -144,6 +147,10 @@ export function resolveRecommendationInput(
   profile: ProfileInput,
   context: DecisionContext,
   previousRecommendations?: readonly Recommendation[],
+  /** The user's persistent pantry (see pantry_items), merged ahead of
+   *  whatever they typed into ingredients_on_hand this session. Cook mode
+   *  only — the other two modes have no ingredients field to merge into. */
+  pantryItems: readonly string[] = [],
 ): RecommendationInput {
   const previous =
     previousRecommendations && previousRecommendations.length > 0
@@ -191,17 +198,22 @@ export function resolveRecommendationInput(
   const appliances = owned.filter((item) => item !== NO_COOKING);
   const noCooking = owned.includes(NO_COOKING) || appliances.length === 0;
 
-  const overriding = context.budget_override_usd !== null;
+  // The explicit "Use what I have" signal, not an inference from budget.
+  // It forces the budget to 0 itself, so a stale or leftover override never
+  // silently permits shopping once this is chosen.
+  const noShopping = context.shopping === "inventory_only";
+  const overriding = !noShopping && context.budget_override_usd !== null;
 
   return {
     decision_mode: "cook",
     hard_constraints: {
       decision_mode: "cook",
       max_minutes: context.cook_minutes,
-      budget_usd: context.budget_override_usd ?? profile.budget_per_meal_usd,
-      budget_source: overriding ? "override" : "profile",
+      budget_usd: noShopping ? 0 : (context.budget_override_usd ?? profile.budget_per_meal_usd),
+      budget_source: noShopping || overriding ? "override" : "profile",
       equipment: noCooking ? [] : appliances,
       no_cooking: noCooking,
+      no_shopping: noShopping,
       avoid: profile.dislikes,
     },
     soft_preferences: {
@@ -210,7 +222,7 @@ export function resolveRecommendationInput(
       daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
       preferred_cuisines: profile.cuisines,
       craving: context.craving,
-      ingredients_on_hand: context.ingredients_on_hand,
+      ingredients_on_hand: mergeIngredients(pantryItems, context.ingredients_on_hand),
       hunger: context.hunger,
       effort: context.effort,
       fridge_size: profile.fridge_size,
@@ -218,6 +230,21 @@ export function resolveRecommendationInput(
     },
     ...(previous ? { previous_recommendations: previous } : {}),
   };
+}
+
+/** Pantry first, then whatever the user added just for tonight — deduped
+ *  case-insensitively so the same thing typed two ways doesn't show twice. */
+function mergeIngredients(pantry: readonly string[], session: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const item of [...pantry, ...session]) {
+    const trimmed = item.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(trimmed);
+  }
+  return merged;
 }
 
 /** A `profiles` row, or null for a user who has never saved, as a complete

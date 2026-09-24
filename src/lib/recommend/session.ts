@@ -41,11 +41,17 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
 /** Rows written before the "I want to order food" mode existed have no
  *  `decision_mode` on their context — they all predate the field, and are
  *  all cook sessions. Tag them so they still restore instead of being
- *  silently dropped. New rows always write the field themselves, so this is
- *  a no-op for anything written by the current code. */
+ *  silently dropped. Separately, rows written before the inventory-only
+ *  shopping toggle existed have no `shopping` field on a cook context;
+ *  default those to "can_buy", the prior (and only) behavior, so restoring
+ *  an old session doesn't change what it meant. New rows always write both
+ *  fields themselves, so this is a no-op for anything written by the current
+ *  code. */
 function withDefaultMode(context: unknown): unknown {
-  if (!isRecord(context) || "decision_mode" in context) return context;
-  return { ...context, decision_mode: "cook" };
+  if (!isRecord(context)) return context;
+  const withMode = "decision_mode" in context ? context : { ...context, decision_mode: "cook" };
+  if (withMode.decision_mode !== "cook" || "shopping" in withMode) return withMode;
+  return { ...withMode, shopping: "can_buy" };
 }
 
 /** Same backward-compat shim, applied per recommendation — old rows have

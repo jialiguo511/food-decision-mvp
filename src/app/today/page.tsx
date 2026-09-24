@@ -45,6 +45,16 @@ export default async function TodayPage() {
     .maybeSingle();
   const restored = sessionRow ? parseStoredSession(sessionRow) : null;
 
+  // Cook automatically has access to the pantry — the user never re-enters
+  // it. Editing happens on Me; this is a plain read, same as the profile
+  // fields above.
+  const { data: pantryRows } = await supabase
+    .from("pantry_items")
+    .select("name")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+  const pantryItems = (pantryRows ?? []).map((r) => r.name as string);
+
   // If that session already had a recommendation chosen, it may also already
   // have feedback recorded — restore it so Today doesn't ask again.
   let initialFeedback: { id: string; didEat: boolean; note: string | null } | null = null;
@@ -71,6 +81,7 @@ export default async function TodayPage() {
     cook_minutes: usualCookMinutes,
     hunger: "normal",
     effort: "some",
+    shopping: "can_buy",
     craving: null,
     ingredients_on_hand: [],
     // null means "whatever my profile says", so the budget card stays collapsed.
@@ -83,6 +94,7 @@ export default async function TodayPage() {
         initial={initial}
         usualCookMinutes={usualCookMinutes}
         usualBudget={usualBudget}
+        pantryItems={pantryItems}
         initialSession={restored?.session ?? null}
         initialChosenIndex={restored?.chosenIndex ?? null}
         initialFeedback={initialFeedback}

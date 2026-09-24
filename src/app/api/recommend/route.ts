@@ -74,7 +74,17 @@ export async function POST(request: Request) {
     return fail("profile_unavailable", "Couldn't load your food profile.");
   }
 
-  const input = resolveRecommendationInput(toProfileInput(row), context, previous_recommendations);
+  // Pantry is a soft preference (what the user has, not a hard constraint the
+  // way dislikes/equipment are), so unlike the profile read above, a failure
+  // here degrades to "no pantry" rather than failing the whole request.
+  const { data: pantryRows, error: pantryError } = await supabase
+    .from("pantry_items")
+    .select("name")
+    .eq("user_id", user.id);
+  if (pantryError) console.error("[recommend] pantry read failed", pantryError);
+  const pantryItems = (pantryRows ?? []).map((r) => r.name as string);
+
+  const input = resolveRecommendationInput(toProfileInput(row), context, previous_recommendations, pantryItems);
   const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 });
   const result = await generateRecommendations(client, input);
   if (!result.ok) return fail(result.code, result.message, result.details);

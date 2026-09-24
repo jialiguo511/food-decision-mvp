@@ -27,15 +27,10 @@ export default function LoginPage() {
     // preview deploy redirected back to production once that var was set
     // in Vercel project settings, since NEXT_PUBLIC_ vars apply to preview
     // builds too unless explicitly scoped otherwise.
-    const redirectTo = `${window.location.origin}/auth/callback`;
-    // TEMPORARY debug log — remove once the Preview redirect issue is
-    // confirmed fixed. Logs only the computed redirect URL, never the email
-    // address or any token/credential.
-    console.log("[auth] emailRedirectTo:", redirectTo);
     const { error } = await createClient().auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: redirectTo,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
     if (error) {

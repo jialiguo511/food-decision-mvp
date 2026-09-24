@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
+import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -63,7 +63,10 @@ export const PROTEIN_TARGET = { min: 60, max: 220, step: 5 };
 /** Accepted range for the optional daily calorie target. Matches the database
  *  check constraint in supabase/schema.sql. */
 export const CALORIE_TARGET = { min: 1000, max: 5000 };
-export const BUDGET_PER_MEAL = { min: 3, max: 40, step: 1 };
+/** min: 0 is a real, meaningful value — "no additional spending", not just a
+ *  slider floor. Budget is a ceiling on additional spend, never an amount a
+ *  meal is expected to use. */
+export const BUDGET_PER_MEAL = { min: 0, max: 40, step: 1 };
 export const COOK_MINUTES = [10, 20, 30, 45, 60] as const;
 
 /** Used when a user has no profile row yet. Every field has a real default
@@ -96,6 +99,13 @@ export const EFFORT_LEVELS: { value: Effort; label: string; hint: string }[] = [
   { value: "minimal", label: "None", hint: "Assemble, barely cook" },
   { value: "some", label: "A little", hint: "One pan is fine" },
   { value: "happy_to_cook", label: "I want to cook", hint: "Cooking sounds good" },
+];
+
+/** Whether tonight allows any shopping at all. Explicit and separate from the
+ *  budget slider on purpose — see types.ts → CookShopping. */
+export const COOK_SHOPPING_MODES: { value: CookShopping; label: string; hint: string }[] = [
+  { value: "inventory_only", label: "Use what I have", hint: "No shopping tonight" },
+  { value: "can_buy", label: "I can buy a few things", hint: "Set a budget below" },
 ];
 
 /** Craving presets. The user can also type their own — see TodayForm. */
