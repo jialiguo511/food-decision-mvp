@@ -41,6 +41,14 @@ const cookRecommendationFields = z.object({
   // Same `.default(null)` reasoning as order's `modification` below. Also what
   // lets sessions saved before this field existed still restore.
   inventory_note: z.string().min(1).nullable().default(null),
+  // Dish + key ingredients for later image lookup (e.g. "chicken spinach rice
+  // bowl") — never a URL; see src/lib/images/provider.ts and PLAN.md → NEXT →
+  // "Recipe visualization". `.nullable().default(null)` for the same reason
+  // as inventory_note above: lets sessions saved before this field existed
+  // still restore. Cook-only for now — order/store-snack recommendations
+  // aren't given this field yet, since they'll likely need a different image
+  // source (menu photo, product photo) rather than sharing this contract.
+  image_query: z.string().min(1).nullable().default(null),
 });
 
 /** Fields for an order recommendation — a meal category, not a recipe. No

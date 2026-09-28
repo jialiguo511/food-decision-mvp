@@ -167,6 +167,22 @@ contents into NOW.
 - Measurement-style preference — everyday measures / precise weights / both
 - Basic product analytics
 - Recruit the first 5–15 external testers
+- **Recipe visualization** — added 2026-09-28. Recipe cards should show an
+  image to help "do I want to eat this?" decide faster, but a recommendation
+  must never depend on image generation or lookup succeeding — the core loop
+  wins per `CLAUDE.md`. Cook-only for now: order and store-snack recommendations
+  aren't given an `image_query` yet, since they'll likely need a different
+  image source (a menu photo, a product photo) rather than sharing Cook's
+  dish-photo contract. First slice (done): `image_query` (dish + key
+  ingredients, e.g. "chicken spinach rice bowl" — never a URL from the model)
+  added to Cook's structured output and persisted verbatim in
+  `decision_sessions.recommendations`; a swappable `ImageProvider` interface
+  in `src/lib/images/provider.ts` with a no-op stub. No UI renders an image
+  yet — a permanent placeholder-only image box is explicitly not wanted; the
+  image area on recommendation cards (large for `best_match`, thumbnail for
+  the other two) only ships once a real provider is chosen and can return
+  useful images. Choosing that provider (stock/search, curated library, AI
+  generation) is a separate decision, not yet made.
 
 ---
 

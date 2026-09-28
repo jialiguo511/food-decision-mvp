@@ -3,6 +3,7 @@
 import Card from "@/components/ui/Card";
 import type { ActiveSession, Recommendation, RecommendFailure } from "@/lib/types";
 import MealFeedback, { type FeedbackData } from "./MealFeedback";
+import RecipeImage from "./RecipeImage";
 import type { Selection } from "./useRecommend";
 
 /**
@@ -159,6 +160,9 @@ export default function RecommendationResults({
 
             return (
               <Card key={r.role} title={roleLabel(r)} highlighted={isThisChosen}>
+                {r.decision_mode === "cook" && (
+                  <RecipeImage query={r.image_query} size={r.role === "best_match" ? "large" : "thumbnail"} />
+                )}
                 <h3 className="text-base font-semibold">{r.title}</h3>
 
                 {r.decision_mode === "cook" ? (

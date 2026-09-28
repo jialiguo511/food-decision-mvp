@@ -138,6 +138,13 @@ export type CookRecommendation = {
    *  saying so. Null otherwise (and on sessions saved before this field
    *  existed). */
   inventory_note: string | null;
+  /** Dish + key ingredients for image lookup, e.g. "chicken spinach rice
+   *  bowl" — never a URL or anything else image-related from the model. See
+   *  PLAN.md → NEXT → "Recipe visualization". Cook-only for now: order and
+   *  store-snack recommendations will likely need a different image source
+   *  (a menu photo, a product photo) rather than sharing this contract.
+   *  Nullable for sessions saved before this field existed. */
+  image_query: string | null;
 };
 
 /** One of the exactly-three recommendations for the "I want to order food"

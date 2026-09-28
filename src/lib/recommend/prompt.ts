@@ -95,6 +95,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "cook")}
 - estimated_calories and estimated_protein_g: rough estimates for one serving. They are shown to the user as approximations.
 - steps: short, plain instructions — at most six.
 - inventory_note: ${strict ? "see the strict inventory rules above." : "always null."}
+- image_query: a short, plain search phrase for this dish, lowercase, no filler words — the dish plus its key visible ingredients, e.g. "apple yogurt oatmeal bowl" or "chicken spinach rice bowl". Not a sentence, not a brand, not a restaurant name. Never include nutrition or health words ("healthy", "high protein", "low calorie", "diet", etc.) or a number of any kind — describe only what the dish looks like. This is only ever used to search a stock-photo library later; never include a URL or anything else image-related.
 - insufficient_inventory: ${strict ? "see the strict inventory rules above." : "this field does not exist for this request; omit it."}`;
 }
 
