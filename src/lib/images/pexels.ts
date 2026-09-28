@@ -8,9 +8,14 @@
 import { ONE_DAY_MS, TtlCache } from "./cache";
 import type { ImageProvider, ImageResult } from "./provider";
 import { normalizeImageQuery } from "./query";
+import { selectRelevantPhoto } from "./relevance";
 
 const PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search";
-const RESULTS_PER_PAGE = 5;
+// A small candidate pool, not just the top hit: Pexels' own top result for a
+// short food query is often a related-but-wrong dish (e.g. "peanut butter
+// toast" surfacing avocado toast), so several candidates are scored by
+// relevance below instead of trusting Pexels' first result blindly.
+const RESULTS_PER_PAGE = 10;
 const REQUEST_TIMEOUT_MS = 5000;
 
 type PexelsPhoto = {
@@ -18,6 +23,9 @@ type PexelsPhoto = {
   photographer: string;
   photographer_url: string;
   url: string;
+  /** Pexels' own photo description — the only per-photo signal available to
+   *  check relevance against image_query without a second API call. */
+  alt: string;
 };
 
 type PexelsSearchResponse = {
@@ -69,7 +77,10 @@ async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResu
     }
 
     const data = (await response.json()) as PexelsSearchResponse;
-    const photo = data.photos?.[0];
+    // Best-scoring candidate against `query`'s tokens, not just Pexels' own
+    // top hit — see relevance.ts. Null here means nothing in the candidate
+    // pool reached the relevance bar: a fallback, not a wrong photo.
+    const photo = selectRelevantPhoto(query, data.photos ?? [], (candidate) => candidate.alt ?? "");
     if (!photo) return null;
 
     return {

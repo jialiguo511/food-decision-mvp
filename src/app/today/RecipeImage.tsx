@@ -61,8 +61,12 @@ export default function RecipeImage({
     };
   }, [query]);
 
+  // Thumbnail is narrower than before (140px, was 200px) so best_match plus
+  // two secondary images don't stack up into an excessively long mobile
+  // page — a little more compact, not a different shape (still landscape,
+  // matching what Pexels was asked to search for).
   const boxClass = `w-full overflow-hidden rounded-xl bg-accent-soft/40 ${
-    size === "large" ? "aspect-video" : "aspect-[4/3] max-w-[200px]"
+    size === "large" ? "aspect-video" : "aspect-[4/3] max-w-[140px]"
   }`;
 
   if (state.status === "loading") {
