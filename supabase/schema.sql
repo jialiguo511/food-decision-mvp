@@ -36,7 +36,19 @@ alter table public.profiles
   check (daily_calorie_target_kcal between 1000 and 5000);
 
 -- ---------------------------------------------------------------------------
--- pantry_items — what's in the kitchen. Names only, no quantities, no expiry.
+-- pantry_items — LEGACY, UNUSED BY THIS CODE. No app code in this branch
+-- reads or writes this table; kitchen_staples (below) replaces it — see
+-- CLAUDE.md's "Kitchen staples vs. today's food". It used to be a single,
+-- persisted "what food do you generally have" list, which is exactly the
+-- staleness bug kitchen_staples fixes: a name typed in weeks ago (a real,
+-- perishable "Chicken") was being auto-assumed available forever.
+--
+-- Deliberately left fully alone here — table, RLS policy, and grants
+-- unchanged — because another deployment on this same Supabase database may
+-- still depend on it (see the "Help me shop" feature on a sibling branch).
+-- Revoking access now would break that deployment before it's promoted onto
+-- this model. Retire it for real in a separate cleanup migration once this
+-- branch is merged and nothing else reads pantry_items any more.
 -- ---------------------------------------------------------------------------
 create table if not exists public.pantry_items (
   id         uuid primary key default gen_random_uuid(),
@@ -46,6 +58,47 @@ create table if not exists public.pantry_items (
   created_at timestamptz not null default now()
 );
 create index if not exists pantry_items_user_idx on public.pantry_items (user_id);
+
+-- ---------------------------------------------------------------------------
+-- kitchen_staples — persistent condiments/seasonings only (see CLAUDE.md,
+-- "Kitchen staples vs. today's food"). Never actual food: no chicken, tofu,
+-- eggs, produce, grains. Today's "what do you have right now" is the only
+-- other ingredient source for a recommendation, and it is per-request, never
+-- persisted here or anywhere else — see decision_sessions.context instead.
+-- ---------------------------------------------------------------------------
+create table if not exists public.kitchen_staples (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid        not null references auth.users (id) on delete cascade,
+  name       text        not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists kitchen_staples_user_idx on public.kitchen_staples (user_id);
+
+-- One-time, idempotent, conservative backfill from the legacy pantry_items:
+-- copy a row only when its name is an EXACT (case/whitespace-insensitive)
+-- match for an unambiguous condiment/seasoning. Deliberately a short,
+-- literal allowlist, not a keyword/substring match — "onion powder" is safe,
+-- "onion" is not, and a substring rule would conflate them. Anything not on
+-- this list (garlic, ginger, onion, eggs, tofu, cheese, yogurt, milk, bread,
+-- rice, oats, fruit, vegetables, meat, ...) is left out on purpose: losing an
+-- old entry here is fine, misclassifying a perishable as a permanent staple
+-- is the bug this migration exists to avoid. Users can re-add anything
+-- missing on Me → Kitchen staples. Guarded by `not exists` so re-pasting this
+-- file never creates duplicates or re-adds something the user removed.
+insert into public.kitchen_staples (user_id, name)
+select distinct p.user_id, p.name
+from public.pantry_items p
+where lower(trim(p.name)) in (
+  'salt', 'black pepper',
+  'olive oil', 'cooking oil', 'sesame oil', 'chili oil',
+  'soy sauce', 'vinegar', 'hot sauce', 'mustard', 'mayo',
+  'paprika', 'cumin', 'curry powder', 'garlic powder', 'onion powder',
+  'sugar', 'honey'
+)
+and not exists (
+  select 1 from public.kitchen_staples k
+  where k.user_id = p.user_id and lower(trim(k.name)) = lower(trim(p.name))
+);
 
 -- ---------------------------------------------------------------------------
 -- recipes — the Recipe Inbox. Raw capture first, structure later.
@@ -102,6 +155,7 @@ create index if not exists meal_feedback_user_idx
 -- ---------------------------------------------------------------------------
 alter table public.profiles          enable row level security;
 alter table public.pantry_items      enable row level security;
+alter table public.kitchen_staples   enable row level security;
 alter table public.recipes           enable row level security;
 alter table public.decision_sessions enable row level security;
 alter table public.meal_feedback     enable row level security;
@@ -111,8 +165,13 @@ drop policy if exists "own profile" on public.profiles;
 create policy "own profile" on public.profiles
   for all using (auth.uid() = id) with check (auth.uid() = id);
 
-drop policy if exists "own pantry" on public.pantry_items;
-create policy "own pantry" on public.pantry_items
+-- pantry_items keeps its existing "own pantry" policy untouched (see above) —
+-- not recreated here, since this file only ever adds; a database that never
+-- ran the original schema simply has no policy for it, which is fine given
+-- nothing here reads or writes it either.
+
+drop policy if exists "own kitchen staples" on public.kitchen_staples;
+create policy "own kitchen staples" on public.kitchen_staples
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "own recipes" on public.recipes;
@@ -147,8 +206,11 @@ create policy "own feedback" on public.meal_feedback
 -- ---------------------------------------------------------------------------
 grant usage on schema public to authenticated;
 
+-- pantry_items keeps its existing grant untouched, same reasoning as its RLS
+-- policy above — see the table comment for why it isn't revoked yet.
+
 grant select, insert, update, delete on public.profiles          to authenticated;
-grant select, insert, update, delete on public.pantry_items      to authenticated;
+grant select, insert, update, delete on public.kitchen_staples   to authenticated;
 grant select, insert, update, delete on public.recipes           to authenticated;
 grant select, insert, update, delete on public.decision_sessions to authenticated;
 grant select, insert, update, delete on public.meal_feedback     to authenticated;

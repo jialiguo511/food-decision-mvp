@@ -9,7 +9,7 @@ import type { ActiveSession, DecisionContext, DecisionMode, MealContext, OrderCo
 import CookForm from "./CookForm";
 import type { FeedbackData } from "./MealFeedback";
 import OrderForm from "./OrderForm";
-import RecommendationResults from "./RecommendationResults";
+import RecommendationResults, { isInventoryLimited } from "./RecommendationResults";
 import StoreSnackForm from "./StoreSnackForm";
 import { useRecommend } from "./useRecommend";
 
@@ -57,6 +57,7 @@ function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
       a.shopping === b.shopping &&
       a.craving === b.craving &&
       a.budget_override_usd === b.budget_override_usd &&
+      (a.minimize_purchases ?? false) === (b.minimize_purchases ?? false) &&
       arraysEqual(a.ingredients_on_hand, b.ingredients_on_hand)
     );
   }
@@ -82,7 +83,7 @@ export default function TodayForm({
   initial,
   usualCookMinutes,
   usualBudget,
-  pantryItems,
+  kitchenStaples,
   initialSession,
   initialChosenIndex,
   initialFeedback,
@@ -90,9 +91,11 @@ export default function TodayForm({
   initial: DecisionContext;
   usualCookMinutes: number;
   usualBudget: number;
-  /** The user's persistent pantry, read server-side — Cook always has access
-   *  to it without the user re-entering anything. */
-  pantryItems: string[];
+  /** The user's persistent Kitchen staples (condiments/seasonings only), read
+   *  server-side — Cook always has access to them without the user
+   *  re-entering anything. Never actual food; see CookForm's "what do you
+   *  have right now" for that. */
+  kitchenStaples: string[];
   /** The most recent decision_sessions row, restored server-side — null on a
    *  first visit with no prior session. Restoring never calls the model. */
   initialSession: ActiveSession | null;
@@ -122,7 +125,7 @@ export default function TodayForm({
   // Which action a loading request is for, so the right button (and only
   // that one) shows a loading label. Doesn't need to be reset on
   // success/error — it's only ever read while request.kind === "loading".
-  const [pendingAction, setPendingAction] = useState<"generate" | "showMore" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"generate" | "showMore" | "buy" | null>(null);
 
   // initialFeedback was only ever read for initialSession. The moment a
   // regenerate or "Show me 3 more" swaps in a new session, that restored
@@ -175,6 +178,27 @@ export default function TodayForm({
     void run(session.context, session.recommendations);
   }
 
+  /** "Show me what to buy", offered after a thin or empty "Use what I have"
+   *  result. Re-asks the same question with shopping allowed and the goal set
+   *  to the fewest possible purchases — the existing "I can buy a few things"
+   *  behavior, not a separate flow. Updates the form too, so the form and the
+   *  session on screen still match once it lands. */
+  function showWhatToBuy() {
+    if (!session || session.context.decision_mode !== "cook") return;
+    const next: MealContext = {
+      ...session.context,
+      shopping: "can_buy",
+      budget_override_usd: null,
+      minimize_purchases: true,
+    };
+    setPendingAction("buy");
+    setMode("cook");
+    setCookValues(next);
+    void run(next);
+  }
+
+  const inventoryLimited = !!session && !isDirty && isInventoryLimited(session);
+
   return (
     <div className="space-y-4">
       <Card title="What's tonight?">
@@ -190,7 +214,7 @@ export default function TodayForm({
           values={cookValues}
           onChange={setCookValues}
           usualBudget={usualBudget}
-          pantryItems={pantryItems}
+          kitchenStaples={kitchenStaples}
         />
       ) : mode === "order" ? (
         <OrderForm values={orderValues} onChange={setOrderValues} />
@@ -230,10 +254,24 @@ export default function TodayForm({
         onChoose={choose}
       />
 
+      {/* A thin or empty "Use what I have" result: "3 more" would only push
+          the model toward inventing ingredients, so the way forward is
+          buying instead. */}
+      {inventoryLimited && (
+        <button
+          type="button"
+          onClick={showWhatToBuy}
+          disabled={request.kind === "loading"}
+          className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
+        >
+          {request.kind === "loading" && pendingAction === "buy" ? "Finding what to buy…" : "Show me what to buy"}
+        </button>
+      )}
+
       {/* Same context, different options — only offered once the form
           matches the session, so it never silently discards an edit the
           user hasn't submitted yet. */}
-      {session && !isDirty && (
+      {session && !isDirty && !inventoryLimited && (
         <button
           type="button"
           onClick={showMore}

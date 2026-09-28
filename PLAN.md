@@ -82,10 +82,23 @@ Context → Recommendation → Selection → Actual eating → Feedback
       pending. `Find my meal` currently renders the captured `MealContext`
       for inspection instead of calling anything.
 - [~] **`/api/recommend`** — implementation complete; founder review of real
-      recommendation quality in progress. Sends profile + Today context (pantry
-      and saved recipes are Extended MVP and not sent). Hard constraints stated
-      explicitly; validated JSON; recipes use everyday measures first.
-      Currently triggered only by the debug button on Today.
+      recommendation quality in progress. Sends profile + Today context,
+      including Kitchen staples (saved recipes are Extended MVP and not
+      sent). Hard constraints stated explicitly; validated JSON; recipes use
+      everyday measures first. Currently triggered only by the debug button
+      on Today.
+- [x] **Kitchen staples (Me) + "What do you have right now?" (Today)** —
+      added 2026-09-28, replacing the earlier general-purpose "pantry"
+      concept, which mixed persistent condiments with actual, perishable food
+      and went stale. See `CLAUDE.md` → "Kitchen staples vs. today's food"
+      for the canonical availability rule and why it's built this way.
+      "Use what I have" is strict: only `todaysFoods + kitchenStaples` (plus
+      water) may appear in a recommendation, validated server-side, not just
+      prompted for; it returns 0–3 recommendations rather than inventing a
+      missing ingredient to reach three; and not having enough to make a real
+      meal surfaces the "Show me what to buy" fallback (the existing
+      "I can buy a few things" flow, optimized for the fewest additional
+      items) instead of a forced recipe.
 - [~] **Optional daily calorie target** — manually entered on Profile. Needs
       the `schema.sql` migration run, then manual verification. No BMR/TDEE,
       no "Suggest for me".
@@ -93,7 +106,8 @@ Context → Recommendation → Selection → Actual eating → Feedback
       meal ranges computed from the daily target when set, qualitative goal
       guidance when not. No server-side calorie validator.
 - [ ] **Exactly 3 recommendations** — `best_match`, `lowest_effort`,
-      `alternative`. Never a longer list.
+      `alternative`. Never a longer list. One narrow exception: "Use what I
+      have" may return 0–3 — see Kitchen staples above.
 - [ ] **Select a recommendation** — writes `decision_sessions.chosen_index`.
 - [ ] **Record whether it was actually eaten** — writes `meal_feedback`. This
       is the success event the whole product is measured by.
@@ -116,7 +130,7 @@ Context → Recommendation → Selection → Actual eating → Feedback
 - [ ] **Decision mode: "grab a snack" (`store_snack`)** — added 2026-09-21,
       promoted directly into NOW rather than left at the NEXT-level "Food
       occasion" item, since it is scoped as a third decision mode (not a
-      pantry/history feature) and ships no grocery-intelligence surface. A
+      history feature) and ships no grocery-intelligence surface. A
       third first-level choice on Today for "I want something sweet/salty
       right now and am willing to walk into a store, but not cook or order a
       meal." Asks only hunger and a one-tap craving type (sweet / salty /
@@ -140,7 +154,6 @@ unfinished.** A screen shell existing in the navigation does not promote its
 contents into NOW.
 
 - Recipe Inbox / recipe memory
-- Simple pantry
 - Meal history
 - Favorites
 - Recent-meal awareness
@@ -245,7 +258,7 @@ Browser (React Server Components + a few client components)
    ▼
 Next.js App Router (Vercel)
    ├── Server Components  → read data directly from Supabase with the user's session
-   ├── Server Actions     → writes (save profile, save pantry item, record feedback)
+   ├── Server Actions     → writes (save profile, save kitchen staple, record feedback)
    └── Route Handlers     → /api/recommend  (the only place the LLM key is used)
    │
    ▼
@@ -275,7 +288,7 @@ Five tables, plus Supabase's built-in `auth.users`.
 | table | holds | shape note |
 |---|---|---|
 | `profiles` | persistent preferences | scalars as columns, lists as JSONB |
-| `pantry_items` | what's in the kitchen | name + coarse category only, no quantities |
+| `kitchen_staples` | persistent condiments/seasonings only — never actual food | name only, no quantities |
 | `recipes` | Recipe Inbox | raw text/URL + optional LLM-structured JSONB |
 | `decision_sessions` | one "Find my meal" event | context JSONB + the 3 recs JSONB, either mode |
 | `meal_feedback` | did they actually eat it | links back to a session |

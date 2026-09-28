@@ -45,15 +45,17 @@ export default async function TodayPage() {
     .maybeSingle();
   const restored = sessionRow ? parseStoredSession(sessionRow) : null;
 
-  // Cook automatically has access to the pantry — the user never re-enters
-  // it. Editing happens on Me; this is a plain read, same as the profile
-  // fields above.
-  const { data: pantryRows } = await supabase
-    .from("pantry_items")
+  // Cook automatically has access to Kitchen staples (condiments/seasonings
+  // only) — the user never re-enters them. Editing happens on Me; this is a
+  // plain read, same as the profile fields above. Actual food for tonight
+  // ("What do you have right now?") is never read back from a prior
+  // session — it lives only in the form state / the context just submitted.
+  const { data: staplesRows } = await supabase
+    .from("kitchen_staples")
     .select("name")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
-  const pantryItems = (pantryRows ?? []).map((r) => r.name as string);
+  const kitchenStaples = (staplesRows ?? []).map((r) => r.name as string);
 
   // If that session already had a recommendation chosen, it may also already
   // have feedback recorded — restore it so Today doesn't ask again.
@@ -94,7 +96,7 @@ export default async function TodayPage() {
         initial={initial}
         usualCookMinutes={usualCookMinutes}
         usualBudget={usualBudget}
-        pantryItems={pantryItems}
+        kitchenStaples={kitchenStaples}
         initialSession={restored?.session ?? null}
         initialChosenIndex={restored?.chosenIndex ?? null}
         initialFeedback={initialFeedback}

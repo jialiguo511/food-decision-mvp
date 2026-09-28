@@ -86,9 +86,54 @@ for the reader to redirect you before the work exists, not after.
   · select a recommendation · record whether it was actually eaten · basic
   rejection / feedback reason. Required before the product hypothesis can be
   tested at all.
-- **Extended MVP** — Recipe Inbox / recipe memory · simple pantry · meal
-  history · favorites · recent-meal awareness · basic preference learning.
-  Useful, but build only after the core loop works end to end.
+- **Extended MVP** — Recipe Inbox / recipe memory · meal history · favorites ·
+  recent-meal awareness · basic preference learning. Useful, but build only
+  after the core loop works end to end.
+
+## Kitchen staples vs. today's food
+
+**Product-level rule, not just an implementation detail.** There is no
+general "pantry" concept in this product. There are exactly two ingredient
+sources, and they are never merged into one persisted list:
+
+- **Me → Kitchen staples.** Persistent condiments and seasonings only — salt,
+  oil, soy sauce, vinegar, spices. Never actual food: no chicken, tofu, eggs,
+  produce, grains, dairy. Kitchen staples persist until the user edits them.
+- **Today → "What do you have right now?"** The food actually available for
+  *this* meal, entered fresh each time. This is never saved and never
+  assumed to persist across future meals or sessions — a "Use what I have"
+  request five minutes from now starts from an empty list again unless the
+  user re-enters it.
+
+**The canonical availability rule** for a cook recommendation, everywhere it
+is used — model input, server-side validation, the recipe's structured
+ingredients, the "Have" display, and the recipe's own instructions — is:
+
+```
+availableIngredients = todaysFoods + kitchenStaples
+```
+
+Water is the only implicit ingredient beyond that. Salt, pepper, oil, garlic,
+and anything else — however common in most kitchens — are only available when
+they are in one of those two lists. No other source is ever merged in, and no
+ingredient outside `availableIngredients` may appear in a recommendation's
+title, its structured ingredient fields, or its steps.
+
+This exists because merging a general, persisted "pantry" into every request
+goes stale: an item entered once (a real, perishable "Chicken") would be
+silently assumed available forever. See `LEARNINGS.md` if this assumption is
+ever revisited.
+
+Consequences for "Use what I have" (`shopping: "inventory_only"`):
+
+- It can return **0–3 recommendations** — never padded to three by inventing
+  an ingredient the user doesn't have. Fewer, or a very simple result, beats
+  a recipe that quietly assumes something extra.
+- When `availableIngredients` genuinely can't support a reasonable meal, the
+  right outcome is **zero recommendations plus the purchase fallback** ("Show
+  me what to buy," which reruns as "I can buy a few things" optimized for the
+  fewest additional items) — never an invented recipe just because it happens
+  to pass the ingredient check.
 
 ## Minimum decisions, progressive disclosure
 
@@ -147,8 +192,8 @@ Two things follow, same as before:
 
 **What changed from the previous five-screen structure (My Food / Inbox /
 Profile / Today / Results):** `My Food` and `Inbox` are no longer separate
-top-level nav areas. Their future functionality doesn't disappear — pantry,
-history, and favorites move conceptually toward `Groceries` and `Me`; Recipe
+top-level nav areas. Their future functionality doesn't disappear — history
+and favorites move conceptually toward `Groceries` and `Me`; Recipe
 Inbox moves conceptually toward `Plan` (saving recipes while planning ahead).
 None of that is built yet; this is a navigation and documentation change, not
 an implementation of any of it. `Results` was never reachable from the bottom
@@ -169,7 +214,7 @@ these also appear in `PRODUCT.md` under Possible future directions. Neither
 status is permission to build.
 
 Native iOS/Android apps · real-time grocery pricing · Instacart · restaurant
-APIs · delivery ordering · barcode scanning · exact pantry quantities ·
+APIs · delivery ordering · barcode scanning · exact ingredient quantities ·
 expiration-date tracking · Apple Health · wearables · automatic calorie
 logging · social or community features · autonomous AI agents · vector
 databases · trained recommendation models · weekly meal planning · complex
@@ -207,8 +252,9 @@ TikTok scraping · browser extensions · iOS share extensions.
 
 - The model is **not a chatbot**. The server builds a structured context object
   and asks for **structured JSON back**. Never render raw model prose.
-- The context contains: persistent profile, current meal context, pantry,
-  relevant saved recipes.
+- The context contains: persistent profile, current meal context (including
+  Kitchen staples — see "Kitchen staples vs. today's food" above), relevant
+  saved recipes.
 - **Hard constraints are stated explicitly and separately** from soft
   preferences: unavailable equipment, maximum cooking time, strong dislikes,
   budget ceiling. These are non-negotiable in the prompt.

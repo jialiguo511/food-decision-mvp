@@ -4,6 +4,7 @@
 // go through here, each with its own schema and constraint check.
 
 import { z } from "zod";
+import { ingredientsOutsideInventory } from "./inventory";
 import type {
   ActiveConstraints,
   CookRecommendation,
@@ -37,6 +38,9 @@ const cookRecommendationFields = z.object({
   ingredients_needed: z.array(z.string()),
   equipment: z.array(z.string()).describe("Only items listed in hard_constraints.equipment."),
   steps: z.array(z.string().min(1)).min(1),
+  // Same `.default(null)` reasoning as order's `modification` below. Also what
+  // lets sessions saved before this field existed still restore.
+  inventory_note: z.string().min(1).nullable().default(null),
 });
 
 /** Fields for an order recommendation — a meal category, not a recipe. No
@@ -82,8 +86,25 @@ const storeSnackRecommendationFields = z.object({
  * `enum` to a description hint, so it would not actually be enforced. The
  * owned-equipment rule is checked in findConstraintViolations instead, where a
  * breach is reported as the constraint violation it is.
+ *
+ * `allowFewer` is for strict "Use what I have" only: all three slots may then
+ * be null (down to zero recommendations, via `insufficient_inventory: true`,
+ * when the user's ingredients can't reasonably make anything), so the model
+ * returns only what the ingredients actually support instead of inventing a
+ * missing one to fill a slot. Everywhere else the three required keys still
+ * make "exactly three" impossible to violate.
  */
-export function buildOutputSchema(mode: DecisionMode) {
+export function buildOutputSchema(mode: DecisionMode, options: { allowFewer?: boolean } = {}) {
+  if (mode === "cook" && options.allowFewer) {
+    return z.object({
+      // True only when nothing on hand adds up to a reasonable meal — see the
+      // "Strict inventory rules" prompt section. All three slots are null then.
+      insufficient_inventory: z.boolean(),
+      best_match: cookRecommendationFields.nullable(),
+      lowest_effort: cookRecommendationFields.nullable(),
+      alternative: cookRecommendationFields.nullable(),
+    });
+  }
   const fields =
     mode === "cook"
       ? cookRecommendationFields
@@ -99,7 +120,9 @@ export function buildOutputSchema(mode: DecisionMode) {
 
 /** Validates a decision_sessions.recommendations value already in storage:
  *  the same per-recommendation shape above, each tagged with its role and
- *  decision_mode, exactly three of them. Used when restoring the most recent
+ *  decision_mode — three of them, or 0–3 for a strict "Use what I have"
+ *  session (see buildOutputSchema; fresh output for every other mode is
+ *  already exactly three). Used when restoring the most recent
  *  session on Today, so a corrupted or hand-edited row is discarded rather
  *  than rendered — the same "fail visibly" principle parseRecommendations
  *  applies to a fresh model response. A discriminated union so cook and order
@@ -112,16 +135,22 @@ export const storedRecommendationsSchema = z
       storeSnackRecommendationFields.extend({ decision_mode: z.literal("store_snack"), role: z.enum(ROLES) }),
     ]),
   )
-  .length(3);
+  .max(3);
 
 export type ParseResult =
-  | { ok: true; recommendations: RecommendSuccess["recommendations"] }
+  | { ok: true; recommendations: RecommendSuccess["recommendations"]; insufficientInventory: boolean }
   | { ok: false; code: "malformed_output" | "constraint_violation"; details: string[] };
 
 /** Validate the model's raw text. The API constrains decoding to the schema,
  *  but a refusal, a truncation, or an SDK change can still hand us something
  *  else, so nothing is trusted until it passes here. */
-export function parseRecommendations(text: string, constraints: ActiveConstraints): ParseResult {
+export function parseRecommendations(
+  text: string,
+  constraints: ActiveConstraints,
+  /** The user's ingredients for tonight. Only read for strict "Use what I
+   *  have" (no_shopping) — see findCookConstraintViolations. */
+  onHand: readonly string[] = [],
+): ParseResult {
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -130,7 +159,8 @@ export function parseRecommendations(text: string, constraints: ActiveConstraint
   }
 
   const mode = constraints.decision_mode;
-  const parsed = buildOutputSchema(mode).safeParse(json);
+  const allowFewer = constraints.decision_mode === "cook" && constraints.no_shopping;
+  const parsed = buildOutputSchema(mode, { allowFewer }).safeParse(json);
   if (!parsed.success) {
     const details = parsed.error.issues
       .slice(0, 8)
@@ -138,40 +168,37 @@ export function parseRecommendations(text: string, constraints: ActiveConstraint
     return { ok: false, code: "malformed_output", details };
   }
 
-  const recommendations = (
-    mode === "cook"
-      ? [
-          { decision_mode: "cook", role: "best_match", ...parsed.data.best_match },
-          { decision_mode: "cook", role: "lowest_effort", ...parsed.data.lowest_effort },
-          { decision_mode: "cook", role: "alternative", ...parsed.data.alternative },
-        ]
-      : mode === "order"
-        ? [
-            { decision_mode: "order", role: "best_match", ...parsed.data.best_match },
-            { decision_mode: "order", role: "lowest_effort", ...parsed.data.lowest_effort },
-            { decision_mode: "order", role: "alternative", ...parsed.data.alternative },
-          ]
-        : [
-            { decision_mode: "store_snack", role: "best_match", ...parsed.data.best_match },
-            { decision_mode: "store_snack", role: "lowest_effort", ...parsed.data.lowest_effort },
-            { decision_mode: "store_snack", role: "alternative", ...parsed.data.alternative },
-          ]
-  ) as RecommendSuccess["recommendations"];
+  // Empty slots (null, only possible when allowFewer) are dropped, so what
+  // reaches the UI is only ever real recommendations.
+  const recommendations = ROLES.flatMap((role) => {
+    const fields = parsed.data[role];
+    return fields ? [{ decision_mode: mode, role, ...fields }] : [];
+  }) as Recommendation[];
 
   const titles = new Set(recommendations.map((r) => r.title.trim().toLowerCase()));
-  if (titles.size !== ROLES.length) {
+  if (titles.size !== recommendations.length) {
     return { ok: false, code: "malformed_output", details: ["The three recommendations are not different meals."] };
   }
 
-  const violations = findConstraintViolations(recommendations, constraints);
+  const violations = findConstraintViolations(recommendations, constraints, onHand);
   if (violations.length > 0) return { ok: false, code: "constraint_violation", details: violations };
 
-  return { ok: true, recommendations };
+  // Only trust the flag when it agrees with what was actually returned — a
+  // model that sets it but still fills a slot has produced something usable,
+  // so show that rather than discard it over a self-contradiction.
+  const insufficientInventory =
+    allowFewer &&
+    "insufficient_inventory" in parsed.data &&
+    parsed.data.insufficient_inventory === true &&
+    recommendations.length === 0;
+
+  return { ok: true, recommendations, insufficientInventory };
 }
 
 export function findConstraintViolations(
   recommendations: readonly Recommendation[],
   constraints: ActiveConstraints,
+  onHand: readonly string[] = [],
 ): string[] {
   if (constraints.decision_mode === "order" || constraints.decision_mode === "store_snack") {
     // No time/budget/equipment to check — there is no menu-price, grocery-
@@ -183,12 +210,13 @@ export function findConstraintViolations(
     return [];
   }
 
-  return findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints);
+  return findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints, onHand);
 }
 
 function findCookConstraintViolations(
   recommendations: readonly CookRecommendation[],
   constraints: Extract<ActiveConstraints, { decision_mode: "cook" }>,
+  onHand: readonly string[],
 ): string[] {
   const minuteLimit =
     constraints.max_minutes +
@@ -214,6 +242,15 @@ function findCookConstraintViolations(
       problems.push(
         `${r.role}: needs ${r.ingredients_needed.join(", ")} to buy, but inventory-only was requested.`,
       );
+    }
+    // The other way to break inventory-only: keeping ingredients_needed empty
+    // while listing something the user doesn't have under ingredients_on_hand.
+    // Anything there must be in tonight's ingredients or one of the staples.
+    if (constraints.no_shopping) {
+      const invented = r.ingredients_on_hand.flatMap((line) => ingredientsOutsideInventory(line, onHand));
+      if (invented.length > 0) {
+        problems.push(`${r.role}: uses ${invented.join(", ")}, which isn't in the user's ingredients.`);
+      }
     }
     // With no_cooking, constraints.equipment is empty, so any appliance counts.
     const unowned = r.equipment.filter((item) => !constraints.equipment.includes(item));

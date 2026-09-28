@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Card from "@/components/ui/Card";
 import TagInput from "@/components/ui/TagInput";
 import { MultiChipGroup, SingleChipGroup } from "@/components/ui/ChipGroup";
@@ -16,14 +17,15 @@ export default function CookForm({
   values,
   onChange,
   usualBudget,
-  pantryItems,
+  kitchenStaples,
 }: {
   values: MealContext;
   onChange: (values: MealContext) => void;
   usualBudget: number;
-  /** Always included automatically — see "Anything you want to use up?"
-   *  below, which shows them rather than asking the user to re-add them. */
-  pantryItems: string[];
+  /** The user's persistent Kitchen staples (condiments/seasonings only, set
+   *  on Me) — folded in automatically alongside whatever's picked below.
+   *  Never actual food; see the "Anything you have right now?" card. */
+  kitchenStaples: string[];
 }) {
   function set<K extends keyof MealContext>(key: K, value: MealContext[K]) {
     onChange({ ...values, [key]: value });
@@ -94,12 +96,8 @@ export default function CookForm({
       </Card>
 
       <Card
-        title="Anything you want to use up?"
-        hint={
-          pantryItems.length > 0
-            ? `Optional — plus everything in your pantry, already included: ${pantryItems.join(", ")}.`
-            : "Optional. Helps us suggest something you can start right now."
-        }
+        title="What do you have right now?"
+        hint="What's actually available for tonight — not what you usually keep around. Nothing here is saved for next time."
       >
         <MultiChipGroup
           options={QUICK_INGREDIENTS}
@@ -113,7 +111,7 @@ export default function CookForm({
         />
         <div className="mt-3">
           <TagInput
-            placeholder="Something else in the fridge…"
+            placeholder="Add another food…"
             values={values.ingredients_on_hand.filter((i) => !(QUICK_INGREDIENTS as readonly string[]).includes(i))}
             onChange={(custom) => {
               const picked = values.ingredients_on_hand.filter((i) =>
@@ -125,18 +123,36 @@ export default function CookForm({
         </div>
       </Card>
 
+      {/* Transparency for why a condiment can show up in a recipe the user
+          didn't type in tonight — see CLAUDE.md's canonical availability
+          rule. Only shown when there's something to disclose. */}
+      {kitchenStaples.length > 0 && (
+        <p className="text-xs text-muted">
+          Also using your kitchen staples: {kitchenStaples.join(" · ")}.{" "}
+          <Link href="/profile" className="font-medium text-accent">
+            Edit
+          </Link>
+        </p>
+      )}
+
       <Card title="Shopping tonight?">
         <SingleChipGroup
           options={COOK_SHOPPING_MODES}
           value={values.shopping}
-          onChange={(value) => set("shopping", value as CookShopping)}
+          // Picking a mode by hand ends the "fewest items" fallback — that
+          // is only meant for the run started by "Show me what to buy".
+          onChange={(value) => onChange({ ...values, shopping: value as CookShopping, minimize_purchases: false })}
         />
         {values.shopping === "inventory_only" && (
           <p className="mt-3 text-xs text-muted">
-            We&apos;ll only suggest meals from your pantry and what&apos;s added above — nothing to buy tonight.
+            We&apos;ll only suggest meals from what&apos;s added above and your kitchen staples — nothing to buy tonight.
           </p>
         )}
       </Card>
+
+      {values.shopping === "can_buy" && values.minimize_purchases && (
+        <p className="text-xs text-muted">Looking for the fewest things to buy.</p>
+      )}
 
       {values.shopping === "can_buy" && (
         <BudgetCard

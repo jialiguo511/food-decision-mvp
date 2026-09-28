@@ -49,6 +49,20 @@ const STORE_SNACK_ROLE_LABELS: Record<Recommendation["role"], string> = {
   alternative: "Lighter option",
 };
 
+/** A strict "Use what I have" result that fell short — fewer than three
+ *  options (down to zero, when nothing on hand adds up to a meal), or the
+ *  model flagged that what's available can't make a full meal. TodayForm
+ *  uses the same test to offer "Show me what to buy". Always false for a
+ *  request that allowed shopping, and for the other two modes. */
+export function isInventoryLimited(session: ActiveSession): boolean {
+  if (session.context.decision_mode !== "cook" || session.context.shopping !== "inventory_only") return false;
+  return session.recommendations.length < 3 || session.recommendations.some((r) => inventoryNote(r) !== null);
+}
+
+function inventoryNote(recommendation: Recommendation): string | null {
+  return recommendation.decision_mode === "cook" ? recommendation.inventory_note : null;
+}
+
 function roleLabel(recommendation: Recommendation): string {
   if (recommendation.decision_mode === "order") return ORDER_ROLE_LABELS[recommendation.role];
   if (recommendation.decision_mode === "store_snack") return STORE_SNACK_ROLE_LABELS[recommendation.role];
@@ -113,13 +127,30 @@ export default function RecommendationResults({
 
       {session && (
         <>
-          <p className="text-xs text-muted">
-            {session.context.decision_mode === "order"
-              ? "All numbers are estimates — exact dishes aren't guaranteed to be available nearby."
-              : session.context.decision_mode === "store_snack"
-                ? "All numbers are estimates — exact products aren't guaranteed to be in stock nearby."
-                : "All numbers below are estimates."}
-          </p>
+          {session.recommendations.length > 0 && (
+            <p className="text-xs text-muted">
+              {session.context.decision_mode === "order"
+                ? "All numbers are estimates — exact dishes aren't guaranteed to be available nearby."
+                : session.context.decision_mode === "store_snack"
+                  ? "All numbers are estimates — exact products aren't guaranteed to be in stock nearby."
+                  : "All numbers below are estimates."}
+            </p>
+          )}
+          {isInventoryLimited(session) && (
+            <section className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
+              <p className="text-sm font-medium text-accent">
+                {session.recommendations.length === 0
+                  ? "Not enough here for a full meal."
+                  : (session.recommendations.map(inventoryNote).find((note) => note !== null) ??
+                    "There may not be enough for a full meal.")}
+              </p>
+              {session.recommendations.length > 0 && session.recommendations.length < 3 && (
+                <p className="mt-1 text-xs text-muted">
+                  Showing only what you can make with what you have — nothing that needs something you don&apos;t.
+                </p>
+              )}
+            </section>
+          )}
           {session.recommendations.map((r, i) => {
             const index = i as 0 | 1 | 2;
             const isThisChosen = somethingChosen && selection.index === index;

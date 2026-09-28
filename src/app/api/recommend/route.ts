@@ -74,17 +74,38 @@ export async function POST(request: Request) {
     return fail("profile_unavailable", "Couldn't load your food profile.");
   }
 
-  // Pantry is a soft preference (what the user has, not a hard constraint the
-  // way dislikes/equipment are), so unlike the profile read above, a failure
-  // here degrades to "no pantry" rather than failing the whole request.
-  const { data: pantryRows, error: pantryError } = await supabase
-    .from("pantry_items")
+  // Kitchen staples are a soft preference (condiments/seasonings the user
+  // generally has, not a hard constraint the way dislikes/equipment are), so
+  // unlike the profile read above, a failure here degrades to "no staples"
+  // rather than failing the whole request. This is the ONLY persistent
+  // ingredient source — see resolveRecommendationInput's canonical
+  // availability rule. Today's own foods (context.ingredients_on_hand) are
+  // never persisted and never read back from an earlier session.
+  const { data: staplesRows, error: staplesError } = await supabase
+    .from("kitchen_staples")
     .select("name")
     .eq("user_id", user.id);
-  if (pantryError) console.error("[recommend] pantry read failed", pantryError);
-  const pantryItems = (pantryRows ?? []).map((r) => r.name as string);
+  if (staplesError) console.error("[recommend] kitchen staples read failed", staplesError);
+  const kitchenStaples = (staplesRows ?? []).map((r) => r.name as string);
 
-  const input = resolveRecommendationInput(toProfileInput(row), context, previous_recommendations, pantryItems);
+  const input = resolveRecommendationInput(toProfileInput(row), context, previous_recommendations, kitchenStaples);
+
+  // Strict "Use what I have" with nothing entered for tonight: there is no
+  // honest meal to suggest, and asking the model anyway is what invites
+  // invented ingredients. Checked against context.ingredients_on_hand — what
+  // the user typed for tonight — not the merged soft_preferences list, since
+  // Kitchen staples alone (condiments only) can never make a meal either.
+  if (
+    context.decision_mode === "cook" &&
+    context.shopping === "inventory_only" &&
+    context.ingredients_on_hand.length === 0
+  ) {
+    return fail(
+      "invalid_context",
+      "You haven't told us what you have yet. Add a few things above, or switch to \"I can buy a few things\".",
+    );
+  }
+
   const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 });
   const result = await generateRecommendations(client, input);
   if (!result.ok) return fail(result.code, result.message, result.details);
@@ -107,6 +128,7 @@ export async function POST(request: Request) {
 
   const payload: RecommendSuccess = {
     recommendations: result.recommendations,
+    insufficient_inventory: result.insufficientInventory,
     nutrition_is_estimate: true,
     constraints: input.hard_constraints,
     model: result.model,

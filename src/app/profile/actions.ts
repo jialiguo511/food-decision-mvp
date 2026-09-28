@@ -70,13 +70,18 @@ function dedupe(values: string[]): string[] {
 }
 
 /**
- * The whole pantry list, replaced in one call — the same "read the array,
- * write the array back" shape as saving cuisines/dislikes, except pantry_items
- * is a real table (already existed, unused) rather than a JSONB column, so
- * this diffs by name instead of overwriting a single row. Deliberately no
- * quantities, categories, or expiry — see CLAUDE.md's current non-goals.
+ * The whole Kitchen staples list, replaced in one call — the same "read the
+ * array, write the array back" shape as saving cuisines/dislikes, except
+ * kitchen_staples is a real table rather than a JSONB column, so this diffs
+ * by name instead of overwriting a single row.
+ *
+ * Kitchen staples are condiments and seasonings only — persistent things the
+ * user generally has, never actual food (no chicken, tofu, eggs, produce).
+ * Actual food is "what do you have right now" on Today, entered fresh per
+ * request and never saved here or anywhere else — see CLAUDE.md's canonical
+ * availability rule and resolveRecommendationInput in lib/recommend/input.ts.
  */
-export async function setPantryItems(names: string[]): Promise<SaveResult> {
+export async function setKitchenStaples(names: string[]): Promise<SaveResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -86,7 +91,7 @@ export async function setPantryItems(names: string[]): Promise<SaveResult> {
   const wanted = dedupe(names);
 
   const { data: existing, error: readError } = await supabase
-    .from("pantry_items")
+    .from("kitchen_staples")
     .select("id, name")
     .eq("user_id", user.id);
   if (readError) return { ok: false, error: readError.message };
@@ -98,12 +103,12 @@ export async function setPantryItems(names: string[]): Promise<SaveResult> {
   const toDelete = (existing ?? []).filter((row) => !wantedNames.has(row.name as string)).map((row) => row.id);
 
   if (toDelete.length > 0) {
-    const { error } = await supabase.from("pantry_items").delete().in("id", toDelete);
+    const { error } = await supabase.from("kitchen_staples").delete().in("id", toDelete);
     if (error) return { ok: false, error: error.message };
   }
   if (toInsert.length > 0) {
     const { error } = await supabase
-      .from("pantry_items")
+      .from("kitchen_staples")
       .insert(toInsert.map((name) => ({ user_id: user.id, name })));
     if (error) return { ok: false, error: error.message };
   }

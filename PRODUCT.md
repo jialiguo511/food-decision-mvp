@@ -165,7 +165,7 @@ The app is organized around four top-level areas, not five:
   (equipment, fridge size, foods at home).
 
 This replaces an earlier five-screen structure (Today / Results / My Food /
-Inbox / Profile). Recipe Inbox and pantry/history/favorites are not removed
+Inbox / Profile). Recipe Inbox and history/favorites are not removed
 from scope — they move conceptually under Plan and Me/Groceries respectively,
 still gated by the same Extended MVP promotion rule as before. See
 `CLAUDE.md` → "The top-level information architecture" for the routing detail
@@ -237,12 +237,18 @@ Context → Recommendation → Selection → Actual eating → Feedback
 - disliked foods
 - kitchen equipment
 - fridge / storage constraints
+- **Kitchen staples** — persistent condiments and seasonings only (salt, oil,
+  soy sauce, spices), never actual food. See "Kitchen staples vs. today's
+  food" in `CLAUDE.md` for the full rule and why it's kept separate from
+  "ingredients available right now" below.
 
 **2. Today context** — the dynamic half, re-entered each time. The user first
 picks a decision mode, then answers only what that mode needs:
 
 - **I can cook**: available cooking time, hunger level, desired effort,
-  craving, optional budget override, ingredients available right now.
+  craving, optional budget override, ingredients available right now. This
+  is entered fresh each time and never persisted — see "Kitchen staples vs.
+  today's food" in `CLAUDE.md`.
 - **I want to order food**: hunger level, a craving category (meaty / warm &
   comforting / fresh & light / something sweet / no strong preference, plus
   optional free text), and how they're getting the food (delivery / pickup /
@@ -253,7 +259,14 @@ picks a decision mode, then answers only what that mode needs:
   store or method question, since there's no store data behind this mode to
   ask about. Reuses goal, protein target, and dislikes from the profile.
 
-**3. Exactly 3 recommendations** — no more, no fewer, in every mode:
+**3. Exactly 3 recommendations** — no more, no fewer, in every mode, with one
+narrow exception: "I can cook" → "Use what I have" (no shopping tonight) may
+return fewer, down to zero, when the user's current ingredients and Kitchen
+staples don't reasonably support that many — see "Kitchen staples vs. today's
+food" in `CLAUDE.md`. Inventing a missing ingredient to reach three is
+explicitly wrong; a thinner, honest result (or the "Show me what to buy"
+fallback) is correct. Every other mode, and cook with shopping allowed, is
+still always exactly three:
 
 1. best overall match
 2. lowest-effort option — for ordering, the simplest thing to find and order
@@ -324,7 +337,6 @@ Useful early extensions. **Build only after the core loop works end to end:**
 
 - Recipe Inbox / recipe memory — save recipes to try; surface them when the
   current context makes them appropriate. May accept pasted text or URLs.
-- Simple pantry
 - Meal history
 - Favorites
 - Recent-meal awareness
@@ -477,7 +489,7 @@ native iOS app · native Android app · live grocery pricing · Instacart
 integration · grocery delivery · restaurant ordering (DoorDash/Uber Eats/any
 ordering API — placing an order on the user's behalf) · restaurant discovery
 (finding specific nearby restaurants, live menus, geolocation) · receipt
-scanning · barcode scanning · exact pantry quantities ·
+scanning · barcode scanning · exact ingredient quantities ·
 expiration-date tracking · Apple Health integration · wearable integration ·
 automatic calorie logging · social or community features · family accounts ·
 weekly meal planning · recommendation ML models · vector databases ·

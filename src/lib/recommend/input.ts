@@ -47,6 +47,7 @@ export const cookContextSchema = z.object({
   // 0 is valid and meaningful — "no additional spending" — not just excluded
   // as a degenerate slider value. See CookConstraints.budget_usd.
   budget_override_usd: z.number().min(0).max(100).nullable(),
+  minimize_purchases: z.boolean().optional(),
 }) satisfies z.ZodType<MealContext>;
 
 const orderCravingCategories = ORDER_CRAVINGS.map((c) => c.value) as [OrderCravingCategory, ...OrderCravingCategory[]];
@@ -107,6 +108,9 @@ export type CookRecommendationInput = {
     preferred_cuisines: string[];
     craving: string | null;
     ingredients_on_hand: string[];
+    /** True only for the "Show me what to buy" fallback — see
+     *  MealContext.minimize_purchases. Always false when no_shopping. */
+    minimize_purchases: boolean;
     hunger: Hunger;
     effort: Effort;
     fridge_size: FridgeSize;
@@ -147,10 +151,13 @@ export function resolveRecommendationInput(
   profile: ProfileInput,
   context: DecisionContext,
   previousRecommendations?: readonly Recommendation[],
-  /** The user's persistent pantry (see pantry_items), merged ahead of
-   *  whatever they typed into ingredients_on_hand this session. Cook mode
-   *  only — the other two modes have no ingredients field to merge into. */
-  pantryItems: readonly string[] = [],
+  /** The user's persistent Kitchen staples (see kitchen_staples) — condiments
+   *  and seasonings only, never actual food. Cook mode only. The canonical
+   *  availability rule for "Use what I have" and every other cook request:
+   *  availableIngredients = context.ingredients_on_hand (tonight's foods) +
+   *  kitchenStaples, nothing else. Today's foods are never persisted and
+   *  never carried into a later session — see MealContext.ingredients_on_hand. */
+  kitchenStaples: readonly string[] = [],
 ): RecommendationInput {
   const previous =
     previousRecommendations && previousRecommendations.length > 0
@@ -222,7 +229,8 @@ export function resolveRecommendationInput(
       daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
       preferred_cuisines: profile.cuisines,
       craving: context.craving,
-      ingredients_on_hand: mergeIngredients(pantryItems, context.ingredients_on_hand),
+      ingredients_on_hand: buildAvailableIngredients(context.ingredients_on_hand, kitchenStaples),
+      minimize_purchases: !noShopping && context.minimize_purchases === true,
       hunger: context.hunger,
       effort: context.effort,
       fridge_size: profile.fridge_size,
@@ -232,12 +240,14 @@ export function resolveRecommendationInput(
   };
 }
 
-/** Pantry first, then whatever the user added just for tonight — deduped
- *  case-insensitively so the same thing typed two ways doesn't show twice. */
-function mergeIngredients(pantry: readonly string[], session: readonly string[]): string[] {
+/** The canonical availability rule (see resolveRecommendationInput above):
+ *  tonight's foods first, then persistent Kitchen staples — deduped
+ *  case-insensitively so the same thing entered two ways doesn't show twice.
+ *  No other source is ever merged in here. */
+function buildAvailableIngredients(todayFoods: readonly string[], kitchenStaples: readonly string[]): string[] {
   const seen = new Set<string>();
   const merged: string[] = [];
-  for (const item of [...pantry, ...session]) {
+  for (const item of [...todayFoods, ...kitchenStaples]) {
     const trimmed = item.trim();
     const key = trimmed.toLowerCase();
     if (!trimmed || seen.has(key)) continue;

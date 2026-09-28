@@ -12,7 +12,14 @@ import type { RecommendErrorCode, RecommendSuccess } from "@/lib/types";
 export const RECOMMEND_MODEL = "claude-opus-5";
 
 export type GenerateResult =
-  | { ok: true; recommendations: RecommendSuccess["recommendations"]; model: string }
+  | {
+      ok: true;
+      recommendations: RecommendSuccess["recommendations"];
+      /** True only for strict "Use what I have" with zero recommendations —
+       *  the user's ingredients don't reasonably add up to a meal. */
+      insufficientInventory: boolean;
+      model: string;
+    }
   | { ok: false; code: RecommendErrorCode; message: string; details?: string[] };
 
 export async function generateRecommendations(
@@ -20,6 +27,9 @@ export async function generateRecommendations(
   input: RecommendationInput,
 ): Promise<GenerateResult> {
   const startedAt = Date.now();
+  // Strict "Use what I have" is the one case where fewer than three is valid.
+  const strictInventory = input.decision_mode === "cook" && input.hard_constraints.no_shopping;
+  const onHand = input.decision_mode === "cook" ? input.soft_preferences.ingredients_on_hand : [];
   let response: Anthropic.Beta.BetaMessage;
   try {
     response = await client.beta.messages.create({
@@ -33,7 +43,7 @@ export async function generateRecommendations(
       output_config: {
         effort: "high",
         // Constrains decoding to the schema. Parsing stays ours, below.
-        format: zodOutputFormat(buildOutputSchema(input.decision_mode)),
+        format: zodOutputFormat(buildOutputSchema(input.decision_mode, { allowFewer: strictInventory })),
       },
       system: buildSystemPrompt(input),
       messages: [{ role: "user", content: buildUserMessage(input) }],
@@ -53,7 +63,7 @@ export async function generateRecommendations(
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("");
 
-  const parsed = parseRecommendations(text, input.hard_constraints);
+  const parsed = parseRecommendations(text, input.hard_constraints, onHand);
   if (!parsed.ok) {
     console.warn("[recommend] rejected output", { code: parsed.code, details: parsed.details });
     return {
@@ -68,7 +78,12 @@ export async function generateRecommendations(
   }
 
   logUsage(response.model, response.usage, Date.now() - startedAt);
-  return { ok: true, recommendations: parsed.recommendations, model: response.model };
+  return {
+    ok: true,
+    recommendations: parsed.recommendations,
+    insufficientInventory: parsed.insufficientInventory,
+    model: response.model,
+  };
 }
 
 /** Server-side usage/cost log for one successful recommendation request. Never

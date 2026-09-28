@@ -30,8 +30,6 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
     session: {
       session_id: row.id,
       context: context.data,
-      // storedRecommendationsSchema enforces length 3; zod's return type
-      // doesn't carry that as a tuple, so this cast just restates it.
       recommendations: recommendations.data as ActiveSession["recommendations"],
     },
     chosenIndex,

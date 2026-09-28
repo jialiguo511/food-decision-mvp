@@ -59,6 +59,12 @@ export type MealContext = {
    *  null means "use the budget from my profile". Ignored (forced to 0) when
    *  shopping is "inventory_only". */
   budget_override_usd: number | null;
+  /** Set only by the "Show me what to buy" fallback after a thin or empty
+   *  "Use what I have" result. Means: shopping is allowed, and the goal is the
+   *  smallest possible purchase (ideally 1–3 items) that turns what the user
+   *  has into a good meal — not a generic grocery run. Absent/false otherwise.
+   *  Ignored when shopping is "inventory_only". */
+  minimize_purchases?: boolean;
 };
 
 export type OrderMethod = "delivery" | "pickup" | "eat_nearby";
@@ -127,6 +133,11 @@ export type CookRecommendation = {
   ingredients_needed: string[];
   equipment: string[];
   steps: string[];
+  /** Only ever set in "Use what I have" mode, when what's available can't
+   *  reasonably make a satisfying full meal — one short user-facing sentence
+   *  saying so. Null otherwise (and on sessions saved before this field
+   *  existed). */
+  inventory_note: string | null;
 };
 
 /** One of the exactly-three recommendations for the "I want to order food"
@@ -212,10 +223,19 @@ export type StoreSnackConstraints = {
 
 export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints;
 
-/** Body of a successful POST /api/recommend. The tuple type is the "exactly
- *  three" rule expressed where TypeScript can enforce it. */
+/** Body of a successful POST /api/recommend. Exactly three — except in cook
+ *  mode with no_shopping ("Use what I have"), where the user's current foods
+ *  and Kitchen staples may support fewer, down to zero (insufficient_inventory
+ *  becomes true), and inventing missing ingredients to reach three is the
+ *  bug this exception exists to prevent. */
 export type RecommendSuccess = {
-  recommendations: [Recommendation, Recommendation, Recommendation];
+  recommendations: Recommendation[];
+  /** True only for strict "Use what I have" (cook, no_shopping) with zero
+   *  recommendations: the user's current foods and Kitchen staples don't
+   *  reasonably add up to a meal. Always false otherwise. Not persisted on
+   *  the decision_sessions row — a restored empty session shows a generic
+   *  version of this same message instead. */
+  insufficient_inventory: boolean;
   nutrition_is_estimate: true;
   constraints: ActiveConstraints;
   model: string;
@@ -252,5 +272,6 @@ export type RecommendFailure = {
 export type ActiveSession = {
   session_id: string;
   context: DecisionContext;
-  recommendations: [Recommendation, Recommendation, Recommendation];
+  /** Three, or 0–3 for a strict "Use what I have" request — see RecommendSuccess. */
+  recommendations: Recommendation[];
 };

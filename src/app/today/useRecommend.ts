@@ -152,7 +152,10 @@ function isSuccess(value: unknown): value is RecommendSuccess {
     value !== null &&
     "recommendations" in value &&
     Array.isArray(value.recommendations) &&
-    value.recommendations.length === 3 &&
+    // Three — or 0–3 for a strict "Use what I have" request, where the
+    // user's ingredients may support fewer, or none. The server has already
+    // validated it.
+    value.recommendations.length <= 3 &&
     "session_id" in value &&
     typeof value.session_id === "string"
   );

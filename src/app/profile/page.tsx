@@ -9,7 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_PROFILE } from "@/lib/options";
 import type { ProfileInput } from "@/lib/types";
-import PantryCard from "./PantryCard";
+import KitchenStaplesCard from "./KitchenStaplesCard";
 import ProfileForm from "./ProfileForm";
 
 export default async function ProfilePage() {
@@ -47,12 +47,12 @@ export default async function ProfilePage() {
       : {}),
   };
 
-  const { data: pantryRows } = await supabase
-    .from("pantry_items")
+  const { data: staplesRows } = await supabase
+    .from("kitchen_staples")
     .select("name")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
-  const pantryItems = (pantryRows ?? []).map((row) => row.name as string);
+  const kitchenStaples = (staplesRows ?? []).map((row) => row.name as string);
 
   return (
     <AppShell
@@ -62,7 +62,7 @@ export default async function ProfilePage() {
     >
       <div className="space-y-4">
         <ProfileForm initial={initial} />
-        <PantryCard initial={pantryItems} />
+        <KitchenStaplesCard initial={kitchenStaples} />
       </div>
     </AppShell>
   );
