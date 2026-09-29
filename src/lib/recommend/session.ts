@@ -6,7 +6,7 @@
 // rendered.
 
 import { contextSchema } from "./input";
-import { storedRecommendationsSchema } from "./output";
+import { storedRecommendationsSchema, stripLeakedImageQueryStep } from "./output";
 import type { ActiveSession } from "../types";
 
 export type RestoredSession = {
@@ -21,6 +21,16 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
   const recommendations = storedRecommendationsSchema.safeParse(taggedRecommendations(row.recommendations));
   if (!context.success || !recommendations.success) return null;
 
+  // Same defense as parseRecommendations (see output.ts) applied to a
+  // restored row: a session saved before that fix shipped could still have
+  // the leaked "image_query" artifact sitting in a Cook recommendation's
+  // steps. If sanitizing empties a recommendation's steps entirely, treat
+  // the row as corrupted, same as any other validation failure here.
+  const sanitized = recommendations.data.map((r) =>
+    r.decision_mode === "cook" ? { ...r, steps: stripLeakedImageQueryStep(r.steps) } : r,
+  );
+  if (sanitized.some((r) => r.decision_mode === "cook" && r.steps.length === 0)) return null;
+
   const chosenIndex =
     row.chosen_index === 0 || row.chosen_index === 1 || row.chosen_index === 2
       ? row.chosen_index
@@ -30,7 +40,7 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
     session: {
       session_id: row.id,
       context: context.data,
-      recommendations: recommendations.data as ActiveSession["recommendations"],
+      recommendations: sanitized as ActiveSession["recommendations"],
     },
     chosenIndex,
   };

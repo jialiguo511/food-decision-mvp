@@ -23,6 +23,21 @@ export const BUDGET_TOLERANCE_FRACTION = 0.1;
 
 const ROLES: readonly RecommendationRole[] = ["best_match", "lowest_effort", "alternative"];
 
+/** Defends against a narrow, observed model artifact: the literal field name
+ *  "image_query" — the schema key immediately after `steps` for a Cook
+ *  recommendation — occasionally leaks in as a spurious extra entry in the
+ *  `steps` array itself on generation, rendering as a bogus final numbered
+ *  step ("6. image_query"; the number comes from RecommendationResults'
+ *  plain `<ol>`, not the model). Nothing in this codebase ever writes that
+ *  string into `steps` — see prompt.ts's reinforced instruction, which
+ *  addresses the cause, and this as the safety net for when it still slips
+ *  through. Exact and case-insensitive on purpose: this removes only that
+ *  one token, never any broader text filtering. Exported so session.ts can
+ *  apply the same defense to a session saved before this fix shipped. */
+export function stripLeakedImageQueryStep(steps: readonly string[]): string[] {
+  return steps.filter((step) => step.trim().toLowerCase() !== "image_query");
+}
+
 /** Fields for a cook recommendation, regardless of source: freshly decoded
  *  from the model, or read back out of a stored decision_sessions row. `role`
  *  and `decision_mode` are added separately by each caller. */
@@ -177,11 +192,26 @@ export function parseRecommendations(
   }
 
   // Empty slots (null, only possible when allowFewer) are dropped, so what
-  // reaches the UI is only ever real recommendations.
+  // reaches the UI is only ever real recommendations. `"steps" in fields`
+  // both narrows to the Cook shape and is the only shape that has steps to
+  // sanitize — order/store-snack pass through untouched.
   const recommendations = ROLES.flatMap((role) => {
     const fields = parsed.data[role];
-    return fields ? [{ decision_mode: mode, role, ...fields }] : [];
+    if (!fields) return [];
+    const sanitizedFields = "steps" in fields ? { ...fields, steps: stripLeakedImageQueryStep(fields.steps) } : fields;
+    return [{ decision_mode: mode, role, ...sanitizedFields }];
   }) as Recommendation[];
+
+  const emptiedBySanitization = recommendations.find(
+    (r): r is CookRecommendation => r.decision_mode === "cook" && r.steps.length === 0,
+  );
+  if (emptiedBySanitization) {
+    return {
+      ok: false,
+      code: "malformed_output",
+      details: ["A recommendation's steps were empty after removing a stray internal field-name artifact."],
+    };
+  }
 
   const titles = new Set(recommendations.map((r) => r.title.trim().toLowerCase()));
   if (titles.size !== recommendations.length) {
