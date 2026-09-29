@@ -8,7 +8,7 @@
 // `decision_mode` throughout — see types.ts.
 
 import { z } from "zod";
-import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS } from "../options";
+import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS } from "../options";
 import type {
   ActiveConstraints,
   CravingType,
@@ -17,6 +17,7 @@ import type {
   FridgeSize,
   Goal,
   Hunger,
+  MealBudget,
   MealContext,
   OrderContext,
   OrderCravingCategory,
@@ -26,6 +27,8 @@ import type {
   RecommendationRole,
   StoreSnackContext,
 } from "../types";
+import type { PlaceCandidate } from "../places/candidates";
+import { budgetFit, type BudgetFit } from "./budget";
 import { storedRecommendationsSchema } from "./output";
 
 const NO_COOKING = "No cooking at all";
@@ -52,6 +55,7 @@ export const cookContextSchema = z.object({
 
 const orderCravingCategories = ORDER_CRAVINGS.map((c) => c.value) as [OrderCravingCategory, ...OrderCravingCategory[]];
 const orderMethods = ORDER_METHODS.map((m) => m.value) as [OrderMethod, ...OrderMethod[]];
+const mealBudgets = MEAL_BUDGETS.map((b) => b.value) as [MealBudget, ...MealBudget[]];
 
 /** The dynamic context for "I want to order food". Deliberately smaller than
  *  cookContextSchema — see OrderContext in types.ts. */
@@ -65,7 +69,18 @@ export const orderContextSchema = z.object({
     .nullable()
     .transform((value) => value?.trim().replace(/\s+/g, " ") || null),
   method: z.enum(orderMethods),
-}) satisfies z.ZodType<OrderContext>;
+  // Total food budget for this meal — NOT the Cook budget (extra spend on
+  // missing ingredients). Missing means "no strong preference", so a stale
+  // page or a session saved before this field existed still works; an
+  // explicitly provided value must still be one of the bands.
+  meal_budget: z
+    .enum(mealBudgets)
+    .optional()
+    .transform((value): MealBudget => value ?? "no_preference"),
+  // Optional so sessions saved before "Find food near me" still restore.
+  nearby: z.boolean().optional(),
+  // Input is `unknown`: meal_budget (and nearby) may be absent from older payloads.
+}) satisfies z.ZodType<OrderContext, unknown>;
 
 const cravingTypes = STORE_SNACK_CRAVINGS.map((c) => c.value) as [CravingType, ...CravingType[]];
 
@@ -93,6 +108,15 @@ export const contextSchema = z.discriminatedUnion("decision_mode", [
 export const recommendRequestSchema = z.object({
   context: contextSchema,
   previous_recommendations: storedRecommendationsSchema.optional(),
+  // Only meaningful with an order context whose `nearby` is true. Used to
+  // fulfil this one request and then dropped: it is never written to the
+  // database, the session's context, or the Profile.
+  location: z
+    .object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+    })
+    .optional(),
 });
 
 type SoftGoalPreferences = {
@@ -131,6 +155,9 @@ export type OrderRecommendationInput = {
     craving_category: OrderCravingCategory;
     craving_note: string | null;
     method: OrderMethod;
+    /** Approximate total budget for this meal — a feasibility ranking signal,
+     *  not a price the model may quote. See MealBudget. */
+    meal_budget: MealBudget;
   };
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
 };
@@ -145,7 +172,92 @@ export type StoreSnackRecommendationInput = {
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
 };
 
-export type RecommendationInput = CookRecommendationInput | OrderRecommendationInput | StoreSnackRecommendationInput;
+/** One real place, as the model sees it: an id to refer to it by, and only
+ *  the facts the decision uses. No address, coordinates, or link — the model
+ *  doesn't need them and never outputs them. */
+export type ModelCandidate = {
+  place_id: string;
+  name: string;
+  category: string | null;
+  /** Approximate straight-line meters from the user; null if unknown. */
+  distance_m: number | null;
+  /** true = the provider says open now; null = unknown. Never false — known-
+   *  closed places are removed before this list is built. */
+  open_now: true | null;
+  /** Coarse provider price level, or null when the provider gave none. */
+  price_level: PlaceCandidate["price_level"];
+  /** How that price level sits against the user's meal budget — computed here,
+   *  not judged by the model. null when there is no budget preference or the
+   *  provider gave no price level (unknown, neither a plus nor a minus). */
+  budget_fit: BudgetFit | null;
+};
+
+export type NearbyRecommendationInput = {
+  decision_mode: "nearby";
+  hard_constraints: Extract<ActiveConstraints, { decision_mode: "nearby" }>;
+  soft_preferences: SoftGoalPreferences & {
+    preferred_cuisines: string[];
+    /** Profile "disliked foods": a strong negative ranking signal, NOT an
+     *  allergy or restriction and never a safety constraint. */
+    disliked_foods: string[];
+    hunger: Hunger;
+    craving_category: OrderCravingCategory;
+    craving_note: string | null;
+    method: OrderMethod;
+    /** Approximate total budget for this meal. Only usable against a candidate
+     *  that has a real price_level (see each candidate's `budget_fit`). This is
+     *  deliberately not the profile's Cook budget, which caps extra spend on
+     *  missing ingredients. */
+    meal_budget: MealBudget;
+  };
+  /** The ONLY places that may be recommended — this request's provider
+   *  results, after filtering. */
+  candidates: ModelCandidate[];
+};
+
+export type RecommendationInput =
+  | CookRecommendationInput
+  | OrderRecommendationInput
+  | StoreSnackRecommendationInput
+  | NearbyRecommendationInput;
+
+/** The nearby counterpart of resolveRecommendationInput: same profile, same
+ *  order-flow context, plus the real candidates the provider returned. Kept
+ *  separate so the profile → soft-preferences mapping is the only thing shared
+ *  with future personalization, not the Places plumbing. */
+export function resolveNearbyInput(
+  profile: ProfileInput,
+  context: OrderContext,
+  candidates: readonly PlaceCandidate[],
+): NearbyRecommendationInput {
+  return {
+    decision_mode: "nearby",
+    // No dedicated allergy/dietary-restriction field exists yet, so there are
+    // no hard constraints to state. Dislikes are soft — see NearbyConstraints.
+    hard_constraints: { decision_mode: "nearby" },
+    soft_preferences: {
+      goal: profile.goal,
+      daily_protein_target_g: profile.protein_target_g,
+      daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
+      preferred_cuisines: profile.cuisines,
+      disliked_foods: profile.dislikes,
+      hunger: context.hunger,
+      craving_category: context.craving_category,
+      craving_note: context.craving_note,
+      method: context.method,
+      meal_budget: context.meal_budget,
+    },
+    candidates: candidates.map((c) => ({
+      place_id: c.id,
+      name: c.name,
+      category: c.category,
+      distance_m: c.distance_m,
+      open_now: c.open_now === true ? true : null,
+      price_level: c.price_level,
+      budget_fit: budgetFit(context.meal_budget, c.price_level),
+    })),
+  };
+}
 
 export function resolveRecommendationInput(
   profile: ProfileInput,
@@ -177,6 +289,7 @@ export function resolveRecommendationInput(
         craving_category: context.craving_category,
         craving_note: context.craving_note,
         method: context.method,
+        meal_budget: context.meal_budget,
       },
       ...(previous ? { previous_recommendations: previous } : {}),
     };

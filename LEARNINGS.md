@@ -107,3 +107,16 @@ available test and it does not require recruiting anyone.
 experience is a reason to build something small and test it — not evidence
 that other people share the problem. Stage 2 in `PRODUCT.md` exists precisely
 because this entry cannot answer that question.
+
+---
+
+## Nearby Eat out v1 — built, not validated (2026-09-29)
+
+**Current hypothesis, not evidence.** We believe users who normally eat out
+decide faster when shown three real nearby places (with a reason and a "what to
+look for" hint) than generic food categories. Nothing has been observed yet —
+the slice was implemented but not run against a live Google key or used by
+anyone. What to watch in founder self-use: does the user actually go to one of
+the three; how often is a suggested place wrong or unappealing; how often does
+the model return fewer than three; and does open-now/price-level (the
+Enterprise-tier fields) change what gets chosen enough to be worth their cost.

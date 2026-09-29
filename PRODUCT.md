@@ -2,7 +2,8 @@
 
 The canonical product document for this repository. It describes the problem
 and the strategy, not the implementation. For how to build, see `CLAUDE.md`.
-For what to build next, see `PLAN.md`.
+For what to build next, see `PLAN.md`. For how the product remembers and
+learns about a user, see `PERSONALIZATION.md`.
 
 ---
 
@@ -35,6 +36,59 @@ Food Decision exists to reduce that cognitive load. The question it answers is:
 > follow through on while still moving toward my health goals?**
 
 This is not a generic recipe app, and not primarily a calorie tracker.
+
+---
+
+## Product identity and guardrails
+
+Food Decision is a **context-aware food decision assistant.** Its one job:
+
+> **Help me decide what to eat right now — and make future food decisions
+> easier.**
+
+It supports three **action domains**. They are three ways of solving that same
+job, **not three products**; they share one profile, one personalization layer,
+and one feedback loop.
+
+- **Cook** — make something from available food, optionally buying a few
+  missing ingredients.
+- **Eat out** — find or choose realistic food outside the home.
+- **Stock up** — prepare the food environment for the next few days without
+  locking the user into a rigid meal schedule.
+
+What is built, and what is scheduled, lives only in `PLAN.md`. The mapping of
+today's built modes onto these domains is under "Three action domains" below.
+How recommendations are shaped — the decision priority order, the exactly-3
+rule, and the hard-constraint rule — is defined once, under "Product
+principles."
+
+### What the product must not drift into
+
+These are identity-level guardrails, not phase-level scope. They are not
+"later" — they are not this product. Changing any of them means changing this
+document first.
+
+- **A calorie tracker or macro diary.** The user never logs, counts, or
+  reconciles what they ate. Calorie and protein numbers are *estimates that
+  shape a recommendation*, not a running total the user manages. The one
+  exception to "nothing to log" is the core-loop question "did you actually
+  eat it?" — a success signal, not a diary entry.
+- **A rigid meal planner.** No day-by-day schedule that assigns meals to
+  dates and makes the user feel behind when life changes. The product's
+  answer to "prepare for the next few days" is **flexible provisioning** —
+  enough flexible food, with each actual meal still decided dynamically that
+  day. (See "Stock up" below.)
+- **A recipe database or discovery feed.** Three choices when deciding, not a
+  browsable library. Saved recipes exist to make *future recommendations* better, not
+  to be a collection to manage.
+- **A generic "AI nutrition coach."** No open-ended chat, no unsolicited
+  nutrition lectures, no moralizing about food. The model returns structured
+  decisions, not advice-giving prose. The Order Food coaching philosophy
+  (harm reduction, craving first) applies to every mode.
+
+If a proposed feature makes the product feel more like one of these four, that
+is a signal to stop and check it against the core loop, not a reason to
+proceed carefully.
 
 ---
 
@@ -111,11 +165,42 @@ The first thing the product asks is not "what's in your kitchen" — it's
   look for in the store — not a recipe, not a delivery search term, and not
   dependent on any store's real inventory.
 
-All three modes share the same profile, the same "exactly 3 recommendations"
-principle, the same selection step, and the same actual-eating feedback.
-Only the dynamic context asked and the shape of what comes back differ. See
-"Order Food" below for that mode's coaching philosophy — the same
+All three modes share the same profile, selection step, and actual-eating
+feedback; only the dynamic context asked and the shape of what comes back
+differ. See "Order Food" below for that mode's coaching philosophy — the same
 craving-first, no-moralizing approach applies to Grab a Snack.
+
+### Three action domains
+
+The three decision modes above are what is built. They map onto the three
+action domains defined under "Product identity":
+
+| domain | today | direction |
+|---|---|---|
+| **Cook** | "I can cook" (use what I have / buy a few things) | One missing-ingredient list; nearby-grocery handoff (future) |
+| **Eat out** | "I want to order food" (meal categories) and "Grab a snack" | Nearby restaurant/café discovery + contextual ranking |
+| **Stock up** | Not built | Flexible provisioning — "Stock me for N days" |
+
+**Home structure — a decision.** Home stays simple. Nearby restaurants do
+**not** get their own new top-level Home intent, and are not a new competing
+mode. The existing **Eat out / order** intent becomes the umbrella for *all*
+non-cooking food decisions, with nearby discovery as a capability inside it:
+
+```
+Today
+├── Cook
+└── Eat out
+      ├── Find food near me                      (nearby discovery)
+      └── Help me choose what to order           (category guidance)
+```
+
+The exact wording can evolve. "Grab a snack" is also a non-cooking decision and
+conceptually sits under Eat out; whether it stays its own entry is not worth
+settling now. The third existing intent, "Plan ahead", is the future **Stock
+up** domain: kept as-is and unbuilt (see "Terminology" for the label). Choosing
+among the domains is itself a light decision, which is why Home leads with the
+user's intent rather than a form, and users who normally eat out get useful
+recommendations without being forced into Cook.
 
 ### Order Food — coaching philosophy
 
@@ -137,13 +222,17 @@ with the theoretically healthiest option.
 
 ### Order Food — what it is not
 
-Explicitly out of scope for this mode, same as the rest of the product:
-restaurant discovery, restaurant APIs (DoorDash, Uber Eats, Google Maps),
-live menus or prices, geolocation, and automatic ordering. The output is a
-category to search for — "search DoorDash or Uber Eats for 'chicken shawarma
-plate'" — never a specific restaurant or an order placed on the user's
-behalf. This is a text decision aid built on the existing recommendation
-infrastructure, not a new product surface.
+Out of scope for **this category-based mode** as built today: restaurant
+discovery, restaurant APIs (DoorDash, Uber Eats, Google Maps), live menus or
+prices, geolocation, and automatic ordering. The output is a category to
+search for — "search DoorDash or Uber Eats for 'chicken shawarma plate'" —
+never a specific restaurant or an order placed on the user's behalf. This is a
+text decision aid built on the existing recommendation infrastructure, not a
+new product surface.
+
+Nearby restaurant and café discovery is a *separate, additional* capability
+inside Eat out — see "Eat out — nearby" under Extended MVP. It does not change
+what this mode is.
 
 ---
 
@@ -151,25 +240,48 @@ infrastructure, not a new product surface.
 
 The app is organized around four top-level areas, not five:
 
-- **Home** — "What do you need right now?" The three decision modes above
-  (cook / order / grab a snack) live here, entered through explicit intents:
-  Cook something, Plan ahead, Eat out or order.
-- **Plan** — planning several meals ahead: browse suggestions, save the ones
-  you want, generate one consolidated grocery list. Extended MVP; not yet
-  built.
-- **Groceries** — one consolidated list from planned/saved recipes,
-  distinguishing already-have / need-to-buy / optional. Extended MVP; not yet
-  built.
+- **Home** — "What do you need right now?" Entry intents: **Cook**,
+  **Eat out / order** (the umbrella for every non-cooking decision — see "Home
+  structure" above), and **Plan ahead** (the future Stock up domain; unbuilt).
+- **Plan** — **short-horizon flexible provisioning**, not meal planning: help
+  the user prepare enough flexible food for the next few days so each actual
+  meal can still be decided dynamically that day. Also where saved recipes
+  live. It never means fixed meals laid out ahead. Extended MVP or later; not
+  yet built. (Label under review — see "Terminology".)
+- **Groceries** — one consolidated list — from a saved recipe's missing
+  ingredients or a stock-up basket — distinguishing already-have /
+  need-to-buy / optional. Extended MVP or later; not yet built.
 - **Me** — the persistent Food Profile, and eventually the rest of the
   long-term information described under Core-loop MVP and Extended MVP below
   (equipment, fridge size, foods at home).
 
 This replaces an earlier five-screen structure (Today / Results / My Food /
-Inbox / Profile). Recipe Inbox and history/favorites are not removed
-from scope — they move conceptually under Plan and Me/Groceries respectively,
+Inbox / Profile). Saved recipes (the legacy "Recipe Inbox") and recent
+meals/favorites are not removed from scope — they move conceptually under Plan
+and Me/Groceries respectively,
 still gated by the same Extended MVP promotion rule as before. See
 `CLAUDE.md` → "The top-level information architecture" for the routing detail
 and the full screen-by-screen table.
+
+---
+
+## Terminology and legacy labels
+
+Documentation uses the **preferred** term. Some **legacy** labels survive
+because they are hard-coded in the application; renaming code is separate work
+and is not authorized by this document.
+
+| preferred term (docs) | legacy / current label | status |
+|---|---|---|
+| **Food Decision** — the product; positioning is "context-aware food decision assistant" | **"Nutrition Coach"** — the app's display name in `layout.tsx` and `manifest.ts` | Temporary working name, **not** the positioning. The product is not a generic AI nutrition coach. Not renamed in code. |
+| **Stock up** | **Plan / Plan ahead** — live bottom-nav tab, `/plan` route, Home intent | Docs prefer Stock up because the feature is flexible provisioning, not rigid meal planning. Live nav unchanged until a rename is promoted into `PLAN.md`. |
+| **Estimated daily energy range** | **"Daily calorie target"** — Profile field label, `daily_calorie_target_kcal` | Use the preferred term unless referring explicitly to the existing legacy field. See "Nutrition target refinement." |
+| **Recent meals** / **recent choices** | "Meal history" | Purpose is context and repetition awareness, not a food diary. |
+| **Approximate recent-intake context** | "Remaining daily nutrition" | LATER only. Never "calories/macros remaining today." |
+| **Meal context** — breakfast / lunch / dinner / snack, or the current eating situation | "Food occasion" | Avoid framing it as a fixed per-meal calorie allocation. |
+| **Eat out** (umbrella) | "Order Food" / "I want to order food" — the built category mode | UI label stays; it is now one capability inside Eat out. |
+| **Saved recipes** now; a more neutral future term such as **saved ideas** if the feature broadens beyond recipes | **"Recipe Inbox"** | Legacy: "Inbox" was removed from nav; the `recipes` table keeps the name. Flagged, not renamed. |
+| **Option images** if extended beyond Cook | **"Recipe visualization"** | Accurate today (Cook-only dish photos). If images are ever added to nearby places or store items, the word "recipe" no longer fits. Flagged, not renamed. |
 
 ---
 
@@ -189,7 +301,8 @@ many controls → output." See `CLAUDE.md` → "Minimum decisions, progressive
 disclosure" for the implementation-level rules this implies.
 
 **3. Three options, not infinite discovery.**
-This is a decision product, not a recipe discovery feed.
+This is a decision product, not a recipe discovery feed. The full rule is
+"Exactly 3" below.
 
 **4. Context matters.**
 Recommendations should reflect today's available time, hunger, effort
@@ -199,13 +312,128 @@ willingness, craving, ingredients, and budget.
 "Healthy" should not force users into unfamiliar Western health-food patterns.
 Cuisine and taste preferences should meaningfully affect recommendations.
 
-**6. Learn from behavior.**
-What users select, reject, actually eat, and repeatedly avoid matters more
-than stated preferences alone.
+**6. Learn from behavior — carefully.**
+What users actually eat and repeatedly avoid matters more than stated *soft*
+preferences alone. But behavior only ever adjusts soft ranking: hard
+constraints are never overridden by inference, one choice does not establish a
+permanent preference, and not selecting an option does not mean disliking it.
+See `PERSONALIZATION.md`.
 
 **7. Low friction first.**
 Prefer chips, buttons, defaults, and one-tap interactions. Avoid making the
 user write long prompts.
+
+### Decision priority order
+
+When a recommendation has to trade things off, it optimizes roughly in this
+order — earlier items win over later ones:
+
+```
+1. likelihood the user will actually eat it
+2. context and craving
+3. feasibility (time, equipment, ingredients, budget)
+4. health goal
+5. nutrition / protein
+```
+
+Hard constraints sit outside this ordering: they override every item on it.
+Nutrition and protein are deliberately last — a nutritionally excellent meal
+the user won't eat is a bad recommendation (principle 1) — but they are a
+real, soft input, not an afterthought. **This is the canonical statement**;
+other documents refer to it rather than restating it, so that new features
+(personalization, location, grocery) inherit one order.
+
+### Hard constraints vs. soft preferences
+
+Two tiers, never conflated. **This is the canonical definition.**
+
+**Hard constraints** — must be respected by **every** recommendation mode
+(Cook, every form of Eat out, Stock up); never overridden by behavioral
+inference; never relaxed to reach three options (see "Exactly 3"):
+
+- *Safety and dietary:* food allergies; dietary restrictions (for example
+  vegetarian, vegan, halal, kosher, gluten-free by need); other safety-related
+  food exclusions.
+- *Feasibility limits:* unavailable equipment, maximum cooking time, the
+  budget ceiling, and available ingredients ("Kitchen staples vs. today's
+  food" in `CLAUDE.md`).
+
+**Soft preferences** — affect ranking, are never safety constraints: disliked
+foods, preferred cuisines, preferred ingredients, taste leanings, routine
+defaults.
+
+Rules that follow:
+
+- **Disliked foods are not allergies or restrictions.** A dislike is a very
+  strong ranking penalty, not an absolute exclusion. Anyone who must never be
+  served something — for safety, health, or religious reasons — records it as
+  a hard constraint, not as a dislike.
+- **No safety claims.** The product cannot verify allergen content of a recipe,
+  a restaurant, or an item, and never calls an option "safe" or
+  "allergen-free." Respecting a constraint means never *knowingly*
+  recommending something that violates it.
+- **Status:** the Profile today holds *disliked foods* but no dedicated
+  allergy or dietary-restriction field, and today's prompt treats dislikes as
+  hard exclusions. Proper hard-constraint support is a small NOW foundation
+  item in `PLAN.md`, and a prerequisite for richer Eat out personalization.
+  How hard constraints interact with learning is in `PERSONALIZATION.md`.
+
+### Exactly 3 — decisions, not execution artifacts
+
+**Canonical rule: exactly 3 applies to decision recommendations, not
+execution artifacts — and truth beats the three-item rule when fewer than 3
+valid, real options exist.**
+
+The principle exists to stop decision fatigue at the moment the user is
+*choosing*. It does not mean every output comes in threes.
+
+**A decision recommendation → exactly 3 choices**, whenever the user is still
+deciding what kind of thing to do: "What should I eat?" → 3 choices; "Where
+should I eat nearby?" → 3 nearby places; choosing among food actions (cook /
+eat out / stock up), where the product offers that choice → 3 choices where
+appropriate.
+
+**An execution artifact → one, optimized**, once the user has selected an
+action and needs the thing itself: "Stock me for 4 days" → one grocery basket;
+"What ingredients am I missing?" → one missing-ingredient list; a selected
+recipe → one set of instructions.
+
+**Do not create three artificial alternatives when the user is no longer
+making that type of decision.** Three baskets, three versions of one shopping
+list, or three variants of a recipe already picked add exactly the cognitive
+load the product exists to remove. The user can still ask for a different one
+(regenerate, adjust); the product just doesn't front-load variants nobody
+requested.
+
+**Test:** is the user choosing *what to do*, or have they chosen and now need
+*the thing*? Choosing → three. Chosen → one.
+
+**Truth beats three.** Three is the target, not a quota. When fewer than three
+valid, real options exist, return fewer — down to zero — and say so honestly,
+rather than padding with something invented: a missing ingredient (cook "Use
+what I have" may return 0–3; zero routes to "Show me what to buy"), a
+nonexistent or closed place, or an item that violates a hard constraint. Fewer
+honest options beat three dishonest ones. This never licenses returning fewer
+merely because ranking was hard.
+
+### External integrations
+
+**Avoid external integrations before they are necessary to test a core product
+hypothesis. Introduce them only when the user value cannot be meaningfully
+validated without them, and keep them narrow, replaceable, and
+cost-controlled.**
+
+This replaces the older, absolute "no external APIs before validation."
+Applied:
+
+- **Nearby Eat out qualifies.** Whether nearby-place discovery helps people
+  decide cannot be validated with generated, fake businesses — real places are
+  the point. Its integration requirements are in "Eat out — nearby."
+- **Menu ingestion, delivery-marketplace, ordering, and grocery-inventory
+  integrations do not qualify yet.** The core decision — where or what — can
+  be tested without them.
+- **"Necessary" is judged against the hypothesis, not against how impressive
+  the integration is.**
 
 ---
 
@@ -231,10 +459,14 @@ Context → Recommendation → Selection → Actual eating → Feedback
 
 - primary health goal
 - protein target
-- optional daily calorie target, entered manually
+- optional, manually entered estimated daily energy guidance (legacy UI label:
+  "daily calorie target" — see "Terminology")
 - normal food budget
-- cuisine preferences
-- disliked foods
+- **hard constraints** — allergies, dietary restrictions, other safety-related
+  exclusions. *Not yet in the Profile; a NOW foundation item in `PLAN.md`.* See
+  "Hard constraints vs. soft preferences."
+- **soft preferences** — cuisine preferences, disliked foods (a very strong
+  ranking penalty, not a safety constraint)
 - kitchen equipment
 - fridge / storage constraints
 - **Kitchen staples** — persistent condiments and seasonings only (salt, oil,
@@ -259,14 +491,10 @@ picks a decision mode, then answers only what that mode needs:
   store or method question, since there's no store data behind this mode to
   ask about. Reuses goal, protein target, and dislikes from the profile.
 
-**3. Exactly 3 recommendations** — no more, no fewer, in every mode, with one
-narrow exception: "I can cook" → "Use what I have" (no shopping tonight) may
-return fewer, down to zero, when the user's current ingredients and Kitchen
-staples don't reasonably support that many — see "Kitchen staples vs. today's
-food" in `CLAUDE.md`. Inventing a missing ingredient to reach three is
-explicitly wrong; a thinner, honest result (or the "Show me what to buy"
-fallback) is correct. Every other mode, and cook with shopping allowed, is
-still always exactly three:
+**3. Exactly 3 recommendations** — the canonical rule is "Exactly 3" under
+Product principles: three for every *decision*, one for an execution artifact,
+and truth beats three when fewer valid real options exist. Within a decision,
+the three have distinct purposes:
 
 1. best overall match
 2. lowest-effort option — for ordering, the simplest thing to find and order
@@ -279,8 +507,9 @@ For "I want to order food," a recommendation is a **meal category**, not a
 recipe: what to search for in a delivery app, a suggested order
 configuration, and why it fits right now — no steps, no ingredient list, no
 cooking equipment. See "Order Food" above for the coaching philosophy and the
-explicit non-goals (no restaurant APIs, no restaurant discovery, no
-ordering).
+explicit non-goals of *this category mode* (no restaurant APIs, no restaurant
+discovery, no ordering). Nearby-place discovery is a separate capability inside
+Eat out.
 
 For "Grab a snack," a recommendation is a **ready-to-buy item**: what to look
 for while walking around the store (a category and a rough, useful spec —
@@ -297,6 +526,18 @@ costs: what the meal is worth (`~$9 meal`) and what the user would spend
 tonight on missing ingredients (`~$2 more to buy`). The budget limit applies to
 the second — food already owned never makes a meal fail the budget.
 
+**Budget means two different things.** Cook budget caps *additional* spend on
+missing ingredients (a hard constraint, above). Eat out has its own
+`meal_budget`: the approximate amount the user wants to spend on the current
+meal, chosen as a coarse band (or "No strong preference", also the meaning of a
+missing value). It is a feasibility and ranking signal, never a guaranteed
+price ceiling, and the two are never merged into one field. In Nearby, Google
+Places `priceLevel` is coarse provider metadata, not menu-item pricing, so it
+may support cautious tendency wording ("more likely to fit your budget") but
+never an exact price, a dish price, or a delivery total. An unknown price level
+stays unknown: it is neither a reason to pick a place nor to avoid it, and it
+supports no price-fit claim.
+
 **Cost estimates are low confidence.** They come from the model alone, with no
 grocery-price data, store, or region behind them. They are useful for "cheap
 versus expensive", not for real budgeting, and should eventually be replaced
@@ -305,15 +546,13 @@ or supplemented by real price data (see Grocery intelligence).
 **Protein is a target range, not something to maximize.** A daily target
 covers the whole day and the app does not know what else the user ate, so each
 meal aims for roughly a third of the daily target — somewhat more when very
-hungry or asking for high protein, somewhat less for a light meal. When
-priorities conflict, recommendations weigh, in order: likelihood the user will
-actually eat it, tonight's context and craving, feasibility, the health goal
-and a reasonable energy range, and adequate protein. Hard constraints override
-all of these.
+hungry or asking for high protein, somewhat less for a light meal. Protein is
+last in the decision priority order (see Product principles); hard constraints
+override it.
 
 **Calories are a soft energy envelope, not "lower is always better."** A meal
-too small to satisfy is a bad recommendation too. When the user has entered a
-daily calorie target, it sets an approximate range for this meal, scaled by
+too small to satisfy is a bad recommendation too. When the user has entered
+daily energy guidance, it sets an approximate range for this meal, scaled by
 hunger and meal size. Without one, the goal gives direction only — moderate,
 filling portions for fat loss, ordinary portions to maintain, substantial meals
 welcome for muscle gain — and no calorie number is assumed. The app never
@@ -335,95 +574,165 @@ Liked / disliked, and the reason for rejection.
 
 Useful early extensions. **Build only after the core loop works end to end:**
 
-- Recipe Inbox / recipe memory — save recipes to try; surface them when the
-  current context makes them appropriate. May accept pasted text or URLs.
-- Meal history
+- Saved recipes (legacy label: "Recipe Inbox" / recipe memory) — save recipes
+  to try; surface them when the current context makes them appropriate. May
+  accept pasted text or URLs.
+- Recent meals — recent choices, for repetition awareness and context. Not a
+  food diary.
 - Favorites
-- Recent-meal awareness
-- Basic preference learning
-- Nutrition target refinement — "Suggest for me" calorie target; see below
-- Remaining daily nutrition context — see below
-- Food occasion — full meal, small meal, snack, dessert; see below
+- Basic preference learning — rules-based, soft ranking only; see
+  `PERSONALIZATION.md`
+- Routine defaults — user-set default contexts for weekday lunch, weekday
+  dinner, and weekend, used as pre-selected defaults on Home; see
+  `PERSONALIZATION.md`. A hypothesis that these contexts differ enough to
+  matter, not a finding.
+- **Eat out — nearby** — nearby restaurant and café discovery plus contextual
+  ranking. See below.
+- Nutrition baseline — estimated daily energy range and protein target/range,
+  *when the required Profile inputs exist*; see "Nutrition target refinement."
+- Meal context — see below
 - Measurement-style preference — see below
+
+"Approximate recent-intake context" (formerly "remaining daily nutrition")
+is a future direction, not Extended MVP.
 
 Having a screen shell for one of these does not make it core. `Plan` and
 `Groceries` exist in the navigation today as empty containers (see
 `CLAUDE.md` → "The top-level information architecture"); the functionality
-inside them is Extended MVP.
+inside them is Extended MVP or later.
+
+#### Eat out — nearby
+
+**Promoted to Extended MVP (NEXT) 2026-09-29.** A core extension of the
+product's primary job: users who normally eat out should get useful
+recommendations without being forced into Cook. Like everything in Extended
+MVP, it starts only after the Core-loop MVP works end to end, and it depends on
+hard-constraint support (NOW) so nearby recommendations respect allergies and
+dietary restrictions.
+
+**Where it lives.** Inside the Eat out umbrella, as "Find food near me" beside
+the category guidance — not a new Home intent and not a competing mode (see
+"Home structure").
+
+**What it is:** nearby place discovery + contextual ranking. The user taps to
+find somewhere to eat; the browser requests location **only at that moment**;
+the app retrieves nearby restaurants and cafés from a places provider, ranks
+them against context (craving, hunger, time, budget feel, distance, open now,
+goal and cuisine fit, past acceptance where it exists), and returns **three
+nearby places** with a short reason each — a decision recommendation, so
+"Exactly 3" applies, including truth beating three: if only two valid open
+places exist, return two. The model *interprets, ranks, and explains*
+retrieved places; it never invents one. Hard constraints apply at the level the
+product can know (for example, not steering a vegetarian toward a steakhouse);
+it never asserts that a venue or item is safe.
+
+**What it can say about a place:** name, category, distance, open/closed, price
+level, a link to the place's own website where available, and a provider
+rating as one light ranking input — plus a *suggestion* of what kind of thing
+to look for on their menu ("look for a grilled or bowl-style option"). That
+suggestion is guidance, never a claim that a particular item exists. Review
+content and review features are out of scope. The product answers "where," not
+"what to order there."
+
+**Not part of this slice** (canonical list; other documents refer here):
+
+- full restaurant marketplace behavior
+- full menu ingestion or menu search
+- guaranteed item-level menu availability
+- item-level nutrition, unless a reliable source exists for that item
+- restaurant ordering, or replacing DoorDash / Uber Eats
+- reservations
+- restaurant reviews
+- grocery-store discovery and the recipe → nearby-grocery handoff (future;
+  same place layer, separate promotion)
+
+The near-term goal is **not** building a restaurant marketplace.
+
+**Provider and integration requirements.** This is the first external
+integration, so it sets the pattern (see "External integrations" under Product
+principles). It qualifies because real nearby places cannot be validated with
+generated fake businesses. It must be:
+
+- **Isolated behind a small provider boundary** — the recommendation system
+  works with the product's own minimal place shape, not one vendor's
+  response, so the provider can be replaced.
+- **Narrow** — request only the fields the decision needs; none "just in
+  case."
+- **Not dependent on expensive metadata** the core decision doesn't need. If a
+  costly field is merely nice to have, leave it out; the feature must still
+  work without it.
+- **Cost-controlled and observable** — provider usage and cost are measurable
+  per feature, and requests are bounded (one explicit tap, a limited result
+  set).
+- **Provider for v1: Google Places API (New)** — implemented 2026-09-29 behind
+  a provider interface (`src/lib/places/`), so it remains replaceable. Requests
+  use an explicit field mask; requesting open-now and price level puts each
+  search at Google's higher (Enterprise) billing tier — see the comment on
+  `PLACES_FIELD_MASK` in `src/lib/places/config.ts`. The feature does not
+  depend on either field.
+
+**Privacy.** Request location only on an explicit tap; prefer temporary,
+session-scoped location; do not store precise location by default.
 
 #### Nutrition target refinement
 
-The Core-loop MVP stores a protein target and an optional, manually entered
-daily calorie target. For users with fat-loss or muscle-building goals, a more
-complete *daily nutrition envelope* may help recommendations fit better.
+Near-term Profile nutrition guidance is deliberately limited to two things:
 
-**Guardrail: Food Decision must not become a macro-tracking app.** Targets
-exist to shape recommendations, not to make the user log, count, or reconcile
-what they ate.
+- **an estimated daily energy range**
+- **a protein target/range** — stays the prominent target
 
-A future profile flow may support:
+Nothing else. They primarily support **recommendation quality**. They are
+*not* a precise calorie prescription, *not* a calorie budget, and *not*
+carbohydrate/fat tracking — see "Product identity and guardrails" (the
+product is not a macro tracker). Every number is an estimate, shown as one, that
+the user can accept or edit.
 
-- **"Suggest for me" daily calorie target**, for users who don't know theirs
-- **protein target** — stays the prominent target
-- optional carbohydrate target
-- optional fat target
+**Carbohydrate and fat targets are not a current product priority and are
+not part of Extended MVP.** They may remain a possible later, advanced detail
+if real users ask for them; nothing is promised, and adding them would need
+explicit promotion into `PLAN.md` plus a check against the macro-tracker
+guardrail.
 
-Carbohydrate and fat targets are optional and flexible, never mandatory. The
-primary product is food decision support, not macro logging.
+**Required inputs — a dependency, not a detail.** A valid energy estimate
+cannot be produced from the existing Profile alone: today it holds a goal, a
+protein target, a manually entered number, and no body or activity data. A
+"Suggest for me" estimate needs an appropriate set of inputs, such as:
 
-The calorie suggestion should be derived, not asked for:
+- age
+- height
+- weight
+- the biological/physiological input required by the selected validated
+  equation, if applicable
+- activity level
+- goal
 
-```
-user characteristics → estimated BMR → estimated total daily energy
-expenditure → goal adjustment → suggested daily target
-```
+These are optional, entered by the user, and never inferred from behavior
+(`PERSONALIZATION.md`, principle 9). **The calculation method is chosen and
+documented when the feature is implemented — it is deliberately not
+prescribed here.**
 
-BMR is an input to that chain, never the recommended intake itself.
-
-Most users do not know their calorie target, so the UX should offer one rather
-than demand one — something like:
-
-```
-Calories: ~1,850 / day   [Suggest for me]
-```
-
-Like every nutrition number in the product, it is an estimate and should be
-shown as one.
+**No fabricated estimates.** If a required input is missing, the product does
+not produce an energy estimate — no guess from averages, defaults, or the goal
+alone. It falls back to what it does today: qualitative goal guidance, or the
+user's own manually entered value. Users who already know their number can
+always enter it. The existing legacy field stores a single number; how a range
+and manual entry coexist is an implementation decision. A protein target
+suggested (rather than typed) needs the same honesty about inputs.
 
 **Usual eating pattern** — 2 meals, 3 meals, or 3 meals plus snacks — may also
-belong in the profile. The same daily target implies very different meal sizes
-depending on how many times someone eats, and today's guidance assumes roughly
-three meals for both protein and calories.
+belong in the profile. The same daily guidance implies very different meal
+sizes depending on how many times someone eats, and today's guidance assumes
+roughly three meals for both protein and calories.
 
-#### Remaining daily nutrition context
+#### Meal context
 
-Today each meal aims for a share of the daily targets because the app has no
-idea what else the user ate. Once the core loop records which recommended
-meals were actually eaten, the app could estimate both:
-
-```
-daily calorie target − estimated calories from confirmed eaten meals
-daily protein target − estimated protein from confirmed eaten meals
-```
-
-and adapt later meals that day — a lighter dinner after a large lunch, more
-protein after a low-protein day — **without the user logging anything**. The
-goal is specifically to avoid turning the product into manual macro logging.
-
-Two caveats are part of the idea, not footnotes:
-
-- **It depends on the core feedback loop.** Without knowing whether a
-  recommended meal was actually eaten, there is no intake to subtract.
-- **It undercounts.** Food eaten outside the app — a snack, a coffee, a meal
-  out — is invisible, so every "remaining" figure is an estimate that errs
-  high, never ground truth.
-
-#### Food occasion
-
-The user may eventually be looking for a **full meal, small meal, snack, or
-dessert**. Reasonable calorie and protein guidance differs a lot between them —
-a third of the daily target is sensible for dinner and absurd for a snack. For
-now the Core-loop MVP is about meals only, and the Today flow does not change.
+Whether this is breakfast, lunch, dinner, a snack, or dessert — or, more
+broadly, the current eating situation — will eventually shape a recommendation:
+its size, effort, and type. For now the Core-loop MVP is about meals only and
+the Today flow does not change. Meal context informs recommendations
+*qualitatively*; it is not a scheme of fixed per-meal calorie allocations. It
+connects to routine defaults (weekday lunch / weekday dinner / weekend) in
+`PERSONALIZATION.md`.
 
 #### Measurement style
 
@@ -486,14 +795,20 @@ the only thing that authorizes work.
 Do not build during the current MVP phase:
 
 native iOS app · native Android app · live grocery pricing · Instacart
-integration · grocery delivery · restaurant ordering (DoorDash/Uber Eats/any
-ordering API — placing an order on the user's behalf) · restaurant discovery
-(finding specific nearby restaurants, live menus, geolocation) · receipt
-scanning · barcode scanning · exact ingredient quantities ·
+integration · grocery delivery · grocery checkout and inventory integrations ·
+everything listed under "Not part of this slice" in "Eat out — nearby" ·
+receipt scanning · barcode scanning · exact ingredient quantities ·
 expiration-date tracking · Apple Health integration · wearable integration ·
-automatic calorie logging · social or community features · family accounts ·
-weekly meal planning · recommendation ML models · vector databases ·
-complex agent architecture · subscriptions or payments · admin dashboards
+automatic calorie logging · manual calorie or macro logging · carbohydrate/fat
+targets · social or community features and feeds · family accounts · fixed
+weekly meal planning · recommendation ML models · vector databases · complex
+agent architecture · subscriptions or payments · admin dashboards
+
+Nearby restaurant/café **discovery** and its one-tap geolocation are *not*
+non-goals (promoted 2026-09-29; see "Eat out — nearby"). Identity-level
+exclusions — calorie/macro diary, rigid meal planner, recipe database, generic
+AI nutrition coach — are defined once under "Product identity and guardrails"
+and are not repeated here.
 
 ---
 
@@ -505,12 +820,20 @@ may be built until it has been explicitly promoted into `PLAN.md` NOW or NEXT.
 Ordinary Recipe Inbox does **not** appear here — it is an intended early
 capability and lives in the Extended MVP above.
 
-- **Location-aware recommendations** — nearby restaurant and grocery-store
-  discovery, restaurant-specific menu recommendations, and eventually
-  store-specific grocery products — moving the system from "the model
-  invents three foods" toward "retrieve real nearby options, rank them,
-  explain the top 3." Likely the first high-value post-MVP direction; see
-  below.
+- **Location-aware recommendations — beyond the NEXT slice.** Restaurant/café
+  discovery is now Extended MVP ("Eat out — nearby"). Still future: nearby
+  grocery-store discovery, restaurant-specific menu recommendations, and
+  eventually store-specific grocery products — moving further from "the model
+  invents three foods" toward "retrieve real nearby options, rank them, explain
+  the top 3"; see below.
+- **Recipe → missing ingredients → nearby grocery store** — when a cook
+  recommendation needs a few things the user doesn't have, produce **one**
+  missing-ingredient list and hand it off to nearby grocery stores.
+  Store-agnostic: it names *where* to go, not what is in stock or its price.
+  Depends on grocery-store discovery from the location layer below, which is
+  not part of the NEXT slice; not buildable before it.
+- **Stock up — "Stock me for N days"** — flexible provisioning; see below.
+- **Approximate recent-intake context** — optional and approximate; see below.
 - **Grocery intelligence** — store-specific products, live prices, and
   inventory-aware grocery recommendations. Covered as grocery Level B under
   "Location-aware recommendations" below; would replace or supplement
@@ -521,14 +844,20 @@ capability and lives in the Extended MVP above.
   goal, and ingredients. Not part of the current MVP.
 - **Personal recipe capture** — an important future personalization
   capability; see below.
-- **Weekly meal planning** — for users with full kitchens and larger storage,
-  help prepare meals in advance around their schedule.
+- **Weekly meal planning — fixed schedules are excluded** (see guardrails).
+  The legitimate need underneath it — being prepared for the next few days —
+  is served by **Stock up** below. Kept only as a pointer so the distinction is
+  not lost.
 - **Cook / assemble / buy** — compare three kinds of food decision: cook it,
   assemble it with minimal preparation, or buy something nearby.
 - **Adaptive preference learning** — learn cuisine preference, effort
-  tolerance, ingredient preferences, and meal patterns from actual behavior.
-  Related to the future ranking engine's `historical_acceptance` signal;
-  see "Location-aware recommendations" below.
+  tolerance, ingredient preferences, meal patterns, and routine contexts
+  (weekday lunch / weekday dinner / weekend) from actual behavior. The
+  rules — including that one choice never sets a permanent preference and
+  non-selection never means dislike — are in `PERSONALIZATION.md`. Related to
+  the future ranking engine's `historical_acceptance` signal; see
+  "Location-aware recommendations" below. Basic, rules-based versions of this
+  are Extended MVP; the adaptive form is future.
 - **Household mode** — potentially support couples or families.
 
 ### Personal recipe capture
@@ -576,13 +905,74 @@ example, the user previously made and loved a chicken rice meal; today they
 have chicken, want something warm, and have 20 minutes — so the recommender can
 surface that recipe again instead of inventing a new one.
 
+### Approximate recent-intake context
+
+*Formerly "remaining daily nutrition context."* **Future direction (LATER).**
+Not part of the core loop, not scheduled. It needs reliable intake/feedback
+data the product does not yet have, and it risks pushing the product toward
+calorie tracking — the thing it must not become.
+
+Today each meal aims for a share of the daily guidance because the app has no
+idea what else the user ate. If the core loop eventually records enough
+actually-eaten meals, the app *could* form a rough sense of recent intake —
+that today has already been large, or light, or low in protein — and use it to
+nudge later meals **without the user logging anything**.
+
+It is **approximate recent-intake context for recommendation quality**, not
+"calories or macros remaining today": never a balance the user sees or must
+manage, and never a required logging system. Caveats that are part of the
+idea, not footnotes:
+
+- **It depends on the core feedback loop** being complete and reliable enough
+  that "confirmed eaten" means something.
+- **It undercounts.** Food eaten outside the app — a snack, a coffee, a meal
+  out — is invisible, so any figure errs low on intake, never ground truth.
+- **Promotion needs evidence** (record it in `LEARNINGS.md`) that it improves
+  recommendations without making users feel tracked.
+
+### Stock up — "Stock me for N days"
+
+**Future direction. Not part of the core loop, not scheduled.** Not buildable
+until promoted into `PLAN.md`, and not before the Groceries container has real
+contents. This is the **Stock up** action domain.
+
+**What "Plan ahead" (the legacy label) means here:** **short-horizon
+flexible provisioning** — *not* meal planning. Help the user prepare enough
+flexible food for the next few days, so each actual meal can still be decided
+dynamically from that day's context.
+
+The idea: a user about to go shopping asks, in effect, **"what should I buy so
+I can eat decently for the next few days?"** — and gets **one** flexible,
+optimized grocery basket — an execution artifact, so one, not three (see
+"Exactly 3"). "Stock me for 4 days" may produce that basket; it must not lock
+the user into a Monday/Tuesday/etc. meal schedule.
+
+- **Flexible, not scheduled.** Versatile ingredients and easy backups — a
+  couple of protein anchors, produce, a carb base, a ready-to-eat fallback —
+  each usable in several meals, optionally with a few example meals it enables.
+  No "Monday: X, Tuesday: Y." Which meal happens when is still decided in the
+  moment through the normal core loop.
+- **Shaped by the same context:** goal, protein target, budget, fridge/storage
+  limits, equipment, and — once it exists — the user's routine (how many
+  meals at home versus out).
+- **It does not create a pantry.** What the user buys does not become a
+  persisted inventory. When they later cook, "What do you have right now?" is
+  still entered fresh, per "Kitchen staples vs. today's food" in `CLAUDE.md`.
+- **Why it isn't a meal planner:** the output is a shopping decision, not a
+  commitment to a schedule. If a version of it starts to feel like a plan the
+  user can fall behind on, it has crossed the guardrail.
+
 ### Location-aware recommendations
 
-**Future direction. Not part of the core loop, not scheduled.** Nothing in
-this section changes the current MVP or is authorized to build. It exists so
-the long-term shape of the system is written down before any piece of it is
-explicitly promoted into `PLAN.md` NOW or NEXT, the same rule as every other
-future direction in this document.
+**Mostly future direction; one slice promoted.** Restaurant and café
+discovery with contextual ranking (Phase 1.5) is Extended MVP — its scope,
+exclusions, provider and privacy rules are defined once, in "Eat out — nearby,"
+and that definition wins where this section is broader. **Everything else
+here** — grocery-store discovery, restaurant-specific menus (Phase 2), grocery
+Level B, marketplace integration, the ranking engine — is future direction:
+not scheduled, and not authorized to build until explicitly promoted into
+`PLAN.md` NOW or NEXT. The section exists so the long-term shape of the system
+is written down.
 
 #### The shift this represents
 
@@ -619,33 +1009,19 @@ integration below.
 Primary MVP validation question:
 
 > When I am hungry, tired, craving something, or about to make an impulsive
-> food decision, do I open Nutrition Coach and does it change what I choose?
+> food decision, do I open Food Decision and does it change what I choose?
 
-This restates the "Current hypothesis" and "What we need to prove" sections
-above in the sharpest form — nothing below substitutes for answering it
-first.
+This is the "Current hypothesis" in its sharpest form; nothing below
+substitutes for answering it first.
 
 #### Phase 1.5 — location-aware "Near me"
 
-The first likely post-MVP integration. A user taps **"Near me"**; the browser
-requests geolocation **only at that moment**; the app retrieves nearby
-restaurants, grocery stores, and convenience stores from a places/location
-provider (for example Google Places or an equivalent) and shows **places**,
-not dishes:
-
-> "Here are 3 nearby places that fit what you want right now" — a nearby Thai
-> restaurant, a nearby Sweetgreen, a nearby grocery store.
-
-Potential metadata per place: business name, category, address, distance,
-open/closed status if available, rating if useful, price level if available,
-website/menu link if available. This is deliberately **not** dish-level menu
-intelligence yet — it answers "where," not "what to order there."
-
-**Privacy principle:** do not store precise user location by default. Request
-it only when the user explicitly taps "Near me," and prefer a temporary,
-session-scoped location over a persisted one.
-
-This phase does **not** depend on DoorDash/Uber Eats access.
+The restaurant/café part of this phase is promoted; its full definition is
+"Eat out — nearby" under Extended MVP and is not repeated here. What remains
+future is using the **same place layer** for grocery and convenience stores —
+the basis of **recipe → missing ingredients → nearby grocery store**
+(store-agnostic; Level A below). This phase does **not** depend on
+DoorDash/Uber Eats access.
 
 #### Phase 2 — restaurant-specific recommendations
 
@@ -784,21 +1160,21 @@ every candidate from scratch.
    stock.
 6. **API/platform dependence** — avoid building the product around an
    external platform that can restrict access, change API terms, become
-   expensive, or require commercial approval it hasn't earned.
+   expensive, or require commercial approval it hasn't earned. The
+   provider-boundary and cost rules are in "Eat out — nearby."
 7. **Recommendation reliability** — avoid hallucinating restaurants, menu
    items, product availability, or prices. Once real-world retrieval exists,
    recommendations must be grounded in retrieved candidates, never invented.
 
 #### Prioritization principle
 
-Do not build a technically impressive integration before validating the core
-behavior. The current core question is still the one in "Current hypothesis"
-above: **does Nutrition Coach meaningfully improve real food decisions?**
-External APIs should increase actionability *after* that is validated, not
-substitute for validating it.
+Integrations follow "External integrations" under Product principles: only
+when the value cannot be validated without them, and narrow, replaceable, and
+cost-controlled. The core question is still the one in "Current hypothesis" —
+**does Food Decision meaningfully improve real food decisions?**
 
-Location-awareness is the most likely first high-value external integration:
-it moves recommendations from "what could you eat" to "what can you
-realistically eat or buy around you right now" — without requiring full
-delivery-marketplace integration.
+Location-awareness was the first integration to qualify: it moves
+recommendations from "what could you eat" to "what can you realistically eat
+or buy around you right now" — without requiring full delivery-marketplace
+integration.
 

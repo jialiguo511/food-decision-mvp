@@ -4,11 +4,13 @@
 // go through here, each with its own schema and constraint check.
 
 import { z } from "zod";
+import type { PlaceCandidate } from "../places/candidates";
 import { ingredientsOutsideInventory } from "./inventory";
 import type {
   ActiveConstraints,
   CookRecommendation,
   DecisionMode,
+  NearbyRecommendation,
   OrderRecommendation,
   Recommendation,
   RecommendationRole,
@@ -99,6 +101,37 @@ const storeSnackRecommendationFields = z.object({
   estimated_protein_g: z.number().int().nonnegative(),
 });
 
+/** What the model returns for one nearby pick: a reference to a candidate and
+ *  two sentences of judgment — nothing else. Name, distance, hours, price,
+ *  and the Maps link are copied from the provider's candidate server-side, so
+ *  there is no field through which the model could put an invented place, a
+ *  price, or a calorie count on screen.
+ *
+ *  Same `.min(1)` / no-transform rules as the other field sets, since this is
+ *  also handed to zodOutputFormat. */
+const nearbyPickFields = z.object({
+  place_id: z.string().min(1).describe("Must be exactly one of the candidates' place_id values."),
+  reason: z.string().min(1),
+  look_for: z.string().min(1),
+});
+
+/** A nearby recommendation as stored in decision_sessions and read back. The
+ *  place facts are stored verbatim from the candidate so a restored session
+ *  renders without another provider call. `maps_url` is restricted to https
+ *  because this is read back from the database and rendered as a link. */
+const nearbyRecommendationFields = z.object({
+  title: z.string().min(1),
+  place_id: z.string().min(1),
+  reason: z.string().min(1),
+  look_for: z.string().min(1),
+  category: z.string().min(1).nullable(),
+  address: z.string().min(1).nullable(),
+  distance_m: z.number().int().nonnegative().nullable(),
+  open_now: z.literal(true).nullable(),
+  price_level: z.enum(["free", "inexpensive", "moderate", "expensive", "very_expensive"]).nullable(),
+  maps_url: z.string().url().refine((url) => url.startsWith("https://"), "must be an https URL"),
+});
+
 /**
  * The schema sent to the API as structured output. One key per role, rather
  * than an array, so the model cannot return two recommendations, four, or the
@@ -156,6 +189,7 @@ export const storedRecommendationsSchema = z
       cookRecommendationFields.extend({ decision_mode: z.literal("cook"), role: z.enum(ROLES) }),
       orderRecommendationFields.extend({ decision_mode: z.literal("order"), role: z.enum(ROLES) }),
       storeSnackRecommendationFields.extend({ decision_mode: z.literal("store_snack"), role: z.enum(ROLES) }),
+      nearbyRecommendationFields.extend({ decision_mode: z.literal("nearby"), role: z.enum(ROLES) }),
     ]),
   )
   .max(3);
@@ -181,6 +215,12 @@ export function parseRecommendations(
     return { ok: false, code: "malformed_output", details: ["Response was not valid JSON."] };
   }
 
+  // Nearby never goes through here: its output is checked against the
+  // request's candidates, which this function doesn't have. See
+  // parseNearbyRecommendations.
+  if (constraints.decision_mode === "nearby") {
+    return { ok: false, code: "malformed_output", details: ["Nearby output must be parsed with parseNearbyRecommendations."] };
+  }
   const mode = constraints.decision_mode;
   const allowFewer = constraints.decision_mode === "cook" && constraints.no_shopping;
   const parsed = buildOutputSchema(mode, { allowFewer }).safeParse(json);
@@ -238,7 +278,11 @@ export function findConstraintViolations(
   constraints: ActiveConstraints,
   onHand: readonly string[] = [],
 ): string[] {
-  if (constraints.decision_mode === "order" || constraints.decision_mode === "store_snack") {
+  if (
+    constraints.decision_mode === "order" ||
+    constraints.decision_mode === "store_snack" ||
+    constraints.decision_mode === "nearby"
+  ) {
     // No time/budget/equipment to check — there is no menu-price, grocery-
     // price, or real-world availability data behind this product. `avoid` is
     // free-text (dislikes read against a generated title/reason), the same as
@@ -302,3 +346,116 @@ function findCookConstraintViolations(
 // Re-exported so callers that only need the shape, not the union, don't have
 // to import from types.ts too.
 export type { CookRecommendation, OrderRecommendation };
+
+
+// ---------------------------------------------------------------------------
+// Nearby places
+// ---------------------------------------------------------------------------
+
+/** How many recommendations a nearby request must return: exactly three
+ *  whenever three or more real candidates remain, otherwise all of them
+ *  (truth beats three — PRODUCT.md → "Exactly 3"). Deterministic, and enforced
+ *  in parseNearbyRecommendations, not left to the prompt. */
+export function expectedNearbyCount(candidateCount: number): number {
+  return Math.min(3, candidateCount);
+}
+
+/** Structured-output schema for "Find food near me". One key per role like
+ *  every other mode. With three or more candidates every slot is required, so
+ *  decoding itself can't under-return; with fewer, slots are nullable so the
+ *  real number can be expressed without padding. */
+export function buildNearbyOutputSchema(candidateCount: number) {
+  const slot = candidateCount >= 3 ? nearbyPickFields : nearbyPickFields.nullable();
+  return z.object({ best_match: slot, lowest_effort: slot, alternative: slot });
+}
+
+/** Text the model must never write about a place, because a places provider
+ *  has no menu, price, or nutrition data behind it. Deliberately narrow and
+ *  mechanical — this catches concrete fabricated *numbers* and quoted
+ *  dish names, not general tone. The prompt is the primary defense; this is
+ *  the backstop that keeps a violation off the screen. */
+const FABRICATION_PATTERNS: { pattern: RegExp; what: string }[] = [
+  { pattern: /[$€£]\s?\d/, what: "a price" },
+  { pattern: /\b\d[\d.,]*\s?(?:dollars|usd|bucks)\b/i, what: "a price" },
+  { pattern: /\b\d[\d,]*\s?(?:kcal|cals?|calories)\b/i, what: "a calorie count" },
+  { pattern: /\b\d+(?:\.\d+)?\s?(?:g|grams)\s+(?:of\s+)?(?:protein|carbs?|carbohydrates?|fat)\b/i, what: "a macro amount" },
+  { pattern: /["“”][^"“”]{3,}["“”]/, what: "a quoted (menu-item-style) name" },
+];
+
+/** What, if anything, in this text claims a price, nutrition figure, or
+ *  named menu item. Exported for tests. */
+export function findFabricatedMenuClaims(text: string): string[] {
+  return FABRICATION_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(({ what }) => what);
+}
+
+/**
+ * Validates the model's raw text for a nearby request against the candidates
+ * that request actually retrieved, and builds the stored recommendations by
+ * copying place facts from those candidates. Rejects the WHOLE set — never
+ * renders a partial one — when any pick:
+ *  - references a place_id that is not in the candidate set (invented or
+ *    misremembered place),
+ *  - repeats a place already picked in another slot,
+ *  - returns fewer than expectedNearbyCount(candidates) picks (e.g. two picks
+ *    from ten candidates), or
+ *  - states a price, calorie/macro figure, or quoted dish name.
+ */
+export function parseNearbyRecommendations(text: string, candidates: readonly PlaceCandidate[]): ParseResult {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { ok: false, code: "malformed_output", details: ["Response was not valid JSON."] };
+  }
+
+  const parsed = buildNearbyOutputSchema(candidates.length).safeParse(json);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .slice(0, 8)
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);
+    return { ok: false, code: "malformed_output", details };
+  }
+
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const picks = ROLES.flatMap((role) => {
+    const pick = parsed.data[role];
+    return pick ? [{ role, pick }] : [];
+  });
+
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const { role, pick } of picks) {
+    if (!byId.has(pick.place_id)) problems.push(`${role}: place_id is not one of this request's candidates.`);
+    else if (seen.has(pick.place_id)) problems.push(`${role}: repeats a place already recommended.`);
+    seen.add(pick.place_id);
+
+    for (const what of new Set([...findFabricatedMenuClaims(pick.reason), ...findFabricatedMenuClaims(pick.look_for)])) {
+      problems.push(`${role}: text states ${what}, which the places data can't support.`);
+    }
+  }
+  const expected = expectedNearbyCount(candidates.length);
+  if (picks.length !== expected) {
+    problems.push(`Returned ${picks.length} place(s) but ${expected} were required (${candidates.length} candidates).`);
+  }
+  if (problems.length > 0) return { ok: false, code: "malformed_output", details: problems };
+
+  const recommendations = picks.map(({ role, pick }): NearbyRecommendation => {
+    const place = byId.get(pick.place_id)!;
+    return {
+      decision_mode: "nearby",
+      role,
+      title: place.name,
+      place_id: place.id,
+      reason: pick.reason.trim(),
+      look_for: pick.look_for.trim(),
+      category: place.category,
+      address: place.address,
+      distance_m: place.distance_m,
+      open_now: place.open_now === true ? true : null,
+      price_level: place.price_level,
+      maps_url: place.maps_url,
+    };
+  });
+
+  return { ok: true, recommendations, insufficientInventory: false };
+}

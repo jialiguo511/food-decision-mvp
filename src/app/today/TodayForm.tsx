@@ -3,13 +3,13 @@
 import { useState } from "react";
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { DECISION_MODES } from "@/lib/options";
+import { DECISION_MODES, DEFAULT_MEAL_BUDGET } from "@/lib/options";
 import { normalizeCraving } from "@/lib/text";
 import type { ActiveSession, DecisionContext, DecisionMode, MealContext, OrderContext, StoreSnackContext } from "@/lib/types";
 import CookForm from "./CookForm";
 import type { FeedbackData } from "./MealFeedback";
 import OrderForm from "./OrderForm";
-import RecommendationResults, { isInventoryLimited } from "./RecommendationResults";
+import RecommendationResults, { isInventoryLimited, isNearbySession } from "./RecommendationResults";
 import StoreSnackForm from "./StoreSnackForm";
 import { useRecommend } from "./useRecommend";
 
@@ -33,7 +33,17 @@ function defaultOrderContext(): OrderContext {
     craving_category: "no_preference",
     craving_note: null,
     method: "delivery",
+    meal_budget: DEFAULT_MEAL_BUDGET,
   };
+}
+
+/** The form only ever holds the category-flow fields. `nearby` marks a
+ *  request, not a form value, so a restored nearby session's flag is dropped
+ *  here and re-added only when "Find food near me" is tapped. */
+function toFormValues(context: OrderContext): OrderContext {
+  const { nearby: _nearby, ...rest } = context;
+  void _nearby;
+  return rest;
 }
 
 function defaultStoreSnackContext(): StoreSnackContext {
@@ -66,7 +76,8 @@ function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
       a.hunger === b.hunger &&
       a.craving_category === b.craving_category &&
       a.craving_note === b.craving_note &&
-      a.method === b.method
+      a.method === b.method &&
+      a.meal_budget === b.meal_budget
     );
   }
   if (a.decision_mode === "store_snack" && b.decision_mode === "store_snack") {
@@ -111,7 +122,7 @@ export default function TodayForm({
     initial.decision_mode === "cook" ? initial : defaultCookContext(usualCookMinutes),
   );
   const [orderValues, setOrderValues] = useState<OrderContext>(
-    initial.decision_mode === "order" ? initial : defaultOrderContext(),
+    initial.decision_mode === "order" ? toFormValues(initial) : defaultOrderContext(),
   );
   const [storeSnackValues, setStoreSnackValues] = useState<StoreSnackContext>(
     initial.decision_mode === "store_snack" ? initial : defaultStoreSnackContext(),
@@ -125,7 +136,7 @@ export default function TodayForm({
   // Which action a loading request is for, so the right button (and only
   // that one) shows a loading label. Doesn't need to be reset on
   // success/error — it's only ever read while request.kind === "loading".
-  const [pendingAction, setPendingAction] = useState<"generate" | "showMore" | "buy" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"generate" | "nearby" | "showMore" | "buy" | null>(null);
 
   // initialFeedback was only ever read for initialSession. The moment a
   // regenerate or "Show me 3 more" swaps in a new session, that restored
@@ -139,6 +150,8 @@ export default function TodayForm({
   // buttons below.
   const currentContext = mode === "cook" ? cookValues : mode === "order" ? orderValues : storeSnackValues;
   const isDirty = !session || !contextsEqual(currentContext, session.context);
+  const busy = request.kind === "loading" || request.kind === "locating";
+  const sessionIsNearby = !!session && isNearbySession(session);
 
   /** Finalizes whatever is in the free-text craving box, then asks the
    *  recommender with the current form values for the active mode. Used for
@@ -165,6 +178,34 @@ export default function TodayForm({
     } else {
       void run(storeSnackValues);
     }
+  }
+
+  /** "Find food near me" — the existing order context plus a `nearby` flag.
+   *  The browser's location prompt appears only from here (via run), i.e.
+   *  only after this tap. Nearby search is about going somewhere, so a
+   *  "delivery" answer is switched to "eat nearby" and the form updated to
+   *  match, the same way showWhatToBuy keeps the form and session in sync. */
+  function findNearby() {
+    setPendingAction("nearby");
+    const finalized: OrderContext = {
+      ...orderValues,
+      craving_note: orderValues.craving_note === null ? null : normalizeCraving(orderValues.craving_note),
+      method: orderValues.method === "delivery" ? "eat_nearby" : orderValues.method,
+    };
+    setOrderValues(finalized);
+    void run({ ...finalized, nearby: true });
+  }
+
+  /** The category-based Eat out flow for the current order form — also the
+   *  fallback when location or the places lookup fails. */
+  function suggestFoodTypes() {
+    setPendingAction("generate");
+    const finalized: OrderContext = {
+      ...orderValues,
+      craving_note: orderValues.craving_note === null ? null : normalizeCraving(orderValues.craving_note),
+    };
+    setOrderValues(finalized);
+    void run(finalized);
   }
 
   /** "Show me 3 more": same context as the current session — only offered
@@ -230,19 +271,66 @@ export default function TodayForm({
           matches the session again, "Show me 3 more" below the cards is the
           only action — a single button never means two different things at
           once. */}
-      {(!session || isDirty) && (
-        <button
-          type="button"
-          onClick={generate}
-          disabled={request.kind === "loading"}
-          className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
-        >
-          {request.kind === "loading" && pendingAction === "generate"
-            ? "Finding your meal…"
-            : session
-              ? "Update recommendations"
-              : "Find my meal"}
-        </button>
+      {mode === "order" ? (
+        <>
+          {/* Two peers, each hidden only while its own result is on screen
+              and unchanged — so after either kind of result the other is
+              one tap away. */}
+          {!(session && !sessionIsNearby && !isDirty) && (
+            <button
+              type="button"
+              onClick={suggestFoodTypes}
+              disabled={busy}
+              className={
+                sessionIsNearby
+                  ? "w-full rounded-2xl border border-line bg-card py-3 text-sm font-semibold disabled:opacity-60"
+                  : "w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
+              }
+            >
+              {request.kind === "loading" && pendingAction === "generate"
+                ? "Finding your meal…"
+                : sessionIsNearby
+                  ? "Get food ideas by type"
+                  : session
+                    ? "Update recommendations"
+                    : "Find my meal"}
+            </button>
+          )}
+          {!(sessionIsNearby && !isDirty) && (
+            <div>
+              <button
+                type="button"
+                onClick={findNearby}
+                disabled={busy}
+                className="w-full rounded-2xl border border-accent bg-card py-3 text-sm font-semibold text-accent disabled:opacity-60"
+              >
+                {busy && pendingAction === "nearby"
+                  ? "Finding places near you…"
+                  : sessionIsNearby
+                    ? "Update places near me"
+                    : "📍 Find food near me"}
+              </button>
+              <p className="mt-1.5 text-center text-xs text-muted">
+                Real places nearby. Your location is used once for this search and isn&apos;t saved.
+              </p>
+            </div>
+          )}
+        </>
+      ) : (
+        (!session || isDirty) && (
+          <button
+            type="button"
+            onClick={generate}
+            disabled={busy}
+            className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
+          >
+            {request.kind === "loading" && pendingAction === "generate"
+              ? "Finding your meal…"
+              : session
+                ? "Update recommendations"
+                : "Find my meal"}
+          </button>
+        )
       )}
 
       <RecommendationResults
@@ -252,6 +340,8 @@ export default function TodayForm({
         initialFeedback={feedbackForCurrentSession}
         onRetry={retry}
         onChoose={choose}
+        onFallback={mode === "order" ? suggestFoodTypes : undefined}
+        searchingNearby={pendingAction === "nearby" || (pendingAction === "showMore" && sessionIsNearby)}
       />
 
       {/* A thin or empty "Use what I have" result: "3 more" would only push
@@ -261,7 +351,7 @@ export default function TodayForm({
         <button
           type="button"
           onClick={showWhatToBuy}
-          disabled={request.kind === "loading"}
+          disabled={busy}
           className="w-full rounded-2xl bg-accent py-3.5 text-base font-semibold text-white shadow-lg shadow-accent/20 disabled:opacity-60"
         >
           {request.kind === "loading" && pendingAction === "buy" ? "Finding what to buy…" : "Show me what to buy"}
@@ -271,14 +361,14 @@ export default function TodayForm({
       {/* Same context, different options — only offered once the form
           matches the session, so it never silently discards an edit the
           user hasn't submitted yet. */}
-      {session && !isDirty && !inventoryLimited && (
+      {session && !isDirty && !inventoryLimited && !(sessionIsNearby && session.recommendations.length === 0) && (
         <button
           type="button"
           onClick={showMore}
-          disabled={request.kind === "loading"}
+          disabled={busy}
           className="w-full rounded-2xl border border-accent bg-card py-3 text-sm font-semibold text-accent disabled:opacity-60"
         >
-          {request.kind === "loading" && pendingAction === "showMore" ? "Finding 3 more…" : "Show me 3 more"}
+          {busy && pendingAction === "showMore" ? "Finding 3 more…" : "Show me 3 more"}
         </button>
       )}
     </div>

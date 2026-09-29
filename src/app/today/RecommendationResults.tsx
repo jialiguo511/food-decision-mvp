@@ -1,10 +1,11 @@
 "use client";
 
 import Card from "@/components/ui/Card";
-import type { ActiveSession, Recommendation, RecommendFailure } from "@/lib/types";
+import type { ActiveSession, Recommendation, RecommendUiError } from "@/lib/types";
 import MealFeedback, { type FeedbackData } from "./MealFeedback";
+import NearbyPlaceDetails from "./NearbyPlaceDetails";
 import RecipeImage from "./RecipeImage";
-import type { Selection } from "./useRecommend";
+import type { RequestStatus, Selection } from "./useRecommend";
 
 /**
  * Presentational only — TodayForm owns the request/session/selection state
@@ -50,6 +51,32 @@ const STORE_SNACK_ROLE_LABELS: Record<Recommendation["role"], string> = {
   alternative: "Lighter option",
 };
 
+// Nearby places: "Lowest effort" doesn't fit a place, so that role becomes
+// "Close & easy" — the simple, near, likely-open pick.
+const NEARBY_ROLE_LABELS: Record<Recommendation["role"], string> = {
+  best_match: "Best fit",
+  lowest_effort: "Close & easy",
+  alternative: "Something different",
+};
+
+/** Errors that come from the nearby flow itself (location or the places
+ *  lookup), as opposed to the recommender. They get their own copy and a way
+ *  back to the category-based flow, which needs neither. */
+const NEARBY_ERROR_COPY: Partial<Record<RecommendUiError["code"], string>> = {
+  places_not_configured: "Nearby search isn't set up on this app yet. You can still get food ideas by type.",
+  places_unavailable: "We couldn't look up places near you right now. Try again in a moment, or get food ideas by type.",
+  invalid_location: "We didn't receive your location. Try again, or get food ideas by type instead.",
+};
+const NEARBY_ERROR_CODES = new Set<RecommendUiError["code"]>([
+  "location_unsupported",
+  "location_denied",
+  "location_unavailable",
+  "location_timeout",
+  ...(Object.keys(NEARBY_ERROR_COPY) as RecommendUiError["code"][]),
+]);
+/** Retrying can't fix these; only the fallback is useful. */
+const NOT_RETRYABLE = new Set<RecommendUiError["code"]>(["places_not_configured", "location_unsupported"]);
+
 /** A strict "Use what I have" result that fell short — fewer than three
  *  options (down to zero, when nothing on hand adds up to a meal), or the
  *  model flagged that what's available can't make a full meal. TodayForm
@@ -60,6 +87,12 @@ export function isInventoryLimited(session: ActiveSession): boolean {
   return session.recommendations.length < 3 || session.recommendations.some((r) => inventoryNote(r) !== null);
 }
 
+/** A session produced by "Find food near me" (the context flag is what
+ *  distinguishes it from the category flow, which shares decision_mode). */
+export function isNearbySession(session: ActiveSession): boolean {
+  return session.context.decision_mode === "order" && session.context.nearby === true;
+}
+
 function inventoryNote(recommendation: Recommendation): string | null {
   return recommendation.decision_mode === "cook" ? recommendation.inventory_note : null;
 }
@@ -67,6 +100,7 @@ function inventoryNote(recommendation: Recommendation): string | null {
 function roleLabel(recommendation: Recommendation): string {
   if (recommendation.decision_mode === "order") return ORDER_ROLE_LABELS[recommendation.role];
   if (recommendation.decision_mode === "store_snack") return STORE_SNACK_ROLE_LABELS[recommendation.role];
+  if (recommendation.decision_mode === "nearby") return NEARBY_ROLE_LABELS[recommendation.role];
   return COOK_ROLE_LABELS[recommendation.role];
 }
 
@@ -77,10 +111,12 @@ export default function RecommendationResults({
   initialFeedback,
   onRetry,
   onChoose,
+  onFallback,
+  searchingNearby = false,
 }: {
   session: ActiveSession | null;
   selection: Selection;
-  request: { kind: "idle" } | { kind: "loading" } | { kind: "error"; error: RecommendFailure["error"] };
+  request: RequestStatus;
   /** Restored from meal_feedback for the session that was active on page
    *  load, if that session still had a chosen recommendation. Null for a
    *  freshly generated or freshly chosen session — there's nothing to
@@ -88,7 +124,27 @@ export default function RecommendationResults({
   initialFeedback: FeedbackData | null;
   onRetry: () => void;
   onChoose: (index: 0 | 1 | 2) => void;
+  /** Switches from a failed nearby search to the category-based Eat out
+   *  flow. Offered only alongside nearby errors and empty nearby results. */
+  onFallback?: () => void;
+  /** The in-flight request is a nearby search (changes only the loading copy). */
+  searchingNearby?: boolean;
 }) {
+  if (request.kind === "locating") {
+    return (
+      <section
+        role="status"
+        aria-live="polite"
+        className="rounded-2xl border border-dashed border-accent/40 bg-accent-soft/50 p-5 text-center"
+      >
+        <p className="text-sm font-medium text-accent">Finding where you are…</p>
+        <p className="mt-1 text-xs text-muted">
+          Your browser may ask to share your location. It&apos;s used only for this search and isn&apos;t saved.
+        </p>
+      </section>
+    );
+  }
+
   if (request.kind === "loading") {
     return (
       <section
@@ -96,7 +152,9 @@ export default function RecommendationResults({
         aria-live="polite"
         className="rounded-2xl border border-dashed border-accent/40 bg-accent-soft/50 p-5 text-center"
       >
-        <p className="text-sm font-medium text-accent">Finding your meal…</p>
+        <p className="text-sm font-medium text-accent">
+          {searchingNearby ? "Finding places near you…" : "Finding your meal…"}
+        </p>
         <p className="mt-1 text-xs text-muted">
           This usually takes under a minute.
         </p>
@@ -113,22 +171,37 @@ export default function RecommendationResults({
       {request.kind === "error" && (
         <section role="alert" className="rounded-2xl border border-line bg-card p-5">
           <p className="text-sm font-semibold text-red-600">
-            Couldn&apos;t get new recommendations
+            {NEARBY_ERROR_CODES.has(request.error.code)
+              ? "Couldn't search near you"
+              : "Couldn't get new recommendations"}
           </p>
-          <p className="mt-1 text-sm text-muted">{request.error.message}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-4 w-full rounded-xl border border-accent bg-card py-2.5 text-sm font-semibold text-accent"
-          >
-            Try again
-          </button>
+          <p className="mt-1 text-sm text-muted">
+            {NEARBY_ERROR_COPY[request.error.code] ?? request.error.message}
+          </p>
+          {!NOT_RETRYABLE.has(request.error.code) && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-4 w-full rounded-xl border border-accent bg-card py-2.5 text-sm font-semibold text-accent"
+            >
+              Try again
+            </button>
+          )}
+          {onFallback && NEARBY_ERROR_CODES.has(request.error.code) && (
+            <button
+              type="button"
+              onClick={onFallback}
+              className="mt-2 w-full rounded-xl border border-line bg-card py-2.5 text-sm font-semibold"
+            >
+              Get food ideas by type instead
+            </button>
+          )}
         </section>
       )}
 
       {session && (
         <>
-          {session.recommendations.length > 0 && (
+          {session.recommendations.length > 0 && !isNearbySession(session) && (
             <p className="text-xs text-muted">
               {session.context.decision_mode === "order"
                 ? "All numbers are estimates — exact dishes aren't guaranteed to be available nearby."
@@ -136,6 +209,38 @@ export default function RecommendationResults({
                   ? "All numbers are estimates — exact products aren't guaranteed to be in stock nearby."
                   : "All numbers below are estimates."}
             </p>
+          )}
+          {isNearbySession(session) && session.recommendations.length > 0 && (
+            <p className="text-xs text-muted">
+              Real places near you, from Google Maps. Menus aren&apos;t checked — &quot;Look for&quot; is a suggestion,
+              not a promise that they serve it. Distances are approximate, in a straight line.
+            </p>
+          )}
+          {isNearbySession(session) && session.recommendations.length === 0 && (
+            <section className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
+              <p className="text-sm font-medium text-accent">No open places to show near you right now.</p>
+              <p className="mt-1 text-xs text-muted">
+                We didn&apos;t find any (more) within about a mile. You can still get food ideas by type.
+              </p>
+              {onFallback && (
+                <button
+                  type="button"
+                  onClick={onFallback}
+                  className="mt-3 w-full rounded-xl border border-accent bg-card py-2.5 text-sm font-semibold text-accent"
+                >
+                  Get food ideas by type
+                </button>
+              )}
+            </section>
+          )}
+          {isNearbySession(session) && session.recommendations.length > 0 && session.recommendations.length < 3 && (
+            <section className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
+              <p className="text-sm font-medium text-accent">
+                Only {session.recommendations.length === 1 ? "one good option" : `${session.recommendations.length} good options`}{" "}
+                near you right now.
+              </p>
+              <p className="mt-1 text-xs text-muted">That&apos;s all we found open within about a mile — we don&apos;t pad the list.</p>
+            </section>
           )}
           {isInventoryLimited(session) && (
             <section className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
@@ -194,6 +299,8 @@ export default function RecommendationResults({
                       ))}
                     </ol>
                   </>
+                ) : r.decision_mode === "nearby" ? (
+                  <NearbyPlaceDetails r={r} />
                 ) : r.decision_mode === "order" ? (
                   <>
                     <p className="mt-1 text-xs text-muted">
@@ -272,6 +379,7 @@ export default function RecommendationResults({
               sessionId={session.session_id}
               mealTitle={session.recommendations[selection.index].title}
               decisionMode={session.context.decision_mode}
+              nearby={isNearbySession(session)}
               initial={initialFeedback ?? { id: null, didEat: null, note: null }}
             />
           )}

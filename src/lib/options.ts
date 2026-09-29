@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, OrderCravingCategory, OrderMethod } from "./types";
+import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, MealBudget, OrderCravingCategory, OrderMethod } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -152,6 +152,17 @@ export const ORDER_METHODS: { value: OrderMethod; label: string }[] = [
   { value: "eat_nearby", label: "Eat nearby" },
 ];
 
+/** Approximate total food budget for one eat-out meal. Separate from the Cook
+ *  budget (extra spend on missing ingredients) — see types.ts → MealBudget. */
+export const MEAL_BUDGETS: { value: MealBudget; label: string }[] = [
+  { value: "under_15", label: "Under $15" },
+  { value: "15_to_25", label: "$15–25" },
+  { value: "25_to_40", label: "$25–40" },
+  { value: "no_preference", label: "No strong preference" },
+];
+
+export const DEFAULT_MEAL_BUDGET: MealBudget = "no_preference";
+
 /** The staples worth a one-tap chip. Anything else is typed. */
 export const QUICK_INGREDIENTS = [
   "Eggs",
@@ -215,6 +226,27 @@ export const ORDER_REJECTION_REASONS: { value: string; label: string }[] = [
   { value: "changed_my_mind", label: "Changed my mind" },
   { value: "ordered_something_else", label: "Ordered something else" },
   { value: "too_much_food", label: "Too heavy / too much food" },
+  { value: "other", label: "Other" },
+];
+
+/** Nearby-places mode's first post-selection question. Choosing a card only
+ *  means "planning to go there" — same reasoning as ORDER_OUTCOMES. The values
+ *  deliberately reuse the order outcome vocabulary ("ordered_it" etc.) so
+ *  both Eat out paths write comparable feedback; only the labels differ. */
+export const NEARBY_OUTCOMES: { value: string; label: string }[] = [
+  { value: "ordered_it", label: "I went there" },
+  { value: "ordered_similar", label: "I went somewhere similar" },
+  { value: "didnt_order", label: "Didn't end up going" },
+];
+
+/** Optional follow-up reason when the trip didn't happen. */
+export const NEARBY_REJECTION_REASONS: { value: string; label: string }[] = [
+  { value: "too_far", label: "Too far" },
+  { value: "was_closed", label: "It was closed" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "didnt_sound_good", label: "Didn't sound good anymore" },
+  { value: "changed_my_mind", label: "Changed my mind" },
+  { value: "ordered_something_else", label: "Ate somewhere else" },
   { value: "other", label: "Other" },
 ];
 

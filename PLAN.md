@@ -9,6 +9,28 @@ The whole roadmap serves one goal:
 
 working end to end. Everything else exists to make that loop work.
 
+## How to read this file
+
+| section | meaning | authorizes building? |
+|---|---|---|
+| **NOW** | Core-loop MVP. Required before the hypothesis can be tested. | Yes |
+| **NEXT** | Extended MVP. Build only once NOW works end to end. | Yes, after NOW |
+| **LATER** | Parked, with a plausible path. Needs promotion and evidence first. | **No** |
+| **NOT NOW** | Excluded — by product identity or by current phase. | **No** |
+
+**This file holds status only.** Product rules are defined once, in
+`PRODUCT.md` — the decision priority order, hard vs. soft constraints, the
+exactly-3 rule, external integrations, the guardrails, and preferred
+terminology — and are referred to from here, not restated. Personalization rules
+are in `PERSONALIZATION.md`.
+
+Documentation alignment, 2026-09-29 (three passes, no code): the product is a
+context-aware food decision assistant ("help me decide what to eat right now")
+with three action domains — **Cook**, **Eat out**, **Stock up** — that are
+different ways of solving one problem, not separate products. Nearby
+restaurant/café discovery was promoted to NEXT; remaining-nutrition context
+moved to LATER; hard dietary constraints added to NOW as a foundation item.
+
 ---
 
 ## Done — verified 2026-09-11
@@ -99,19 +121,39 @@ Context → Recommendation → Selection → Actual eating → Feedback
       meal surfaces the "Show me what to buy" fallback (the existing
       "I can buy a few things" flow, optimized for the fewest additional
       items) instead of a forced recipe.
-- [~] **Optional daily calorie target** — manually entered on Profile. Needs
-      the `schema.sql` migration run, then manual verification. No BMR/TDEE,
-      no "Suggest for me".
+- [~] **Optional daily calorie target** (legacy label; the docs' concept is
+      *estimated daily energy range*) — manually entered on Profile. Needs the
+      `schema.sql` migration run, then manual verification. No BMR/TDEE, no
+      "Suggest for me".
 - [~] **Prompt-level calorie guidance** — calories as a soft energy envelope:
       meal ranges computed from the daily target when set, qualitative goal
       guidance when not. No server-side calorie validator.
 - [ ] **Exactly 3 recommendations** — `best_match`, `lowest_effort`,
-      `alternative`. Never a longer list. One narrow exception: "Use what I
-      have" may return 0–3 — see Kitchen staples above.
+      `alternative`. Never a longer list. The rule — including that it applies
+      to decisions, not execution artifacts, and that truth beats three — is
+      defined in `PRODUCT.md` → "Exactly 3." "Use what I have" returning 0–3 is
+      an instance of it (see Kitchen staples above).
+- [ ] **Hard dietary constraints (foundation)** — added 2026-09-29. A small
+      prerequisite, not a feature: proper support for allergies, dietary
+      restrictions, and other safety-related food exclusions, kept distinct
+      from *disliked foods* (which are soft preferences). Hard constraints must
+      be respected by **every** recommendation mode, never overridden by
+      behavioral inference, and never relaxed to reach three options. The
+      product makes no "safe" / "allergen-free" claims. Today the Profile has
+      only *disliked foods* (which the prompt currently treats as hard
+      exclusions), so this needs a Profile field and a data-model change and a
+      prompt/validation change — **none of which is implemented yet**; how to
+      enforce it is decided by the implementing task. It must land before
+      Eat out — nearby and before richer personalization. Definition:
+      `PRODUCT.md` → "Hard constraints vs. soft preferences."
 - [ ] **Select a recommendation** — writes `decision_sessions.chosen_index`.
+      (With the two items below, this is also the data foundation
+      personalization later reads — see `PERSONALIZATION.md`.)
 - [ ] **Record whether it was actually eaten** — writes `meal_feedback`. This
       is the success event the whole product is measured by.
 - [ ] **Basic rejection / feedback reason** — why they did not eat it.
+      Should distinguish context reasons from taste reasons (see
+      `PERSONALIZATION.md`).
 - [ ] **Decision mode: "I can cook" / "I want to order food"** — added
       2026-09-14. A first-level choice on Today, before the rest of the
       context. "I can cook" is the existing flow above, unchanged. "I want to
@@ -122,14 +164,12 @@ Context → Recommendation → Selection → Actual eating → Feedback
       suggested order, why it fits — not recipes. See `PRODUCT.md` → "Three
       decision modes" for the coaching philosophy (harm reduction, no
       moralizing language, no reflexive calorie restriction) and the explicit
-      boundary: no restaurant APIs, no restaurant discovery, no automatic
-      ordering, no menu or price data. This does not change the meaning of
-      `PRODUCT.md`'s existing "restaurant ordering / restaurant discovery"
-      non-goals — those mean an ordering integration or finding a specific
-      nearby restaurant, neither of which this does.
+      boundary of *this category mode*: no restaurant APIs, no restaurant
+      discovery, no automatic ordering, no menu or price data. Nearby
+      discovery is a separate NEXT capability inside the Eat out umbrella.
 - [ ] **Decision mode: "grab a snack" (`store_snack`)** — added 2026-09-21,
-      promoted directly into NOW rather than left at the NEXT-level "Food
-      occasion" item, since it is scoped as a third decision mode (not a
+      promoted directly into NOW rather than left at the NEXT-level "Meal
+      context" item, since it is scoped as a third decision mode (not a
       history feature) and ships no grocery-intelligence surface. A
       third first-level choice on Today for "I want something sweet/salty
       right now and am willing to walk into a store, but not cook or order a
@@ -145,6 +185,15 @@ Context → Recommendation → Selection → Actual eating → Feedback
       real roadmap item, not an afterthought. Shipping the rest without it
       proves nothing.
 
+**Direction check, 2026-09-29.** One small item was added to NOW — hard
+dietary constraints, above. Everything else in the direction is already
+covered: *cook from what I have / buy a few missing ingredients* (Kitchen
+staples and the `shopping` modes), *Eat out as meal categories* (the "order
+food" mode), *lightweight energy/protein guidance as context* (the manual
+target and prompt-level guidance), and *explicit memory* (the Food Profile).
+Stabilizing the current Cook/Kitchen-staples flow and finishing the loop
+(select → eaten → reason) remain the priorities.
+
 ---
 
 ## NEXT — the Extended MVP
@@ -153,21 +202,66 @@ Useful early extensions. **Do not start these while anything in NOW is
 unfinished.** A screen shell existing in the navigation does not promote its
 contents into NOW.
 
-- Recipe Inbox / recipe memory
-- Meal history
+- Saved recipes (legacy label: "Recipe Inbox" / recipe memory)
+- Recent meals — recent choices for repetition awareness and context; not a
+  food diary
 - Favorites
-- Recent-meal awareness
-- Basic preference learning
-- "Suggest for me" calorie target — BMR → TDEE → activity → goal adjustment.
-  The manual target is already in NOW. Must not turn the product into macro
-  tracking. See `PRODUCT.md` → Nutrition target refinement.
-- Remaining daily nutrition context — estimated calories and protein left
-  today from confirmed-eaten meals; always approximate, never manual logging
-- Food occasion — full meal / small meal / snack / dessert
+- Basic preference learning — rules-based, soft ranking only: repeat/recency
+  and what the user actually ate. Must follow the rules in
+  `PERSONALIZATION.md`: one choice is not a preference, non-selection is not
+  dislike, explicit constraints are never overridden. No ML model, no vector
+  store. Learned/inferred memory must ship together with a way to see and
+  reset it.
+- **Routine defaults (v0, user-set)** — added 2026-09-29. Pre-selected
+  defaults on Home for weekday lunch, weekday dinner, and weekend (mode lean,
+  time, effort, budget feel), set explicitly by the user — e.g. "make this my
+  usual." A hypothesis that these contexts differ enough to save decisions;
+  validate on founder self-use before extending. Overridable in one tap,
+  never a hidden constraint. Inferred routines are LATER.
+- **Eat out — nearby (restaurant/café discovery + contextual ranking)** —
+  promoted from LATER 2026-09-29; "Nearby Eat out v1." A core extension of
+  "help me decide what to eat right now": users who normally eat out get
+  useful recommendations without being forced into Cook. It lives **inside the
+  Eat out umbrella** ("Find food near me" beside category guidance) — **not a
+  new Home intent** (see `PRODUCT.md` → "Home structure"). Scope, exclusions,
+  provider requirements (small provider boundary, narrow fields, observable
+  cost, no dependence on expensive metadata; planned provider Google Places API
+  (New), *not implemented or configured*), and privacy are defined once in
+  `PRODUCT.md` → "Eat out — nearby"; not restated here. **Depends on:** NOW
+  hard dietary constraints. The existing category-based "order food" mode is
+  unchanged.
+  **Status, 2026-09-29: first vertical slice built, unvalidated, not yet run
+  against a live Google key.** Started at the founder's explicit request while
+  NOW was still unfinished and while the hard-dietary-constraints foundation
+  did not exist — so nearby has **no hard constraints yet**: Profile *disliked
+  foods* are used as a soft, strong negative ranking signal (per `PRODUCT.md`,
+  a dislike is not an allergy or restriction), and it makes no allergy/safety
+  claim. The existing Cook/order/snack prompts still treat dislikes as hard
+  exclusions — that pre-existing gap is untouched. This does not replace that
+  NOW item. Built: "Find food near me" inside Order mode (geolocation only on
+  tap, never stored); Google Places API (New) Nearby Search behind a provider
+  interface (`src/lib/places/`); the existing recommender picks up to three
+  from that request's real candidates by `place_id`, validated against them;
+  each card links to the place in Google Maps; persisted in the existing
+  `decision_sessions` (no schema change). Not built: everything under "Not
+  part of this slice", personalization of nearby ranking, routing/walking
+  times, a radius setting. Setup: `README.md` → "Nearby places (Google Places
+  API)".
+- **Nutrition baseline** — estimated daily energy range + protein target/range
+  (replaces the old "Suggest for me" item). **Requires Profile inputs the
+  product does not collect today** — age, height, weight, the physiological
+  input the chosen validated equation needs (if any), activity level, goal —
+  so adding those optional inputs is part of this item, and it does not start
+  before they exist. No estimate is fabricated when inputs are missing. The
+  calculation method is chosen and documented at implementation, not now.
+  Carbohydrate and fat targets are **not** part of NEXT. Must not turn the
+  product into macro tracking. See `PRODUCT.md` → "Nutrition target
+  refinement."
+- Meal context — breakfast / lunch / dinner / snack / dessert, or the current eating situation
 - Measurement-style preference — everyday measures / precise weights / both
 - Basic product analytics
 - Recruit the first 5–15 external testers
-- **Recipe visualization** — added 2026-09-28. Recipe cards should show an
+- **Recipe visualization** (legacy label; "option images" if extended beyond Cook) — added 2026-09-28. Recipe cards should show an
   image to help "do I want to eat this?" decide faster, but a recommendation
   must never depend on image generation or lookup succeeding — the core loop
   wins per `CLAUDE.md`. Cook-only for now: order and store-snack recommendations
@@ -195,7 +289,26 @@ Parked. These correspond to `PRODUCT.md` → Possible future directions.
 - Personal recipe capture — "I made something I liked", described by text or
   voice, converted into a reviewable structured recipe
 - Cook / assemble / buy comparison
-- Weekly meal planning
+- **Stock up — "Stock me for N days"** — added 2026-09-29. The third action
+  domain. Flexible provisioning for the next few days — not meal planning:
+  **one** grocery basket (an execution artifact), no per-day schedule, no
+  persisted pantry. Builds on the Groceries container and store-agnostic
+  grocery lists (Level A, below); do not start before either has real
+  contents. The live "Plan" label / "Plan ahead" intent may be renamed "Stock
+  up" — documentation-only for now (`PRODUCT.md` → "Terminology"). See
+  `PRODUCT.md` → "Stock up."
+- **Approximate recent-intake context** (formerly "remaining daily nutrition
+  context") — moved from NEXT 2026-09-29. Needs reliable intake/feedback data
+  and risks drifting toward calorie tracking; if retained, it is optional,
+  approximate recommendation context — never "calories remaining," never a
+  required logging system. Promotion needs evidence in `LEARNINGS.md`.
+- Carbohydrate / fat estimates — a possible later, advanced detail only; not a
+  current product priority and not in NEXT.
+- **Behavioral learning and deeper personalization** — added 2026-09-29.
+  Inferred routines, inferred-preference confirmation ("make this a
+  favorite?"), and any learning beyond the NEXT basics (recent meals,
+  basic preference learning). Requires those basics to exist and show value
+  first. See `PERSONALIZATION.md`.
 - Native mobile app
 - Household mode
 - Subscriptions
@@ -214,16 +327,21 @@ direction and spans several future versions, not one flat item.
 Staged order for the biggest future direction — see `PRODUCT.md` →
 "Location-aware recommendations" for the full rationale, the conceptual
 architecture, the ranking-engine notes, and the key technical challenges.
-None of this is scheduled. Nothing here is authorized to build until a piece
-of it is explicitly promoted into NOW or NEXT above — same rule as every
-other LATER item.
+Except for the slice already promoted into NEXT ("Eat out — nearby"), none of
+this is scheduled. Nothing here is authorized to build until a piece of it is
+explicitly promoted into NOW or NEXT above — same rule as every other LATER
+item.
 
-**POST-MVP / V1.5 — location-aware "Near me"**
-- Browser location permission, requested only on an explicit "Near me" tap,
-  used temporarily rather than stored by default
-- Nearby-place discovery via a places/location provider (e.g. Google Places
-  or equivalent)
-- Nearby restaurants and nearby grocery/convenience stores
+**V1.5 — location-aware "Near me"**
+
+*Restaurants and cafés were promoted to NEXT on 2026-09-29 — see "Eat out —
+nearby" in NEXT above; the location and place-discovery groundwork is part of
+that item.* What stays LATER from this stage:
+- Nearby **grocery and convenience stores** — same place layer, separate
+  promotion
+- **Recipe → missing ingredients → nearby grocery store** — a recipe's one
+  missing-ingredient list paired with nearby stores, store-agnostic (names
+  where to go, not what is in stock or its price)
 - Recommendations framed around nearby place *categories* — not menus, not
   inventory. Does not depend on DoorDash/Uber Eats access.
 
@@ -251,15 +369,47 @@ other LATER item.
 - Deep-link or order-handoff into delivery apps
 - Live prices/inventory, only where officially supported
 
-**Prioritization principle:** do not build a technically impressive
-integration before validating the core behavior. The current core question is
-still "does Nutrition Coach meaningfully improve real food decisions?" (see
-`PRODUCT.md` → Current hypothesis). External APIs should increase
-actionability *after* that is validated, not substitute for validating it.
-Location-awareness is the most likely first one, since it moves
-recommendations from "what could you eat" to "what can you realistically eat
-or buy around you right now" without requiring full delivery-marketplace
-integration.
+**Prioritization principle:** external integrations follow the rule in
+`PRODUCT.md` → "External integrations" (necessary to test a core hypothesis;
+narrow, replaceable, cost-controlled) — not the older, absolute "no external
+APIs before validation." Nearby Eat out qualified; the LATER integrations above
+do not yet.
+
+---
+
+## NOT NOW — excluded
+
+Not LATER. LATER items have a plausible path once evidence exists; these do
+not, for one of two reasons. Neither is permission to build.
+
+### Excluded by product identity
+
+Not this product; changing any means changing `PRODUCT.md` first. Defined once
+in `PRODUCT.md` → "Product identity and guardrails":
+
+- **Calorie logging and macro diary** — including any "calories remaining"
+  balance the user must manage
+- **Rigid or fixed weekly meal planning** — Stock up (LATER) serves the real
+  need
+- **Heavy recommendation browsing / recipe database** — three choices when
+  deciding, not a feed
+- **Generic "AI nutrition coach"** — no open-ended chat, no unsolicited advice
+- **Social feed or community features**
+
+### Excluded by current phase
+
+May become LATER items with evidence. Full list: `PRODUCT.md` → Current
+non-goals. Most likely to be mistaken for in-scope work:
+
+- Everything outside the "Eat out — nearby" slice, as listed under "Not part of
+  this slice" in `PRODUCT.md`: full restaurant menus, delivery marketplace,
+  restaurant ordering, reservations, reviews
+- Grocery checkout, pricing, store inventory, Instacart, and grocery delivery
+  integrations
+- Carbohydrate / fat targets as a product feature; manual calorie or macro
+  logging
+- Any inferred (non-explicit) memory shipped without a way to view and reset
+  it; any trained recommendation model or vector database
 
 ---
 

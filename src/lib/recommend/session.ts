@@ -52,8 +52,10 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
  *  silently dropped. Separately, rows written before the inventory-only
  *  shopping toggle existed have no `shopping` field on a cook context;
  *  default those to "can_buy", the prior (and only) behavior, so restoring
- *  an old session doesn't change what it meant. New rows always write both
- *  fields themselves, so this is a no-op for anything written by the current
+ *  an old session doesn't change what it meant. (Order rows with no
+ *  `meal_budget` need no shim: orderContextSchema defaults it to
+ *  "no_preference".) New rows always write all of
+ *  these fields themselves, so this is a no-op for anything written by the current
  *  code. */
 function withDefaultMode(context: unknown): unknown {
   if (!isRecord(context)) return context;

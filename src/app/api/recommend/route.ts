@@ -8,9 +8,25 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { recommendRequestSchema, resolveRecommendationInput, toProfileInput } from "@/lib/recommend/input";
+import { buildCandidates } from "@/lib/places/candidates";
+import { NEARBY_RADIUS_METERS } from "@/lib/places/config";
+import { resolvePlacesProvider } from "@/lib/places";
+import { PlacesError } from "@/lib/places/provider";
+import {
+  recommendRequestSchema,
+  resolveNearbyInput,
+  resolveRecommendationInput,
+  toProfileInput,
+} from "@/lib/recommend/input";
 import { createClient } from "@/lib/supabase/server";
-import type { RecommendErrorCode, RecommendFailure, RecommendSuccess } from "@/lib/types";
+import type {
+  DecisionContext,
+  Recommendation,
+  RecommendErrorCode,
+  RecommendFailure,
+  RecommendSuccess,
+  SearchLocation,
+} from "@/lib/types";
 import { generateRecommendations } from "./claude";
 
 // One attempt plus one retry, each capped by the client timeout below.
@@ -18,6 +34,9 @@ export const maxDuration = 200;
 
 const STATUS: Record<RecommendErrorCode, number> = {
   llm_not_configured: 503,
+  places_not_configured: 503,
+  places_unavailable: 502,
+  invalid_location: 400,
   unauthenticated: 401,
   invalid_context: 400,
   profile_unavailable: 500,
@@ -59,7 +78,20 @@ export async function POST(request: Request) {
       parsedBody.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
     );
   }
-  const { context, previous_recommendations } = parsedBody.data;
+  const { context, previous_recommendations, location } = parsedBody.data;
+
+  // "Find food near me": the one request shape that also needs a Places key
+  // and the user's location. Checked here — after auth, before any profile
+  // read or provider call — so a missing key or location fails fast and
+  // identically for every caller.
+  const wantsNearby = context.decision_mode === "order" && context.nearby === true;
+  const places = wantsNearby ? resolvePlacesProvider() : null;
+  if (wantsNearby && !places) {
+    return fail("places_not_configured", "Nearby search isn't set up yet: GOOGLE_PLACES_API_KEY is missing on the server.");
+  }
+  if (wantsNearby && !location) {
+    return fail("invalid_location", "We didn't receive your location, so we can't look for places near you.");
+  }
 
   // Dislikes and equipment are hard constraints. If the profile can't be read,
   // recommending from defaults could suggest something the user won't eat, so
@@ -72,6 +104,19 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[recommend] profile read failed", error);
     return fail("profile_unavailable", "Couldn't load your food profile.");
+  }
+
+  if (wantsNearby && context.decision_mode === "order" && places && location) {
+    return handleNearby({
+      supabase,
+      userId: user.id,
+      apiKey,
+      places,
+      context,
+      location,
+      previous: previous_recommendations,
+      profileRow: row,
+    });
   }
 
   // Kitchen staples are a soft preference (condiments/seasonings the user
@@ -132,6 +177,98 @@ export async function POST(request: Request) {
     nutrition_is_estimate: true,
     constraints: input.hard_constraints,
     model: result.model,
+    session_id: session.id,
+  };
+  return NextResponse.json(payload);
+}
+
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * The nearby pipeline, on top of the same profile / prompt / validation /
+ * session machinery the other modes use:
+ *
+ *   coordinates → Places search (server-side, narrow field mask)
+ *     → filter + distance + dedupe → candidate set (≤ 20 real places)
+ *     → existing recommender picks up to 3 BY place_id
+ *     → output validated against that exact candidate set
+ *     → stored in decision_sessions like any other recommendation set.
+ *
+ * The coordinates live only in this function's arguments: they are rounded,
+ * used for the search and the distance math, and never stored or logged —
+ * the session row gets `context.nearby: true` and the recommendations, which
+ * carry only approximate distances to the places.
+ */
+async function handleNearby(args: {
+  supabase: ServerSupabase;
+  userId: string;
+  apiKey: string;
+  places: NonNullable<ReturnType<typeof resolvePlacesProvider>>;
+  context: Extract<DecisionContext, { decision_mode: "order" }>;
+  location: SearchLocation;
+  previous: Recommendation[] | undefined;
+  profileRow: unknown;
+}) {
+  const { supabase, userId, apiKey, places, context, previous, profileRow } = args;
+  // ~11 m precision is far finer than the search radius needs.
+  const origin: SearchLocation = {
+    latitude: Math.round(args.location.latitude * 1e4) / 1e4,
+    longitude: Math.round(args.location.longitude * 1e4) / 1e4,
+  };
+
+  const startedAt = Date.now();
+  let found;
+  try {
+    found = await places.searchNearby({ location: origin, radius_m: NEARBY_RADIUS_METERS });
+  } catch (error) {
+    // Provider detail (HTTP status, Google's error text) is for us, not the
+    // user. Nothing logged here contains coordinates.
+    console.error("[places] search failed", error instanceof PlacesError ? error.detail : error);
+    return fail("places_unavailable", "Couldn't look up places near you right now.");
+  }
+
+  // "Show me 3 more" never repeats a place the user just saw.
+  const alreadyShown = new Set(
+    (previous ?? []).flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : [])),
+  );
+  const candidates = buildCandidates(found, origin, { excludeIds: alreadyShown });
+  console.info("[places] search", {
+    radius_m: NEARBY_RADIUS_METERS,
+    returned: found.length,
+    candidates: candidates.length,
+    excluded_as_already_shown: alreadyShown.size,
+    duration_ms: Date.now() - startedAt,
+  });
+
+  let recommendations: RecommendSuccess["recommendations"] = [];
+  let model = "none";
+  // Nothing real to choose from is a valid, honest result — and there is
+  // nothing for the model to rank, so it isn't asked.
+  if (candidates.length > 0) {
+    const input = resolveNearbyInput(toProfileInput(profileRow), context, candidates);
+    const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 });
+    const result = await generateRecommendations(client, input, candidates);
+    if (!result.ok) return fail(result.code, result.message, result.details);
+    recommendations = result.recommendations;
+    model = result.model;
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from("decision_sessions")
+    .insert({ user_id: userId, context, recommendations })
+    .select("id")
+    .single();
+  if (sessionError || !session) {
+    console.error("[recommend] session save failed", sessionError);
+    return fail("session_save_failed", "Recommendations were generated but couldn't be saved. Please try again.");
+  }
+
+  const payload: RecommendSuccess = {
+    recommendations,
+    insufficient_inventory: false,
+    nutrition_is_estimate: true,
+    constraints: { decision_mode: "nearby" },
+    model,
     session_id: session.id,
   };
   return NextResponse.json(payload);

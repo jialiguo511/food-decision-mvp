@@ -8,7 +8,8 @@ constraints you actually have tonight.
 | file | what it covers |
 |---|---|
 | [`PRODUCT.md`](PRODUCT.md) | Product thesis, target user, principles, MVP, non-goals |
-| [`PLAN.md`](PLAN.md) | Current roadmap — NOW / NEXT / LATER |
+| [`PLAN.md`](PLAN.md) | Current roadmap — NOW / NEXT / LATER / NOT NOW |
+| [`PERSONALIZATION.md`](PERSONALIZATION.md) | How the product remembers and learns — explicit, routine, behavioral memory |
 | [`CLAUDE.md`](CLAUDE.md) | Coding and product rules for AI-assisted development |
 | [`LEARNINGS.md`](LEARNINGS.md) | Evidence and product learnings |
 
@@ -49,6 +50,40 @@ Open `.env.local` and paste in your URL and anon key. Leave
 > reading another's rows. Anything genuinely secret (the LLM key, later) has no
 > `NEXT_PUBLIC_` prefix, which is how Next.js knows never to send it to the
 > browser.
+
+### 3b. Nearby places (optional)
+
+"Find food near me" (Home → "I want to order food") searches real nearby
+restaurants and cafés with the **Google Places API (New)**. Without a key
+everything else works, and that button explains that nearby search isn't set
+up.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or
+   pick a project and **enable billing** (Google requires it, even for the free
+   monthly allowance).
+2. **APIs & Services → Library → "Places API (New)" → Enable.** Make sure it is
+   the *(New)* one, not the legacy "Places API".
+3. **APIs & Services → Credentials → Create credentials → API key.** Then
+   restrict it: **API restrictions → Places API (New)** only. (Application
+   restrictions by HTTP referrer don't work for server-side calls; leave those
+   unrestricted or use IP restrictions if you deploy to fixed IPs.)
+4. Put it in `.env.local` as `GOOGLE_PLACES_API_KEY=...` — no `NEXT_PUBLIC_`
+   prefix, and never commit it. On Vercel, add the same variable and redeploy.
+5. Each tap is one Nearby Search request (up to 20 places). The field mask
+   intentionally includes two Enterprise-tier fields (open-now and price level)
+   for MVP usefulness, so each request bills at the Enterprise tier. That is a
+   deliberate cost/utility tradeoff, centralized in `src/lib/places/config.ts`
+   so it can be changed later — revisit it if usage scales.
+6. **Before any public launch,** set project-level protections in the Google
+   Cloud console: a budget alert, and a per-day quota cap on the Places API
+   (New). The app makes at most one request per explicit tap and never retries
+   or polls on its own, but it has no rate limiter of its own — the Cloud quota
+   is the backstop.
+
+Location is requested by the browser only when you tap **Find food near me**,
+is used for that one search, and is never saved. The browser only shares
+location on `https://` or `localhost` — for phone testing use your deployed
+URL or a tunnel, not `http://<your-LAN-IP>:3000`.
 
 ### 4. Start the dev server
 

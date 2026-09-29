@@ -5,7 +5,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { estimateUsageCost } from "@/lib/recommend/cost";
 import type { RecommendationInput } from "@/lib/recommend/input";
-import { buildOutputSchema, parseRecommendations } from "@/lib/recommend/output";
+import type { PlaceCandidate } from "@/lib/places/candidates";
+import {
+  buildNearbyOutputSchema,
+  buildOutputSchema,
+  parseNearbyRecommendations,
+  parseRecommendations,
+} from "@/lib/recommend/output";
 import { buildSystemPrompt, buildUserMessage } from "@/lib/recommend/prompt";
 import type { RecommendErrorCode, RecommendSuccess } from "@/lib/types";
 
@@ -25,10 +31,17 @@ export type GenerateResult =
 export async function generateRecommendations(
   client: Anthropic,
   input: RecommendationInput,
+  /** Required for (and only read by) nearby requests: the places the model is
+   *  allowed to choose from, checked again on the way out. */
+  candidates: readonly PlaceCandidate[] = [],
 ): Promise<GenerateResult> {
   const startedAt = Date.now();
   // Strict "Use what I have" is the one case where fewer than three is valid.
   const strictInventory = input.decision_mode === "cook" && input.hard_constraints.no_shopping;
+  const outputSchema =
+    input.decision_mode === "nearby"
+      ? buildNearbyOutputSchema(candidates.length)
+      : buildOutputSchema(input.decision_mode, { allowFewer: strictInventory });
   const onHand = input.decision_mode === "cook" ? input.soft_preferences.ingredients_on_hand : [];
   let response: Anthropic.Beta.BetaMessage;
   try {
@@ -43,7 +56,7 @@ export async function generateRecommendations(
       output_config: {
         effort: "high",
         // Constrains decoding to the schema. Parsing stays ours, below.
-        format: zodOutputFormat(buildOutputSchema(input.decision_mode, { allowFewer: strictInventory })),
+        format: zodOutputFormat(outputSchema),
       },
       system: buildSystemPrompt(input),
       messages: [{ role: "user", content: buildUserMessage(input) }],
@@ -63,7 +76,10 @@ export async function generateRecommendations(
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("");
 
-  const parsed = parseRecommendations(text, input.hard_constraints, onHand);
+  const parsed =
+    input.decision_mode === "nearby"
+      ? parseNearbyRecommendations(text, candidates)
+      : parseRecommendations(text, input.hard_constraints, onHand);
   if (!parsed.ok) {
     console.warn("[recommend] rejected output", { code: parsed.code, details: parsed.details });
     return {

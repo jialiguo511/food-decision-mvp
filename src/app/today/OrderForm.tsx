@@ -2,14 +2,15 @@
 
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { HUNGER_LEVELS, ORDER_CRAVINGS, ORDER_METHODS } from "@/lib/options";
+import { HUNGER_LEVELS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS } from "@/lib/options";
 import { normalizeCraving } from "@/lib/text";
-import type { Hunger, OrderContext, OrderCravingCategory, OrderMethod } from "@/lib/types";
+import type { Hunger, MealBudget, OrderContext, OrderCravingCategory, OrderMethod } from "@/lib/types";
 
 /**
  * The "I want to order food" half of Today's dynamic context. Deliberately
- * three short questions — see PRODUCT.md → "Order Food": goal, protein
- * target, and dislikes are reused from the profile rather than asked again.
+ * short questions — see PRODUCT.md → "Order Food": goal, protein target, and
+ * dislikes are reused from the profile rather than asked again. The budget
+ * here is the total for this meal, unlike Cook's extra-ingredient budget.
  */
 export default function OrderForm({
   values,
@@ -55,6 +56,14 @@ export default function OrderForm({
           options={ORDER_METHODS}
           value={values.method}
           onChange={(value) => set("method", value as OrderMethod)}
+        />
+      </Card>
+
+      <Card title="What's your budget?">
+        <SingleChipGroup
+          options={MEAL_BUDGETS}
+          value={values.meal_budget}
+          onChange={(value) => set("meal_budget", value as MealBudget)}
         />
       </Card>
     </>

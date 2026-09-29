@@ -5,6 +5,8 @@ import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
 import {
   COOK_REJECTION_REASONS,
+  NEARBY_OUTCOMES,
+  NEARBY_REJECTION_REASONS,
   ORDER_OUTCOMES,
   ORDER_REJECTION_REASONS,
   STORE_SNACK_REJECTION_REASONS,
@@ -33,6 +35,9 @@ export type FeedbackData = {
  *    a card means going to buy it, which is just as close in time — but with
  *    its own rejection reasons (STORE_SNACK_REJECTION_REASONS) instead of
  *    cooking-specific ones like "missing ingredients".
+ *  - Nearby places (order mode with `nearby`): same shape as order mode —
+ *    choosing a card only means "planning to go there" — with "went there"
+ *    wording and trip-shaped reasons ("too far", "it was closed").
  *  - Order mode: choosing a card only means "planning to order this", not
  *    that anything has arrived yet — see PRODUCT.md / the order flow. The
  *    first question is "What happened?", and its own outcomes ("I ordered
@@ -47,11 +52,14 @@ export default function MealFeedback({
   sessionId,
   mealTitle,
   decisionMode,
+  nearby = false,
   initial,
 }: {
   sessionId: string;
   mealTitle: string;
   decisionMode: DecisionMode;
+  /** The session came from "Find food near me" — see RecommendationResults. */
+  nearby?: boolean;
   initial: FeedbackData;
 }) {
   const [feedback, setFeedback] = useState<FeedbackData>(initial);
@@ -126,7 +134,7 @@ export default function MealFeedback({
     }
   }
 
-  if (decisionMode === "order") return renderOrder();
+  if (decisionMode === "order") return renderOrder(nearby);
   return renderCook(decisionMode === "store_snack" ? STORE_SNACK_REJECTION_REASONS : COOK_REJECTION_REASONS);
 
   function renderCook(rejectionReasons: { value: string; label: string }[]) {
@@ -182,11 +190,20 @@ export default function MealFeedback({
     );
   }
 
-  function renderOrder() {
+  function renderOrder(isNearby: boolean) {
+    const outcomes = isNearby ? NEARBY_OUTCOMES : ORDER_OUTCOMES;
+    const reasons = isNearby ? NEARBY_REJECTION_REASONS : ORDER_REJECTION_REASONS;
     if (feedback.didEat === null) {
       return (
-        <Card title="What happened?" hint="Choosing a card just means you're planning to order it.">
-          <SingleChipGroup options={ORDER_OUTCOMES} value="" onChange={answerOrderOutcome} />
+        <Card
+          title="What happened?"
+          hint={
+            isNearby
+              ? "Choosing a card just means you're planning to go there."
+              : "Choosing a card just means you're planning to order it."
+          }
+        >
+          <SingleChipGroup options={outcomes} value="" onChange={answerOrderOutcome} />
           {saving && <p className="mt-2 text-xs text-muted">Saving…</p>}
           {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
         </Card>
@@ -196,7 +213,15 @@ export default function MealFeedback({
     if (feedback.didEat) {
       return (
         <Card
-          title={feedback.note === "ordered_similar" ? "✓ You ordered something similar" : "✓ You ordered it"}
+          title={
+            feedback.note === "ordered_similar"
+              ? isNearby
+                ? "✓ You went somewhere similar"
+                : "✓ You ordered something similar"
+              : isNearby
+                ? "✓ You went there"
+                : "✓ You ordered it"
+          }
         >
           {error && <p className="text-xs text-red-600">{error}</p>}
         </Card>
@@ -204,15 +229,15 @@ export default function MealFeedback({
     }
 
     return (
-      <Card title="Noted — you didn't order this">
+      <Card title={isNearby ? "Noted — you didn't go there" : "Noted — you didn't order this"}>
         {feedback.note === null ? (
           <>
             <p className="mb-2 text-xs text-muted">What happened? (optional)</p>
-            <SingleChipGroup options={ORDER_REJECTION_REASONS} value="" onChange={answerNote} />
+            <SingleChipGroup options={reasons} value="" onChange={answerNote} />
           </>
         ) : (
           <p className="text-xs text-muted">
-            Reason: {ORDER_REJECTION_REASONS.find((o) => o.value === feedback.note)?.label ?? feedback.note}
+            Reason: {reasons.find((o) => o.value === feedback.note)?.label ?? feedback.note}
           </p>
         )}
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}

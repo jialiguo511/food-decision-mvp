@@ -68,6 +68,12 @@ export type MealContext = {
 };
 
 export type OrderMethod = "delivery" | "pickup" | "eat_nearby";
+
+/** Approximate TOTAL food budget for one eat-out meal, as a coarse band the
+ *  user taps. Deliberately not a number and not the same thing as Cook's
+ *  `budget_override_usd`, which caps only the EXTRA money spent on missing
+ *  ingredients (food already owned is free). Never reuse one for the other. */
+export type MealBudget = "under_15" | "15_to_25" | "25_to_40" | "no_preference";
 /** A preset from ORDER_CRAVINGS. Coarser than the cook flow's free-text
  *  craving — see options.ts for why: ordering asks for very little effort. */
 export type OrderCravingCategory =
@@ -89,6 +95,16 @@ export type OrderContext = {
    *  is one of the few fields free text is allowed for — see CLAUDE.md. */
   craving_note: string | null;
   method: OrderMethod;
+  /** What the user wants to spend on this whole meal — see MealBudget. A soft
+   *  feasibility signal for both the category flow and nearby; no restaurant
+   *  data here can prove a meal fits, so it only ever ranks. */
+  meal_budget: MealBudget;
+  /** True when this request asked for real nearby places ("Find food near
+   *  me") instead of food categories. Only ever a flag: the user's
+   *  coordinates are sent with the request and never stored here or anywhere
+   *  else — see PRODUCT.md → "Eat out — nearby" → Privacy. Absent/false for
+   *  the existing category flow and for sessions saved before it existed. */
+  nearby?: boolean;
 };
 
 /** A preset from STORE_SNACK_CRAVINGS — see options.ts. Coarser than the cook
@@ -192,7 +208,52 @@ export type StoreSnackRecommendation = {
   estimated_protein_g: number;
 };
 
-export type Recommendation = CookRecommendation | OrderRecommendation | StoreSnackRecommendation;
+/** How much the provider says a place costs, coarsest possible. Only set when
+ *  the provider actually returned one — never inferred. */
+export type PlacePriceLevel = "free" | "inexpensive" | "moderate" | "expensive" | "very_expensive";
+
+/** One of up to three recommendations for "Find food near me": a real place
+ *  from that request's provider results, never a model invention. The model
+ *  supplies only `place_id`, `reason`, and `look_for`; every other field is
+ *  copied from the provider's candidate server-side (see output.ts), so the
+ *  UI never renders a place name the model made up.
+ *
+ *  Deliberately has no menu-item, price, calorie, or protein fields: a places
+ *  provider is not a menu database. `look_for` is a *strategy* ("a grilled
+ *  chicken or rice-bowl style option"), never a claim that an item exists.
+ *  `decision_mode: "nearby"` exists only at this level — the session's
+ *  context stays `decision_mode: "order"` with `nearby: true`. */
+export type NearbyRecommendation = {
+  decision_mode: "nearby";
+  role: RecommendationRole;
+  /** The place's name. Named `title` like every other recommendation so
+   *  generic code (feedback, previous-set exclusions) needs no special case. */
+  title: string;
+  place_id: string;
+  /** One or two user-facing sentences on why this place fits right now. */
+  reason: string;
+  /** What kind of food to look for there. Guidance, not a menu claim. */
+  look_for: string;
+  /** The provider's short type label, e.g. "Mediterranean restaurant". */
+  category: string | null;
+  address: string | null;
+  /** Approximate straight-line distance from where the user was when they
+   *  searched, in meters, rounded. Never routing/walking time. Null when it
+   *  couldn't be computed. */
+  distance_m: number | null;
+  /** true = the provider says it is open now; null = unknown. (Places known
+   *  to be closed are removed before ranking, so never false here.) */
+  open_now: boolean | null;
+  price_level: PlacePriceLevel | null;
+  /** https link that opens this exact place in Google Maps. */
+  maps_url: string;
+};
+
+export type Recommendation =
+  | CookRecommendation
+  | OrderRecommendation
+  | StoreSnackRecommendation
+  | NearbyRecommendation;
 
 /** The constraints a cook recommendation set was generated under, echoed back
  *  so the caller can see which budget and equipment were actually applied. */
@@ -228,7 +289,18 @@ export type StoreSnackConstraints = {
   avoid: string[];
 };
 
-export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints;
+/** The hard constraints a nearby-places recommendation set was generated
+ *  under: none carried today. Hard constraints are allergies and dietary
+ *  restrictions (PRODUCT.md → "Hard constraints vs. soft preferences"), and
+ *  the Profile has no such field yet — that is a separate NOW item in
+ *  PLAN.md. Disliked foods are soft preferences, so they are deliberately NOT
+ *  here; they travel as `soft_preferences.disliked_foods`. When the dedicated
+ *  field exists, it becomes a member of this type. */
+export type NearbyConstraints = {
+  decision_mode: "nearby";
+};
+
+export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints | NearbyConstraints;
 
 /** Body of a successful POST /api/recommend. Exactly three — except in cook
  *  mode with no_shopping ("Use what I have"), where the user's current foods
@@ -253,6 +325,9 @@ export type RecommendSuccess = {
 
 export type RecommendErrorCode =
   | "llm_not_configured"
+  | "places_not_configured"
+  | "places_unavailable"
+  | "invalid_location"
   | "unauthenticated"
   | "invalid_context"
   | "profile_unavailable"
@@ -268,6 +343,25 @@ export type RecommendErrorCode =
 export type RecommendFailure = {
   error: { code: RecommendErrorCode; message: string; details?: string[] };
 };
+
+/** Raised in the browser, before any request, when the device can't give us a
+ *  location. Never sent by the server. */
+export type LocationErrorCode =
+  | "location_unsupported"
+  | "location_denied"
+  | "location_unavailable"
+  | "location_timeout";
+
+/** What Today's UI shows for a failed request: a server failure or a
+ *  browser-side location failure. */
+export type RecommendUiError = {
+  code: RecommendErrorCode | LocationErrorCode;
+  message: string;
+  details?: string[];
+};
+
+/** A location for one nearby search. Held in memory for the request only. */
+export type SearchLocation = { latitude: number; longitude: number };
 
 /** The part of a decision_sessions row Today needs to resume the flow: which
  *  context produced which three recommendations, and where to write

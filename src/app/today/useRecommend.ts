@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ActiveSession, DecisionContext, RecommendFailure, RecommendSuccess } from "@/lib/types";
+import { LocationError, requestLocation } from "@/lib/location";
+import type { ActiveSession, DecisionContext, RecommendFailure, RecommendSuccess, RecommendUiError } from "@/lib/types";
 import { chooseRecommendation } from "./actions";
 
 export type Selection =
@@ -10,10 +11,12 @@ export type Selection =
   | { status: "chosen"; index: 0 | 1 | 2 }
   | { status: "failed"; index: 0 | 1 | 2; message: string };
 
-type RequestStatus =
+export type RequestStatus =
   | { kind: "idle" }
+  /** Waiting on the browser's location prompt / fix — nearby requests only. */
+  | { kind: "locating" }
   | { kind: "loading" }
-  | { kind: "error"; error: RecommendFailure["error"] };
+  | { kind: "error"; error: RecommendUiError };
 
 /**
  * Owns the Today recommendation flow: at most one in-flight
@@ -71,12 +74,25 @@ export function useRecommend(initial: { session: ActiveSession | null; chosenInd
     lastRequest.current = { context, previousRecommendations };
     const signal = (controller.current = new AbortController()).signal;
 
-    setRequest({ kind: "loading" });
     try {
+      // "Find food near me" is the only request that involves location, and
+      // this only runs from that button's click (or "Show me 3 more" /
+      // "Try again" on a nearby session) — never on load. The browser is
+      // asked every time rather than remembering coordinates: they're used
+      // for this one request and dropped. A fix the browser already has is
+      // returned instantly (maximumAge), so there's no repeat prompt.
+      let location: Awaited<ReturnType<typeof requestLocation>> | undefined;
+      if (context.decision_mode === "order" && context.nearby) {
+        setRequest({ kind: "locating" });
+        location = await requestLocation();
+      }
+      if (signal.aborted) return;
+
+      setRequest({ kind: "loading" });
       const response = await fetch("/api/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context, previous_recommendations: previousRecommendations }),
+        body: JSON.stringify({ context, previous_recommendations: previousRecommendations, location }),
         signal,
       });
       const body: unknown = await response.json();
@@ -96,6 +112,10 @@ export function useRecommend(initial: { session: ActiveSession | null; chosenInd
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof LocationError) {
+        setRequest({ kind: "error", error: { code: error.code, message: error.message } });
+        return;
+      }
       setRequest({
         kind: "error",
         error: { code: "upstream_error", message: error instanceof Error ? error.message : "Request failed." },
