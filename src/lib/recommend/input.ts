@@ -8,7 +8,7 @@
 // `decision_mode` throughout — see types.ts.
 
 import { z } from "zod";
-import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS } from "../options";
+import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS, TRAVEL_OPTIONS } from "../options";
 import type {
   ActiveConstraints,
   CravingType,
@@ -26,9 +26,12 @@ import type {
   Recommendation,
   RecommendationRole,
   StoreSnackContext,
+  TravelWillingness,
 } from "../types";
 import type { PlaceCandidate } from "../places/candidates";
+import { effectiveTravel } from "../places/travel";
 import { budgetFit, type BudgetFit } from "./budget";
+import { assessFeasibility, type FeasibilityTier } from "./feasibility";
 import { storedRecommendationsSchema } from "./output";
 
 const NO_COOKING = "No cooking at all";
@@ -56,6 +59,7 @@ export const cookContextSchema = z.object({
 const orderCravingCategories = ORDER_CRAVINGS.map((c) => c.value) as [OrderCravingCategory, ...OrderCravingCategory[]];
 const orderMethods = ORDER_METHODS.map((m) => m.value) as [OrderMethod, ...OrderMethod[]];
 const mealBudgets = MEAL_BUDGETS.map((b) => b.value) as [MealBudget, ...MealBudget[]];
+const travelChoices = TRAVEL_OPTIONS.map((t) => t.value) as [TravelWillingness, ...TravelWillingness[]];
 
 /** The dynamic context for "I want to order food". Deliberately smaller than
  *  cookContextSchema — see OrderContext in types.ts. */
@@ -77,6 +81,12 @@ export const orderContextSchema = z.object({
     .enum(mealBudgets)
     .optional()
     .transform((value): MealBudget => value ?? "no_preference"),
+  // How far the user would go for Eat nearby. Same backward-compat rule as
+  // meal_budget: missing means "no strong preference".
+  travel_willingness: z
+    .enum(travelChoices)
+    .optional()
+    .transform((value): TravelWillingness => value ?? "no_preference"),
   // Optional so sessions saved before "Find food near me" still restore.
   nearby: z.boolean().optional(),
   // Input is `unknown`: meal_budget (and nearby) may be absent from older payloads.
@@ -186,6 +196,10 @@ export type ModelCandidate = {
   open_now: true | null;
   /** Coarse provider price level, or null when the provider gave none. */
   price_level: PlaceCandidate["price_level"];
+  /** Deterministic feasibility (open now, distance vs. how far the user would
+   *  go, price level vs. meal budget), computed before the model — the model
+   *  may outweigh it with a much better craving fit, never ignore "weak". */
+  feasibility: FeasibilityTier;
   /** How that price level sits against the user's meal budget — computed here,
    *  not judged by the model. null when there is no budget preference or the
    *  provider gave no price level (unknown, neither a plus nor a minus). */
@@ -209,6 +223,11 @@ export type NearbyRecommendationInput = {
      *  deliberately not the profile's Cook budget, which caps extra spend on
      *  missing ingredients. */
     meal_budget: MealBudget;
+    /** How far the user would go. Already reflected in the search radius and
+     *  in each candidate's `feasibility`; passed so the model reads
+     *  `distance_m` the way the user meant it. Always "no_preference" unless
+     *  the method is eat_nearby. */
+    travel_willingness: TravelWillingness;
   };
   /** The ONLY places that may be recommended — this request's provider
    *  results, after filtering. */
@@ -230,6 +249,7 @@ export function resolveNearbyInput(
   context: OrderContext,
   candidates: readonly PlaceCandidate[],
 ): NearbyRecommendationInput {
+  const travel = effectiveTravel(context);
   return {
     decision_mode: "nearby",
     // No dedicated allergy/dietary-restriction field exists yet, so there are
@@ -246,6 +266,7 @@ export function resolveNearbyInput(
       craving_note: context.craving_note,
       method: context.method,
       meal_budget: context.meal_budget,
+      travel_willingness: travel,
     },
     candidates: candidates.map((c) => ({
       place_id: c.id,
@@ -254,6 +275,7 @@ export function resolveNearbyInput(
       distance_m: c.distance_m,
       open_now: c.open_now === true ? true : null,
       price_level: c.price_level,
+      feasibility: assessFeasibility(c, { meal_budget: context.meal_budget, travel }).tier,
       budget_fit: budgetFit(context.meal_budget, c.price_level),
     })),
   };

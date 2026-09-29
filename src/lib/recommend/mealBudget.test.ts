@@ -21,6 +21,7 @@ function orderContext(meal_budget: MealBudget, overrides: Partial<OrderContext> 
     craving_note: null,
     method: "delivery",
     meal_budget,
+    travel_willingness: "no_preference",
     ...overrides,
   };
 }

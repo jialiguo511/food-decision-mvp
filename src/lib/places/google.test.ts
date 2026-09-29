@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { NEARBY_RADIUS_METERS, PLACES_FIELD_MASK } from "./config";
+import { PLACES_FIELD_MASK, TRAVEL_SEARCH } from "./config";
+
+const NEARBY_RADIUS_METERS = TRAVEL_SEARCH.no_preference.radius_m;
 import { createGooglePlacesProvider, normalizeGooglePlace } from "./google";
 import { PlacesError } from "./provider";
 

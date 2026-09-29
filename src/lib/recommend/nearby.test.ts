@@ -188,6 +188,7 @@ describe("resolveNearbyInput", () => {
     craving_note: "shawarma",
     method: "eat_nearby",
     meal_budget: "no_preference",
+    travel_willingness: "no_preference",
     nearby: true,
   };
 
@@ -216,7 +217,7 @@ describe("resolveNearbyInput", () => {
     expect(input.soft_preferences.preferred_cuisines).toEqual(["Thai"]);
     expect(input.candidates).toEqual([
       // open_now is only ever true or null for the model; price is passed through.
-      { place_id: "a", name: "Place a", category: "Restaurant", distance_m: 400, open_now: null, price_level: "moderate", budget_fit: null },
+      { place_id: "a", name: "Place a", category: "Restaurant", distance_m: 400, open_now: null, price_level: "moderate", feasibility: "ok", budget_fit: null },
     ]);
   });
 

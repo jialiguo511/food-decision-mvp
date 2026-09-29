@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, MealBudget, OrderCravingCategory, OrderMethod } from "./types";
+import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, MealBudget, OrderCravingCategory, OrderMethod, TravelWillingness } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -162,6 +162,17 @@ export const MEAL_BUDGETS: { value: MealBudget; label: string }[] = [
 ];
 
 export const DEFAULT_MEAL_BUDGET: MealBudget = "no_preference";
+
+/** "How far would you go?" — asked only for Eat nearby. The radius each choice
+ *  maps to lives in places/config.ts, not here. */
+export const TRAVEL_OPTIONS: { value: TravelWillingness; label: string; hint?: string }[] = [
+  { value: "walkable", label: "Walkable", hint: "A short walk" },
+  { value: "nearby", label: "Nearby", hint: "A short drive or ride" },
+  { value: "worth_a_trip", label: "Worth a trip", hint: "Happy to go further" },
+  { value: "no_preference", label: "No strong preference" },
+];
+
+export const DEFAULT_TRAVEL_WILLINGNESS: TravelWillingness = "no_preference";
 
 /** The staples worth a one-tap chip. Anything else is typed. */
 export const QUICK_INGREDIENTS = [

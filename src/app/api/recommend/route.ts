@@ -9,9 +9,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildCandidates } from "@/lib/places/candidates";
-import { NEARBY_RADIUS_METERS } from "@/lib/places/config";
+import { effectiveTravel, searchRadiusMeters } from "@/lib/places/travel";
 import { resolvePlacesProvider } from "@/lib/places";
 import { PlacesError } from "@/lib/places/provider";
+import { shortlistCandidates } from "@/lib/recommend/feasibility";
 import {
   recommendRequestSchema,
   resolveNearbyInput,
@@ -216,10 +217,13 @@ async function handleNearby(args: {
     longitude: Math.round(args.location.longitude * 1e4) / 1e4,
   };
 
+  // The search radius comes from "How far would you go?" (Eat nearby only;
+  // every other method uses the moderate default) — see TRAVEL_SEARCH.
+  const radius = searchRadiusMeters(context);
   const startedAt = Date.now();
   let found;
   try {
-    found = await places.searchNearby({ location: origin, radius_m: NEARBY_RADIUS_METERS });
+    found = await places.searchNearby({ location: origin, radius_m: radius });
   } catch (error) {
     // Provider detail (HTTP status, Google's error text) is for us, not the
     // user. Nothing logged here contains coordinates.
@@ -232,10 +236,14 @@ async function handleNearby(args: {
     (previous ?? []).flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : [])),
   );
   const candidates = buildCandidates(found, origin, { excludeIds: alreadyShown });
+  // Deterministic feasibility (open now, distance, price vs. meal budget)
+  // narrows the candidates to a diverse shortlist; the model ranks that.
+  const shortlist = shortlistCandidates(candidates, { meal_budget: context.meal_budget, travel: effectiveTravel(context) });
   console.info("[places] search", {
-    radius_m: NEARBY_RADIUS_METERS,
+    radius_m: radius,
     returned: found.length,
     candidates: candidates.length,
+    shortlisted: shortlist.length,
     excluded_as_already_shown: alreadyShown.size,
     duration_ms: Date.now() - startedAt,
   });
@@ -244,10 +252,10 @@ async function handleNearby(args: {
   let model = "none";
   // Nothing real to choose from is a valid, honest result — and there is
   // nothing for the model to rank, so it isn't asked.
-  if (candidates.length > 0) {
-    const input = resolveNearbyInput(toProfileInput(profileRow), context, candidates);
+  if (shortlist.length > 0) {
+    const input = resolveNearbyInput(toProfileInput(profileRow), context, shortlist);
     const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 });
-    const result = await generateRecommendations(client, input, candidates);
+    const result = await generateRecommendations(client, input, shortlist);
     if (!result.ok) return fail(result.code, result.message, result.details);
     recommendations = result.recommendations;
     model = result.model;

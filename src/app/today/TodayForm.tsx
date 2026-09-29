@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { DECISION_MODES, DEFAULT_MEAL_BUDGET } from "@/lib/options";
+import { DECISION_MODES, DEFAULT_MEAL_BUDGET, DEFAULT_TRAVEL_WILLINGNESS } from "@/lib/options";
+import { contextsEqual } from "@/lib/recommend/contextEquality";
 import { normalizeCraving } from "@/lib/text";
 import type { ActiveSession, DecisionContext, DecisionMode, MealContext, OrderContext, StoreSnackContext } from "@/lib/types";
 import CookForm from "./CookForm";
@@ -34,6 +35,7 @@ function defaultOrderContext(): OrderContext {
     craving_note: null,
     method: "delivery",
     meal_budget: DEFAULT_MEAL_BUDGET,
+    travel_willingness: DEFAULT_TRAVEL_WILLINGNESS,
   };
 }
 
@@ -52,42 +54,6 @@ function defaultStoreSnackContext(): StoreSnackContext {
     hunger: "normal",
     craving_type: "anything",
   };
-}
-
-/** Whether two contexts represent the same request. Used only to decide
- *  which action button to show (see below) — not a strict/canonical
- *  equality, just good enough for that UI decision. */
-function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
-  if (a.decision_mode !== b.decision_mode) return false;
-  if (a.decision_mode === "cook" && b.decision_mode === "cook") {
-    return (
-      a.cook_minutes === b.cook_minutes &&
-      a.hunger === b.hunger &&
-      a.effort === b.effort &&
-      a.shopping === b.shopping &&
-      a.craving === b.craving &&
-      a.budget_override_usd === b.budget_override_usd &&
-      (a.minimize_purchases ?? false) === (b.minimize_purchases ?? false) &&
-      arraysEqual(a.ingredients_on_hand, b.ingredients_on_hand)
-    );
-  }
-  if (a.decision_mode === "order" && b.decision_mode === "order") {
-    return (
-      a.hunger === b.hunger &&
-      a.craving_category === b.craving_category &&
-      a.craving_note === b.craving_note &&
-      a.method === b.method &&
-      a.meal_budget === b.meal_budget
-    );
-  }
-  if (a.decision_mode === "store_snack" && b.decision_mode === "store_snack") {
-    return a.hunger === b.hunger && a.craving_type === b.craving_type;
-  }
-  return false;
-}
-
-function arraysEqual(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((value, i) => value === b[i]);
 }
 
 export default function TodayForm({
@@ -152,6 +118,11 @@ export default function TodayForm({
   const isDirty = !session || !contextsEqual(currentContext, session.context);
   const busy = request.kind === "loading" || request.kind === "locating";
   const sessionIsNearby = !!session && isNearbySession(session);
+  // Nearby results on screen while the Eat out form no longer matches them.
+  // They are marked stale rather than silently standing in for the new
+  // answers, and NOT refreshed automatically — each Places search is a paid
+  // request, so only the explicit "Update places near me" tap makes one.
+  const nearbyResultsStale = sessionIsNearby && mode === "order" && isDirty;
 
   /** Finalizes whatever is in the free-text craving box, then asks the
    *  recommender with the current form values for the active mode. Used for
@@ -187,10 +158,13 @@ export default function TodayForm({
    *  match, the same way showWhatToBuy keeps the form and session in sync. */
   function findNearby() {
     setPendingAction("nearby");
+    const method = orderValues.method === "delivery" ? "eat_nearby" : orderValues.method;
     const finalized: OrderContext = {
       ...orderValues,
       craving_note: orderValues.craving_note === null ? null : normalizeCraving(orderValues.craving_note),
-      method: orderValues.method === "delivery" ? "eat_nearby" : orderValues.method,
+      method,
+      // Only Eat nearby asks how far; pickup/delivery keep the moderate default.
+      travel_willingness: method === "eat_nearby" ? orderValues.travel_willingness : DEFAULT_TRAVEL_WILLINGNESS,
     };
     setOrderValues(finalized);
     void run({ ...finalized, nearby: true });
@@ -341,6 +315,7 @@ export default function TodayForm({
         onRetry={retry}
         onChoose={choose}
         onFallback={mode === "order" ? suggestFoodTypes : undefined}
+        stale={nearbyResultsStale}
         searchingNearby={pendingAction === "nearby" || (pendingAction === "showMore" && sessionIsNearby)}
       />
 

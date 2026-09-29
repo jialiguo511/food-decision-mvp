@@ -24,6 +24,7 @@ vi.mock("@/lib/places", () => ({
 }));
 vi.mock("./claude", () => ({ generateRecommendations: (...args: unknown[]) => generate(...args) }));
 
+import { TRAVEL_SEARCH } from "@/lib/places/config";
 import { POST } from "./route";
 
 const CONTEXT = {
@@ -225,5 +226,104 @@ describe("POST /api/recommend — nearby", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("invalid_context");
     expect(searchNearby).not.toHaveBeenCalled();
+  });
+
+  describe("travel willingness", () => {
+    const radiusFor = async (context: Record<string, unknown>) => {
+      searchNearby.mockReset();
+      searchNearby.mockResolvedValue([]);
+      const res = await request({ context, location: LOCATION });
+      expect(res.status).toBe(200);
+      return searchNearby.mock.calls[0][0].radius_m;
+    };
+
+    it("Walkable searches a small radius, Nearby a larger one, Worth a trip the largest", async () => {
+      const walk = await radiusFor({ ...CONTEXT, travel_willingness: "walkable" });
+      const near = await radiusFor({ ...CONTEXT, travel_willingness: "nearby" });
+      const trip = await radiusFor({ ...CONTEXT, travel_willingness: "worth_a_trip" });
+      expect(walk).toBe(TRAVEL_SEARCH.walkable.radius_m);
+      expect(near).toBe(TRAVEL_SEARCH.nearby.radius_m);
+      expect(trip).toBe(TRAVEL_SEARCH.worth_a_trip.radius_m);
+      expect(walk).toBeLessThan(near);
+      expect(near).toBeLessThan(trip);
+    });
+
+    it("No strong preference — and a request that omits the field — use the moderate default", async () => {
+      const def = TRAVEL_SEARCH.no_preference.radius_m;
+      expect(await radiusFor({ ...CONTEXT, travel_willingness: "no_preference" })).toBe(def);
+      const { travel_willingness: _omit, ...oldContext } = { ...CONTEXT, travel_willingness: undefined };
+      void _omit;
+      expect(await radiusFor(oldContext)).toBe(def);
+    });
+
+    it("pickup never reads the travel choice, even if a stale one is sent", async () => {
+      expect(await radiusFor({ ...CONTEXT, method: "pickup", travel_willingness: "worth_a_trip" })).toBe(
+        TRAVEL_SEARCH.no_preference.radius_m,
+      );
+    });
+
+    it("is saved with the session and passed to the model", async () => {
+      searchNearby.mockResolvedValue([place("a"), place("b")]);
+      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
+      await request({ context: { ...CONTEXT, travel_willingness: "walkable" }, location: LOCATION });
+      expect(insert.mock.calls[0][0].context.travel_willingness).toBe("walkable");
+      expect(generate.mock.calls[0][1].soft_preferences.travel_willingness).toBe("walkable");
+    });
+
+    it("rejects an explicitly invalid value", async () => {
+      const res = await request({ context: { ...CONTEXT, travel_willingness: "far" }, location: LOCATION });
+      expect(res.status).toBe(400);
+      expect(searchNearby).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("cost control", () => {
+    it("Home's chips make no request; each explicit update is exactly one Places search", async () => {
+      searchNearby.mockResolvedValue([place("a")]);
+      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
+
+      // Changing chips is client-side state only (see OrderForm.test.ts): nothing reaches the route.
+      expect(searchNearby).not.toHaveBeenCalled();
+
+      await request({ context: { ...CONTEXT, meal_budget: "under_15" }, location: LOCATION });
+      expect(searchNearby).toHaveBeenCalledTimes(1);
+      await request({ context: { ...CONTEXT, meal_budget: "25_to_40", travel_willingness: "nearby" }, location: LOCATION });
+      expect(searchNearby).toHaveBeenCalledTimes(2);
+    });
+
+    it("a failed search is not retried automatically", async () => {
+      searchNearby.mockRejectedValue(new PlacesError("request_failed", "HTTP 500"));
+      await request({ context: CONTEXT, location: LOCATION });
+      expect(searchNearby).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("feasibility shortlist", () => {
+    it("hands the model a diverse, feasibility-ordered shortlist with tiers — not every candidate", async () => {
+      const found = Array.from({ length: 20 }, (_, i) =>
+        place(`p${i}`, {
+          primary_type: `type_${i % 6}`,
+          category: `Type ${i % 6}`,
+          price_level: i < 4 ? "very_expensive" : i < 12 ? "inexpensive" : null,
+          location: { latitude: 37.782 + i * 0.0004, longitude: -122.411 },
+        }),
+      );
+      searchNearby.mockResolvedValue(found);
+      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
+
+      await request({ context: { ...CONTEXT, meal_budget: "under_15", travel_willingness: "nearby" }, location: LOCATION });
+
+      const shortlist = generate.mock.calls[0][2] as { id: string }[];
+      const modelInput = generate.mock.calls[0][1] as { candidates: { place_id: string; feasibility: string; budget_fit: string | null }[] };
+      expect(shortlist.length).toBeGreaterThan(3);
+      expect(shortlist.length).toBeLessThanOrEqual(10);
+      // The model sees exactly the shortlist, in the same order, each with a tier.
+      expect(modelInput.candidates.map((c) => c.place_id)).toEqual(shortlist.map((c) => c.id));
+      expect(modelInput.candidates.every((c) => ["strong", "ok", "weak"].includes(c.feasibility))).toBe(true);
+      // Obviously over-budget places are held back while plenty of better ones exist...
+      expect(modelInput.candidates.filter((c) => c.budget_fit === "unlikely_fit")).toHaveLength(0);
+      // ...but unknown-price places stay eligible.
+      expect(modelInput.candidates.some((c) => c.budget_fit === null)).toBe(true);
+    });
   });
 });

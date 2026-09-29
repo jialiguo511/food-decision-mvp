@@ -74,6 +74,12 @@ export type OrderMethod = "delivery" | "pickup" | "eat_nearby";
  *  `budget_override_usd`, which caps only the EXTRA money spent on missing
  *  ingredients (food already owned is free). Never reuse one for the other. */
 export type MealBudget = "under_15" | "15_to_25" | "25_to_40" | "no_preference";
+
+/** How far the user would go for "Eat nearby". Asked only for that method — it
+ *  never applies to delivery or pickup. Coarse on purpose: the app maps each
+ *  choice to a search radius and a distance-fit curve (places/config.ts →
+ *  TRAVEL_SEARCH), so the user never sees a number. */
+export type TravelWillingness = "walkable" | "nearby" | "worth_a_trip" | "no_preference";
 /** A preset from ORDER_CRAVINGS. Coarser than the cook flow's free-text
  *  craving — see options.ts for why: ordering asks for very little effort. */
 export type OrderCravingCategory =
@@ -99,6 +105,11 @@ export type OrderContext = {
    *  feasibility signal for both the category flow and nearby; no restaurant
    *  data here can prove a meal fits, so it only ever ranks. */
   meal_budget: MealBudget;
+  /** How far the user would go — only meaningful when `method` is
+   *  "eat_nearby" and only ever read by the nearby flow (search radius and
+   *  distance fit). Anything else is treated as "no_preference". Absent on
+   *  sessions saved before it existed; that also means "no_preference". */
+  travel_willingness: TravelWillingness;
   /** True when this request asked for real nearby places ("Find food near
    *  me") instead of food categories. Only ever a flag: the user's
    *  coordinates are sent with the request and never stored here or anywhere

@@ -112,6 +112,7 @@ export default function RecommendationResults({
   onRetry,
   onChoose,
   onFallback,
+  stale = false,
   searchingNearby = false,
 }: {
   session: ActiveSession | null;
@@ -127,6 +128,10 @@ export default function RecommendationResults({
   /** Switches from a failed nearby search to the category-based Eat out
    *  flow. Offered only alongside nearby errors and empty nearby results. */
   onFallback?: () => void;
+  /** The form has changed since these Nearby results were made. They stay
+   *  visible (dimmed, and not choosable) but say so, until the user taps
+   *  "Update places near me". */
+  stale?: boolean;
   /** The in-flight request is a nearby search (changes only the loading copy). */
   searchingNearby?: boolean;
 }) {
@@ -200,7 +205,15 @@ export default function RecommendationResults({
       )}
 
       {session && (
-        <>
+        <div className={stale ? "space-y-3 opacity-60" : "space-y-3"} aria-busy={stale || undefined}>
+          {stale && (
+            <section role="status" className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
+              <p className="text-sm font-medium text-accent">Your answers changed.</p>
+              <p className="mt-1 text-xs text-muted">
+                These places are from your earlier answers. Tap &quot;Update places near me&quot; to refresh them.
+              </p>
+            </section>
+          )}
           {session.recommendations.length > 0 && !isNearbySession(session) && (
             <p className="text-xs text-muted">
               {session.context.decision_mode === "order"
@@ -220,7 +233,7 @@ export default function RecommendationResults({
             <section className="rounded-2xl border border-accent/40 bg-accent-soft/50 p-4">
               <p className="text-sm font-medium text-accent">No open places to show near you right now.</p>
               <p className="mt-1 text-xs text-muted">
-                We didn&apos;t find any (more) within about a mile. You can still get food ideas by type.
+                We didn&apos;t find any (more) in the area we searched. You can still get food ideas by type.
               </p>
               {onFallback && (
                 <button
@@ -239,7 +252,7 @@ export default function RecommendationResults({
                 Only {session.recommendations.length === 1 ? "one good option" : `${session.recommendations.length} good options`}{" "}
                 near you right now.
               </p>
-              <p className="mt-1 text-xs text-muted">That&apos;s all we found open within about a mile — we don&apos;t pad the list.</p>
+              <p className="mt-1 text-xs text-muted">That&apos;s all we found open in the area we searched — we don&apos;t pad the list.</p>
             </section>
           )}
           {isInventoryLimited(session) && (
@@ -354,7 +367,7 @@ export default function RecommendationResults({
                 <button
                   type="button"
                   onClick={() => onChoose(index)}
-                  disabled={somethingChosen || selection.status === "choosing"}
+                  disabled={stale || somethingChosen || selection.status === "choosing"}
                   className={`mt-4 w-full rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 ${
                     isThisChosen
                       ? "bg-accent text-white"
@@ -383,7 +396,7 @@ export default function RecommendationResults({
               initial={initialFeedback ?? { id: null, didEat: null, note: null }}
             />
           )}
-        </>
+        </div>
       )}
     </div>
   );

@@ -4,9 +4,52 @@
 // official place-types page, not guessed. If a string is ever wrong the API
 // rejects the request with 400 rather than silently returning nothing.
 
-/** Search radius around the user. ~1 mile: "somewhere I'd actually go right
- *  now." No radius UI in v1 — change it here. (API maximum is 50,000 m.) */
-export const NEARBY_RADIUS_METERS = 1600;
+import type { TravelWillingness } from "../types";
+
+/** What each "How far would you go?" answer means, in ONE place so it is easy
+ *  to tune. `radius_m` is the Places search radius (API maximum is 50,000 m).
+ *  The other two fields shape the deterministic distance-fit score
+ *  (recommend/feasibility.ts): distance is free up to `comfortable_m`, then
+ *  costs up to `distance_weight` points by the time it reaches `radius_m`.
+ *  Walkable therefore punishes distance hard; worth_a_trip barely does, and
+ *  neither gives distance a bonus — far is never better, only cheaper.
+ *  no_preference is the moderate default (also used for delivery/pickup, which
+ *  never ask the question). */
+export const TRAVEL_SEARCH = {
+  walkable: { radius_m: 1200, comfortable_m: 500, distance_weight: 3 },
+  nearby: { radius_m: 4500, comfortable_m: 1500, distance_weight: 2 },
+  worth_a_trip: { radius_m: 11000, comfortable_m: 5000, distance_weight: 1 },
+  no_preference: { radius_m: 3000, comfortable_m: 1500, distance_weight: 1.5 },
+} as const satisfies Record<TravelWillingness, { radius_m: number; comfortable_m: number; distance_weight: number }>;
+
+/** Deterministic feasibility scoring, applied before the model sees anything.
+ *  Points, not probabilities: higher is more feasible right now. Budget is
+ *  soft — coarse price levels never remove a place on their own — so its
+ *  scores sit in the same range as distance and open-now, not above them. */
+export const FEASIBILITY = {
+  /** Known open right now. Unknown hours score 0 (known-closed never gets here). */
+  open_now: 0.5,
+  /** A tight budget (under $15) plus a clearly low provider price level. */
+  budget_low_fit_bonus: 1,
+  /** Provider price level is one step above what the band comfortably covers. */
+  budget_may_be_over: -1,
+  /** Two or more steps above it. */
+  budget_unlikely_fit: -2.5,
+  /** Total score at or above → "strong"; at or below → "weak"; else "ok". */
+  strong_at: 0.5,
+  weak_at: -1.5,
+} as const;
+
+/** The shortlist handed to the model: big enough for a real choice and for
+ *  variety, small enough that feasibility matters. */
+export const SHORTLIST = {
+  size: 10,
+  /** "weak" places are held back only while at least this many non-weak places
+   *  exist — a soft, rank-based cut, never a hard filter. */
+  min_non_weak: 6,
+  /** At most this many of the same kind of place before backfilling. */
+  max_per_type: 3,
+} as const;
 
 /** Places API (New) Nearby Search returns 1–20 results. We ask for the max
  *  and filter down; the recommender then picks three of what's left. */

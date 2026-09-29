@@ -2,9 +2,9 @@
 
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { HUNGER_LEVELS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS } from "@/lib/options";
+import { HUNGER_LEVELS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS, TRAVEL_OPTIONS } from "@/lib/options";
 import { normalizeCraving } from "@/lib/text";
-import type { Hunger, MealBudget, OrderContext, OrderCravingCategory, OrderMethod } from "@/lib/types";
+import type { Hunger, MealBudget, OrderContext, OrderCravingCategory, OrderMethod, TravelWillingness } from "@/lib/types";
 
 /**
  * The "I want to order food" half of Today's dynamic context. Deliberately
@@ -58,6 +58,17 @@ export default function OrderForm({
           onChange={(value) => set("method", value as OrderMethod)}
         />
       </Card>
+
+      {/* Only Eat nearby has a "how far" to ask — delivery and pickup don't. */}
+      {values.method === "eat_nearby" && (
+        <Card title="How far would you go?">
+          <SingleChipGroup
+            options={TRAVEL_OPTIONS}
+            value={values.travel_willingness}
+            onChange={(value) => set("travel_willingness", value as TravelWillingness)}
+          />
+        </Card>
+      )}
 
       <Card title="What's your budget?">
         <SingleChipGroup

@@ -5,6 +5,7 @@
 // may say "more likely to fit" or "may run over"; neither may state a dollar
 // amount or promise a total.
 
+import { FEASIBILITY } from "../places/config";
 import type { MealBudget, PlacePriceLevel } from "../types";
 
 export type BudgetFit = "likely_fit" | "may_be_over" | "unlikely_fit";
@@ -35,4 +36,16 @@ export function budgetFit(budget: MealBudget, priceLevel: PlacePriceLevel | null
   const overBy = LEVEL_RANK[priceLevel] - BAND_CEILING[budget];
   if (overBy <= 0) return "likely_fit";
   return overBy === 1 ? "may_be_over" : "unlikely_fit";
+}
+
+/** The budget's contribution to a candidate's feasibility score. A soft
+ *  ranking nudge only: an unknown price is 0 (neutral), a roomier budget never
+ *  penalizes a cheap place (likely_fit is 0), and only the tightest band gives
+ *  a bonus, to a clearly low price level. */
+export function budgetScore(budget: MealBudget, priceLevel: PlacePriceLevel | null): number {
+  const fit = budgetFit(budget, priceLevel);
+  if (fit === null) return 0;
+  if (fit === "unlikely_fit") return FEASIBILITY.budget_unlikely_fit;
+  if (fit === "may_be_over") return FEASIBILITY.budget_may_be_over;
+  return budget === "under_15" ? FEASIBILITY.budget_low_fit_bonus : 0;
 }
