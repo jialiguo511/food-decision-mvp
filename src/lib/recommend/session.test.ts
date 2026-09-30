@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStoredSession } from "./session";
+import { isRecentSession, parseStoredSession } from "./session";
 import type { CookRecommendation } from "../types";
 
 function cookFields(overrides: { title: string; steps: string[] }) {
@@ -65,5 +65,28 @@ describe("parseStoredSession — image_query leak into steps", () => {
     );
 
     expect(restored).toBeNull();
+  });
+});
+
+describe("isRecentSession", () => {
+  const now = Date.parse("2026-09-30T12:00:00Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  const H = 60 * 60 * 1000;
+
+  it("restores a session from a few minutes ago", () => {
+    expect(isRecentSession(ago(5 * 60 * 1000), now)).toBe(true);
+  });
+
+  it("restores right up to the 6-hour window and not past it", () => {
+    expect(isRecentSession(ago(6 * H), now)).toBe(true);
+    expect(isRecentSession(ago(6 * H + 1000), now)).toBe(false);
+    expect(isRecentSession(ago(30 * H), now)).toBe(false);
+  });
+
+  it("never restores on a missing, invalid or future timestamp", () => {
+    expect(isRecentSession(undefined, now)).toBe(false);
+    expect(isRecentSession(null, now)).toBe(false);
+    expect(isRecentSession("not a date", now)).toBe(false);
+    expect(isRecentSession(new Date(now + H).toISOString(), now)).toBe(false);
   });
 });

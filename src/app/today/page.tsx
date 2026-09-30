@@ -7,8 +7,8 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_PROFILE } from "@/lib/options";
-import { parseStoredSession } from "@/lib/recommend/session";
-import type { DecisionContext } from "@/lib/types";
+import { rememberedDefaults } from "@/lib/recommend/rememberedDefaults";
+import { isRecentSession, parseStoredSession } from "@/lib/recommend/session";
 import TodayForm from "./TodayForm";
 
 export default async function TodayPage() {
@@ -33,17 +33,20 @@ export default async function TodayPage() {
     DEFAULT_PROFILE.budget_per_meal_usd,
   );
 
-  // Resume the most recent recommendation session, if any — a plain read, so
-  // this never calls the model. No day-boundary/expiry logic yet: "most
-  // recent" is the whole rule for this MVP.
+  // Resume the most recent recommendation session — a plain read, so this
+  // never calls the model — but only while it is recent (6 hours). A session
+  // is temporary state for one eating decision; older than that, its
+  // recommendations and its meal-specific inputs (foods on hand, craving) are
+  // not restored, and the form starts from remembered defaults below. The row
+  // itself is left alone as history.
   const { data: sessionRow } = await supabase
     .from("decision_sessions")
-    .select("id, context, recommendations, chosen_index")
+    .select("id, context, recommendations, chosen_index, created_at")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const restored = sessionRow ? parseStoredSession(sessionRow) : null;
+  const restored = sessionRow && isRecentSession(sessionRow.created_at) ? parseStoredSession(sessionRow) : null;
 
   // Cook automatically has access to Kitchen staples (condiments/seasonings
   // only) — the user never re-enters them. Editing happens on Me; this is a
@@ -76,25 +79,23 @@ export default async function TodayPage() {
     }
   }
 
-  // Defaults to the cook flow. If the most recent session was an order
-  // session, that's what's restored and shown instead — see TodayForm.
-  const initial: DecisionContext = restored?.session.context ?? {
-    decision_mode: "cook",
-    cook_minutes: usualCookMinutes,
-    hunger: "normal",
-    effort: "some",
-    shopping: "can_buy",
-    craving: null,
-    ingredients_on_hand: [],
-    // null means "whatever my profile says", so the budget card stays collapsed.
-    budget_override_usd: null,
-  };
+  // What the chips start on: each mode's most recent settings, read from the
+  // same decision_sessions history (contexts only — no recommendations). A new
+  // user has no rows and gets the plain defaults. Defaults only; every chip
+  // stays editable. See lib/recommend/rememberedDefaults.ts for what is and
+  // isn't carried.
+  const { data: recentRows } = await supabase
+    .from("decision_sessions")
+    .select("context")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  const defaults = rememberedDefaults((recentRows ?? []).map((r) => r.context), usualCookMinutes);
 
   return (
     <AppShell title="Home" subtitle="Tell me about tonight.">
       <TodayForm
-        initial={initial}
-        usualCookMinutes={usualCookMinutes}
+        defaults={defaults}
         usualBudget={usualBudget}
         kitchenStaples={kitchenStaples}
         initialSession={restored?.session ?? null}

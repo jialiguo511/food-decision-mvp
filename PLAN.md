@@ -218,6 +218,24 @@ contents into NOW.
   usual." A hypothesis that these contexts differ enough to save decisions;
   validate on founder self-use before extending. Overridable in one tap,
   never a hidden constraint. Inferred routines are LATER.
+- **Last-used chip defaults (smart defaults v0)** — built 2026-09-29,
+  unvalidated (a hypothesis that last use predicts this use). Home opens with
+  each mode's chips on that mode's most recent values — Cook: hunger, effort,
+  budget override; Order: hunger, method, meal budget, and the Eat nearby
+  travel answer — instead of hard defaults. Stored nowhere new: derived on
+  each visit from the last 30 `decision_sessions.context` rows, so it updates
+  only when a "Find my meal" succeeds, survives refresh / new browser /
+  device, and a new user gets the plain defaults. Defaults only — every chip
+  stays editable — and never carried: cravings, "what do you have right now"
+  foods, "Use what I have", cook minutes (stays the Profile default). It does
+  not change Profile fields or ranking. Kept distinct from the *decision
+  session* (one eating decision's temporary state): the latest session
+  auto-restores on open only if its `created_at` is within 6 hours — older
+  rows stay as history but restore nothing, so stale recommendations, foods
+  on hand and cravings never reappear, while the defaults above still apply.
+  No separate "use my usual" button:
+  the pre-selected "Find my meal" is that path. Not the user-set routine
+  defaults item below, which is still unbuilt.
 - **Eat out — nearby (restaurant/café discovery + contextual ranking)** —
   promoted from LATER 2026-09-29; "Nearby Eat out v1." A core extension of
   "help me decide what to eat right now": users who normally eat out get

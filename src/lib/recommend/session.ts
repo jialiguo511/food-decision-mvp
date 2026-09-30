@@ -9,6 +9,23 @@ import { contextSchema } from "./input";
 import { storedRecommendationsSchema, stripLeakedImageQueryStep } from "./output";
 import type { ActiveSession } from "../types";
 
+/** How long a saved decision session auto-restores on page open. A session is
+ *  temporary state for one eating decision — after this, Home starts fresh
+ *  (remembered defaults still apply). Expired rows are kept as history, never
+ *  deleted; they just stop being restored. */
+export const SESSION_RESTORE_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+/** Whether a row's `created_at` is recent enough to auto-restore. A missing,
+ *  unparseable or future-dated timestamp is treated as not recent — never
+ *  restore on doubt. */
+export function isRecentSession(createdAt: unknown, now: number = Date.now()): boolean {
+  if (typeof createdAt !== "string") return false;
+  const created = Date.parse(createdAt);
+  if (!Number.isFinite(created)) return false;
+  const age = now - created;
+  return age >= 0 && age <= SESSION_RESTORE_WINDOW_MS;
+}
+
 export type RestoredSession = {
   session: ActiveSession;
   chosenIndex: 0 | 1 | 2 | null;
@@ -17,7 +34,7 @@ export type RestoredSession = {
 export function parseStoredSession(row: unknown): RestoredSession | null {
   if (!isRecord(row) || typeof row.id !== "string") return null;
 
-  const context = contextSchema.safeParse(withDefaultMode(row.context));
+  const context = parseStoredContext(row.context);
   const recommendations = storedRecommendationsSchema.safeParse(taggedRecommendations(row.recommendations));
   if (!context.success || !recommendations.success) return null;
 
@@ -71,6 +88,13 @@ function taggedRecommendations(recommendations: unknown): unknown {
   return recommendations.map((r) =>
     isRecord(r) && !("decision_mode" in r) ? { ...r, decision_mode: "cook" } : r,
   );
+}
+
+/** A stored `decision_sessions.context`, validated by the same schema (and
+ *  legacy shims) as a live request — the success/failure result of zod, so a
+ *  corrupted or hand-edited row is never trusted. */
+export function parseStoredContext(context: unknown) {
+  return contextSchema.safeParse(withDefaultMode(context));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

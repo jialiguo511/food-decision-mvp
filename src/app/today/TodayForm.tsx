@@ -3,41 +3,17 @@
 import { useState } from "react";
 import Card from "@/components/ui/Card";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
-import { DECISION_MODES, DEFAULT_MEAL_BUDGET, DEFAULT_TRAVEL_WILLINGNESS } from "@/lib/options";
+import { DECISION_MODES, DEFAULT_TRAVEL_WILLINGNESS } from "@/lib/options";
+import type { FormDefaults } from "@/lib/recommend/rememberedDefaults";
 import { contextsEqual } from "@/lib/recommend/contextEquality";
 import { normalizeCraving } from "@/lib/text";
-import type { ActiveSession, DecisionContext, DecisionMode, MealContext, OrderContext, StoreSnackContext } from "@/lib/types";
+import type { ActiveSession, DecisionMode, MealContext, OrderContext, StoreSnackContext } from "@/lib/types";
 import CookForm from "./CookForm";
 import type { FeedbackData } from "./MealFeedback";
 import OrderForm from "./OrderForm";
 import RecommendationResults, { isInventoryLimited, isNearbySession } from "./RecommendationResults";
 import StoreSnackForm from "./StoreSnackForm";
 import { useRecommend } from "./useRecommend";
-
-function defaultCookContext(cookMinutes: number): MealContext {
-  return {
-    decision_mode: "cook",
-    cook_minutes: cookMinutes,
-    hunger: "normal",
-    effort: "some",
-    shopping: "can_buy",
-    craving: null,
-    ingredients_on_hand: [],
-    budget_override_usd: null,
-  };
-}
-
-function defaultOrderContext(): OrderContext {
-  return {
-    decision_mode: "order",
-    hunger: "normal",
-    craving_category: "no_preference",
-    craving_note: null,
-    method: "delivery",
-    meal_budget: DEFAULT_MEAL_BUDGET,
-    travel_willingness: DEFAULT_TRAVEL_WILLINGNESS,
-  };
-}
 
 /** The form only ever holds the category-flow fields. `nearby` marks a
  *  request, not a form value, so a restored nearby session's flag is dropped
@@ -48,25 +24,18 @@ function toFormValues(context: OrderContext): OrderContext {
   return rest;
 }
 
-function defaultStoreSnackContext(): StoreSnackContext {
-  return {
-    decision_mode: "store_snack",
-    hunger: "normal",
-    craving_type: "anything",
-  };
-}
-
 export default function TodayForm({
-  initial,
-  usualCookMinutes,
+  defaults,
   usualBudget,
   kitchenStaples,
   initialSession,
   initialChosenIndex,
   initialFeedback,
 }: {
-  initial: DecisionContext;
-  usualCookMinutes: number;
+  /** Where the chips start, per mode — the user's most recent settings for
+   *  that mode, or plain defaults for a new user. Defaults only: nothing here
+   *  locks a value. */
+  defaults: FormDefaults;
   usualBudget: number;
   /** The user's persistent Kitchen staples (condiments/seasonings only), read
    *  server-side — Cook always has access to them without the user
@@ -82,16 +51,27 @@ export default function TodayForm({
 }) {
   // Each mode keeps its own form state, so switching modes never loses what
   // was typed into the other one. `mode` decides which half is shown and
-  // which one "Find my meal" submits.
-  const [mode, setMode] = useState<DecisionMode>(initial.decision_mode);
+  // which one "Find my meal" submits. The session being restored (if any)
+  // wins for its own mode so the form matches the results on screen; every
+  // other mode starts from its remembered defaults.
+  const restored = initialSession?.context ?? null;
+  const [mode, setMode] = useState<DecisionMode>(restored?.decision_mode ?? defaults.mode);
   const [cookValues, setCookValues] = useState<MealContext>(
-    initial.decision_mode === "cook" ? initial : defaultCookContext(usualCookMinutes),
+    restored?.decision_mode === "cook" ? restored : defaults.cook,
   );
-  const [orderValues, setOrderValues] = useState<OrderContext>(
-    initial.decision_mode === "order" ? toFormValues(initial) : defaultOrderContext(),
-  );
+  const [orderValues, setOrderValues] = useState<OrderContext>(() => {
+    if (restored?.decision_mode !== "order") return defaults.order;
+    const values = toFormValues(restored);
+    // Travel is only meaningful for Eat nearby. If the restored session was
+    // delivery/pickup its stored value is inert, so show the remembered Eat
+    // nearby answer for when the user switches over (contextsEqual ignores
+    // travel for non-nearby methods, so this never marks the form dirty).
+    return values.method === "eat_nearby"
+      ? values
+      : { ...values, travel_willingness: defaults.order.travel_willingness };
+  });
   const [storeSnackValues, setStoreSnackValues] = useState<StoreSnackContext>(
-    initial.decision_mode === "store_snack" ? initial : defaultStoreSnackContext(),
+    restored?.decision_mode === "store_snack" ? restored : defaults.store_snack,
   );
 
   const { session, selection, request, run, retry, choose } = useRecommend({
