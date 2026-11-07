@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import type { Interpretation } from "@/lib/interpret/schema";
 import type { NutritionTargets } from "@/lib/nutrition";
 import { toMealContext } from "@/lib/recommend/cookForm";
 import type { FormDefaults } from "@/lib/recommend/rememberedDefaults";
@@ -9,12 +10,15 @@ import type { ActiveSession, DecisionMode, MealContext, OrderContext, ProfileFor
 import { dismissNutritionStep } from "./actions";
 import { createAdvanceScheduler } from "./flow/advance";
 import EquipmentScreen from "./flow/EquipmentScreen";
+import ClarifyScreen, { KindScreen } from "./flow/ClarifyScreen";
 import { homeReducer, initialScreen, modeToChange } from "./flow/homeReducer";
-import QuestionFlow from "./flow/QuestionFlow";
+import { applyInterpretation, describeUnderstanding, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
+import QuestionFlow, { type FormValues } from "./flow/QuestionFlow";
 import StartScreen, { ModeScreen } from "./flow/StartScreen";
 import { ingredientsStepIndex, searchesNearby } from "./flow/steps";
 import { contextSummary, ctaLabel } from "./flow/summary";
 import { useHomeForms } from "./flow/useHomeForms";
+import { interpretErrorCopy, interpretText } from "./interpretClient";
 import type { FeedbackData } from "./MealFeedback";
 import NutritionStep from "./onboarding/NutritionStep";
 import Onboarding from "./onboarding/Onboarding";
@@ -94,6 +98,18 @@ export default function HomeFlow({
   // Cook equipment answered since load — the server flag is stale.
   const [equipmentSaved, setEquipmentSaved] = useState(equipmentKnown);
 
+  // The one-sentence entry. The text, the read in progress, and — once a
+  // sentence has been read but still needs something — what was read. The
+  // sentence is kept only here, in memory: never stored, never sent anywhere
+  // but the one read. A newer read, or leaving for another path, makes an
+  // older one's answer arrive to nothing (readId).
+  const [draft, setDraft] = useState("");
+  const [describing, setDescribing] = useState(false);
+  const [describeError, setDescribeError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [understood, setUnderstood] = useState<Understood | null>(null);
+  const readId = useRef(0);
+
   // Nearby places restored without their wording (the user left before it
   // arrived): ask for it once.
   useEffect(() => {
@@ -138,11 +154,18 @@ export default function HomeFlow({
 
   /** Finalizes free-text cravings, then asks for this mode's three. Pickup and
    *  Eat nearby search real places — the location prompt can only follow
-   *  this tap; Delivery (or `byType`) gets food ideas by type. */
-  function find(mode: DecisionMode, byType = false) {
+   *  this tap; Delivery (or `byType`) gets food ideas by type. `source` is the
+   *  answers to send (the sentence entry passes its own, because state set a
+   *  moment ago is not yet visible); `sentence` is what to show back on the
+   *  results, and is cleared by every other way of asking. */
+  function find(mode: DecisionMode, byType = false, source: FormValues = forms, sentence: Understood | null = null) {
     clearAdvance();
+    readId.current++; // an unfinished read must not start a second request
+    setDescribing(false);
+    setPending(null);
+    setUnderstood(sentence);
     if (mode === "cook") {
-      const cooked = toMealContext({ ...forms.cook, craving: forms.cook.craving === null ? null : normalizeCraving(forms.cook.craving) });
+      const cooked = toMealContext({ ...source.cook, craving: source.cook.craving === null ? null : normalizeCraving(source.cook.craving) });
       // Unreachable from the screens (Continue is disabled until answered) —
       // but a request is never built from a fallback: send them to the
       // question instead.
@@ -157,15 +180,54 @@ export default function HomeFlow({
     dispatch({ type: "showResults" });
     if (mode === "order") {
       const finalized: OrderContext = {
-        ...forms.order,
-        craving_note: forms.order.craving_note === null ? null : normalizeCraving(forms.order.craving_note),
+        ...source.order,
+        craving_note: source.order.craving_note === null ? null : normalizeCraving(source.order.craving_note),
       };
       setForm("order", finalized);
       const nearby = !byType && searchesNearby(finalized);
       void run(nearby ? { ...finalized, nearby: true } : finalized);
     } else {
-      void run(forms.store_snack);
+      void run(source.store_snack);
     }
+  }
+
+  // ---- the sentence entry -------------------------------------------------
+
+  /** "Help me decide": read the sentence once, then either go straight to the
+   *  three cards or ask only for what is missing. A failed read keeps the text. */
+  async function describe() {
+    const text = draft.trim();
+    if (!text || describing) return;
+    const id = ++readId.current;
+    setDescribing(true);
+    setDescribeError(null);
+    const result = await interpretText(text);
+    if (id !== readId.current) return; // the person went elsewhere meanwhile
+    setDescribing(false);
+    if (!result.ok) return setDescribeError(interpretErrorCopy(result.error));
+    proceed(text, result.interpretation);
+  }
+
+  /** What was read → the next screen. The merged answers become this mode's
+   *  answers, so Edit and Change start from them. */
+  function proceed(text: string, interpretation: Interpretation, forcedMode?: DecisionMode, equipmentOk = equipmentSaved) {
+    const applied = applyInterpretation(interpretation, forms, used, forcedMode);
+    if (applied.status === "needs_mode") {
+      setPending({ text, interpretation, mode: null, said: [], missing: [] });
+      return dispatch({ type: "clarify" });
+    }
+    setForm(applied.mode, applied.forms[applied.mode] as never);
+    const missing = applied.status === "needs_answers" ? applied.missing : [];
+    setPending({ text, interpretation, mode: applied.mode, said: applied.said, missing });
+    // Cook needs to know what they can cook with, once; ask, then carry on.
+    if (applied.mode === "cook" && !equipmentOk) return dispatch({ type: "askEquipment" });
+    if (missing.length > 0) return dispatch({ type: "clarify" });
+    sendSentence(text, applied.mode, applied.forms, applied.said);
+  }
+
+  function sendSentence(text: string, mode: DecisionMode, source: FormValues, said: Said[]) {
+    setDraft("");
+    find(mode, false, source, describeUnderstanding(text, mode, source, said));
   }
 
   /** "Show me 3 more": the session's own context, with its cards sent as
@@ -181,6 +243,7 @@ export default function HomeFlow({
   function showWhatToBuy() {
     if (!session || session.context.decision_mode !== "cook") return;
     const next: MealContext = { ...session.context, shopping: "can_buy", budget_override_usd: null, minimize_purchases: true };
+    setUnderstood(null);
     setForm("cook", next);
     void run(next);
   }
@@ -188,6 +251,9 @@ export default function HomeFlow({
   /** Entering a mode: Cook asks what you can cook with first, once, if never
    *  said — everything else goes straight in. */
   function pick(mode: DecisionMode) {
+    readId.current++;
+    setDescribing(false);
+    setPending(null);
     if (mode === "cook" && !equipmentSaved) return dispatch({ type: "askEquipment" });
     dispatch({ type: "pickMode", mode, hasMemory: used[mode] });
   }
@@ -244,8 +310,29 @@ export default function HomeFlow({
         onBack={back}
         onDone={() => {
           setEquipmentSaved(true);
+          // A sentence was waiting on this answer: carry on with it.
+          if (pending?.mode === "cook") return proceed(pending.text, pending.interpretation, "cook", true);
           dispatch({ type: "pickMode", mode: "cook", hasMemory: used.cook });
         }}
+      />
+    );
+  }
+
+  if (screen.name === "clarify" && pending) {
+    if (!pending.mode) return <KindScreen onPick={(mode) => proceed(pending.text, pending.interpretation, mode)} onBack={back} />;
+    const mode = pending.mode;
+    return (
+      <ClarifyScreen
+        mode={mode}
+        forms={forms}
+        setForm={setForm}
+        initialMissing={pending.missing}
+        remembered={used.order}
+        kitchenStaples={kitchenStaples}
+        budgetUsual={defaults.budgetUsual}
+        // What the person answered here is theirs, just like what they typed.
+        onFind={(answered) => sendSentence(pending.text, mode, forms, [...pending.said, ...answered.flatMap(fieldsOf)])}
+        onBack={back}
       />
     );
   }
@@ -306,6 +393,7 @@ export default function HomeFlow({
         nutritionNudge={
           nutritionProfile && !nutritionDone ? { onOpen: () => dispatch({ type: "openNutrition" }), onDismiss: dismissNutrition } : undefined
         }
+        understood={understood}
       />
     );
   }
@@ -319,6 +407,42 @@ export default function HomeFlow({
       onUseAgain={() => go(lastTimeMode)}
       onPickMode={pick}
       onBackToPicks={session || request.kind !== "idle" ? () => dispatch({ type: "showResults" }) : undefined}
+      draft={draft}
+      onDraft={(text) => {
+        setDraft(text);
+        if (describeError) setDescribeError(null);
+      }}
+      onDescribe={() => void describe()}
+      describing={describing}
+      describeError={describeError}
     />
   );
+}
+
+/** A sentence that has been read and is waiting on something: an answer, the
+ *  kind of help, or the Cook equipment question. */
+type Pending = {
+  text: string;
+  interpretation: Interpretation;
+  /** null = the sentence didn't say what kind of help. */
+  mode: DecisionMode | null;
+  said: Said[];
+  missing: ClarifyStep[];
+};
+
+/** The summary fields a clarify question covers — they were answered by the
+ *  person, so they count as said. */
+function fieldsOf(step: ClarifyStep): Said[] {
+  switch (step) {
+    case "time_effort":
+      return ["time", "effort"];
+    case "shopping":
+      return ["shopping"];
+    case "budget":
+      return ["budget"];
+    case "ingredients":
+      return ["foods"];
+    case "method":
+      return ["method"];
+  }
 }

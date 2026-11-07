@@ -25,7 +25,10 @@ export type Screen =
   | { name: "questions"; mode: DecisionMode; step: number; viaMode: boolean }
   | { name: "results" }
   /** The optional "better portion and protein suggestions" step. */
-  | { name: "nutrition" };
+  | { name: "nutrition" }
+  /** After a sentence that left something out: only the missing answers (or,
+   *  when it didn't say what kind of help, that choice). */
+  | { name: "clarify" };
 
 export type HomeAction =
   /** Onboarding finished or skipped. */
@@ -45,6 +48,7 @@ export type HomeAction =
   | { type: "next"; stepCount: number; from: number }
   | { type: "back" }
   | { type: "showResults" }
+  | { type: "clarify" }
   | { type: "openNutrition" }
   | { type: "nutritionDone" }
   | { type: "start" };
@@ -81,6 +85,8 @@ export function homeReducer(screen: Screen, action: HomeAction): Screen {
     case "showResults":
     case "nutritionDone":
       return { name: "results" };
+    case "clarify":
+      return { name: "clarify" };
     case "openNutrition":
       return { name: "nutrition" };
   }

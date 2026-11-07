@@ -69,7 +69,7 @@ describe("the buttons that send a request are never disabled by a request in fli
 
   it('Start: "Use again" is enabled', () => {
     const found = buttons(
-      StartScreen({ lastTime: { mode: "cook", summary: ["30 min"] }, onUseAgain: vi.fn(), onPickMode: vi.fn() }),
+      StartScreen({ lastTime: { mode: "cook", summary: ["30 min"] }, onUseAgain: vi.fn(), onPickMode: vi.fn(), draft: "", onDraft: vi.fn(), onDescribe: vi.fn(), describing: false, describeError: null }),
     );
     const again = found.find((b) => b.props.children === "Use again");
     expect(again).toBeDefined();

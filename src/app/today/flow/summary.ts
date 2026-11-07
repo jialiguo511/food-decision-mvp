@@ -16,26 +16,43 @@ import type { AnyForm } from "./steps";
 const label = <T extends string>(list: { value: T; label: string }[], value: T) =>
   list.find((o) => o.value === value)?.label ?? null;
 
-export function contextSummary(values: AnyForm): string[] {
-  const parts: (string | null)[] = [HUNGER_PHRASES[values.hunger]];
+/** The answers a summary can name. Each part says which field it came from, so
+ *  the sentence entry can show what the user SAID apart from what was filled in
+ *  from their history. */
+export type SummaryField = "hunger" | "time" | "effort" | "shopping" | "budget" | "method" | "distance" | "meal_budget" | "craving_type";
+
+export type SummaryPart = { field: SummaryField; text: string };
+
+export function summaryParts(values: AnyForm): SummaryPart[] {
+  const part = (field: SummaryField, text: string | null): SummaryPart | null => (text === null ? null : { field, text });
+  const parts: (SummaryPart | null)[] = [part("hunger", HUNGER_PHRASES[values.hunger])];
   if (values.decision_mode === "cook") {
     // Only answers that exist: a summary says what is being assumed, so an
     // unanswered one is left out rather than filled in.
-    parts.push(values.cook_minutes === null ? null : `${values.cook_minutes} min`, values.effort === null ? null : EFFORT_PHRASES[values.effort]);
-    if (values.shopping === "inventory_only") parts.push("Use what I have");
+    parts.push(
+      part("time", values.cook_minutes === null ? null : `${values.cook_minutes} min`),
+      part("effort", values.effort === null ? null : EFFORT_PHRASES[values.effort]),
+    );
+    if (values.shopping === "inventory_only") parts.push(part("shopping", "Use what I have"));
     else if (values.shopping === "can_buy") {
-      parts.push(values.budget_override_usd === null ? "Can buy a few things" : `~$${values.budget_override_usd} to spend`);
+      parts.push(
+        values.budget_override_usd === null ? part("shopping", "Can buy a few things") : part("budget", `~$${values.budget_override_usd} to spend`),
+      );
     }
   } else if (values.decision_mode === "order") {
-    parts.push(label(ORDER_METHODS, values.method));
+    parts.push(part("method", label(ORDER_METHODS, values.method)));
     if (asksTravel(values.method) && values.travel_willingness !== "no_preference") {
-      parts.push(label(TRAVEL_OPTIONS, values.travel_willingness));
+      parts.push(part("distance", label(TRAVEL_OPTIONS, values.travel_willingness)));
     }
-    if (values.meal_budget !== "no_preference") parts.push(label(MEAL_BUDGETS, values.meal_budget));
+    if (values.meal_budget !== "no_preference") parts.push(part("meal_budget", label(MEAL_BUDGETS, values.meal_budget)));
   } else if (values.craving_type !== "anything") {
-    parts.push(label(STORE_SNACK_CRAVINGS, values.craving_type));
+    parts.push(part("craving_type", label(STORE_SNACK_CRAVINGS, values.craving_type)));
   }
-  return parts.filter((p): p is string => p !== null);
+  return parts.filter((p): p is SummaryPart => p !== null);
+}
+
+export function contextSummary(values: AnyForm): string[] {
+  return summaryParts(values).map((p) => p.text);
 }
 
 /** Hunger and effort as phrases — the bare chip labels ("Normal", "None", "A

@@ -1,6 +1,7 @@
 "use client";
 
 import Button from "@/components/ui/Button";
+import { INTERPRET_MAX_CHARS } from "@/lib/interpret/schema";
 import type { DecisionMode } from "@/lib/types";
 import { BackButton } from "./QuestionScreen";
 
@@ -14,6 +15,14 @@ export const MODE_LABELS: Record<DecisionMode, { title: string; hint: string }> 
 
 const MODES: DecisionMode[] = ["cook", "order", "store_snack"];
 
+/** Starting points for the sentence box — tapping one fills the box so it can
+ *  be edited; it never sends anything. In the UI's language, one per mode. */
+export const SITUATION_EXAMPLES = [
+  "Just trained, very hungry, 20 minutes, I have eggs and rice.",
+  "Tired and don't want to cook. Something nearby, around $15.",
+  "Want something sweet that I can grab right now.",
+] as const;
+
 /** The last-used mode's answers, as one line — a shortcut, never the headline. */
 export type LastTime = { mode: DecisionMode; summary: string[] };
 
@@ -24,19 +33,92 @@ export default function StartScreen({
   onUseAgain,
   onPickMode,
   onBackToPicks,
+  draft,
+  onDraft,
+  onDescribe,
+  describing,
+  describeError,
 }: {
   lastTime: LastTime | null;
   onUseAgain: () => void;
   onPickMode: (mode: DecisionMode) => void;
   /** Present when there are recent picks to go back to. */
   onBackToPicks?: () => void;
+  /** The sentence being written. Owned by Home so it survives a failed read
+   *  and a trip into the step-by-step path. */
+  draft: string;
+  onDraft: (text: string) => void;
+  onDescribe: () => void;
+  describing: boolean;
+  describeError: string | null;
 }) {
+  const empty = draft.trim().length === 0;
   return (
     <div className="animate-fade-in">
       <h1 className="text-[28px] font-semibold leading-tight tracking-tight">What should I eat?</h1>
-      <p className="mt-1.5 text-sm text-muted">Pick one — we&apos;ll narrow it to three.</p>
 
-      <div className="mt-6 space-y-3">
+      <form
+        className="mt-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!empty && !describing) onDescribe();
+        }}
+      >
+        <label htmlFor="situation" className="text-sm font-semibold">
+          Tell me what&apos;s going on
+        </label>
+        <textarea
+          id="situation"
+          value={draft}
+          onChange={(event) => onDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !empty && !describing) {
+              event.preventDefault();
+              onDescribe();
+            }
+          }}
+          rows={3}
+          maxLength={INTERPRET_MAX_CHARS}
+          disabled={describing}
+          aria-describedby="situation-help"
+          aria-invalid={describeError ? true : undefined}
+          placeholder="How hungry, how much time, what you have, what you feel like…"
+          className="mt-2 block w-full resize-none rounded-2xl border border-line bg-card p-4 text-base leading-relaxed outline-none focus:border-accent disabled:opacity-60"
+        />
+        <p id="situation-help" className="mt-1.5 px-1 text-xs text-muted">
+          Tip: tap the microphone on your phone&apos;s keyboard to say it out loud. We read your sentence once and don&apos;t save it.
+        </p>
+        {describeError && (
+          <p role="alert" className="mt-2 px-1 text-sm text-red-700">
+            {describeError}
+          </p>
+        )}
+        <Button type="submit" className="mt-3" disabled={empty || describing}>
+          {describing ? "Reading what you said…" : "Help me decide"}
+        </Button>
+        <p className="mt-2 px-1 text-xs text-muted">If you ask for places nearby, we use your location once for that search. It isn&apos;t saved.</p>
+      </form>
+
+      <div className="mt-4 flex flex-col gap-2" aria-label="Examples">
+        {SITUATION_EXAMPLES.map((example) => (
+          <button
+            key={example}
+            type="button"
+            disabled={describing}
+            onClick={() => onDraft(example)}
+            className="min-h-11 rounded-2xl border border-line bg-card px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:border-accent/50 disabled:opacity-50"
+          >
+            {example}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-8 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-muted" role="separator">
+        <span className="h-px flex-1 bg-line" />
+        Or choose step by step
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <div className="mt-4 space-y-3">
         {MODES.map((mode) => (
           <ModeRow key={mode} mode={mode} onClick={() => onPickMode(mode)} />
         ))}
@@ -63,7 +145,7 @@ export default function StartScreen({
   );
 }
 
-function ModeRow({ mode, onClick }: { mode: DecisionMode; onClick: () => void }) {
+export function ModeRow({ mode, onClick }: { mode: DecisionMode; onClick: () => void }) {
   return (
     <button
       type="button"
