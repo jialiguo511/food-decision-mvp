@@ -1,41 +1,51 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useNearViewport } from "@/components/useNearViewport";
+import MediaFrame, { FramePlaceholder } from "./MediaFrame";
+import { useMediaWanted } from "./useMediaWanted";
 
 /**
  * A restaurant card's picture: the real Google photo of this place, loaded
  * (lazily, through /api/place-photo) only when the card is about to be seen —
- * never a generated image. No photo, or one that fails to load, is a neutral
- * restaurant placeholder: constant height from card to card, never pretending to
- * be a photo of the food. Cards without a photo reference make no request.
+ * never a generated image. No photo reference means no request and a short
+ * neutral band. A photo that fails to load keeps its frame (same size, same
+ * caption line) and shows the neutral placeholder inside it, so the card
+ * doesn't change height under the user's thumb. Cards without a photo
+ * reference make no request.
  */
 export default function PlacePhoto({ sessionId, index, hasPhoto, author }: { sessionId: string; index: number; hasPhoto: boolean; author: string | null }) {
   const box = useRef<HTMLDivElement>(null);
-  const near = useNearViewport(box);
+  const wanted = useMediaWanted(box, index);
   const [state, setState] = useState<"loading" | "loaded" | "failed">("loading");
 
-  if (!hasPhoto || state === "failed") return <Placeholder />;
+  if (!hasPhoto) return <Band />;
   return (
-    <figure className="mb-3">
-      <div ref={box} className="aspect-video w-full overflow-hidden rounded-xl bg-accent-soft/40">
-        {near && (
+    <MediaFrame
+      size="large"
+      state={state === "loaded" ? "ready" : state === "failed" ? "failed" : wanted ? "loading" : "waiting"}
+      cause={state === "failed" ? "display" : undefined}
+      frameRef={box}
+      caption={state === "loaded" ? `Photo from Google Maps${author ? ` · ${author}` : ""}` : undefined}
+    >
+      {state === "failed" ? (
+        <FramePlaceholder size="large" text="No photo for this place" />
+      ) : (
+        wanted && (
           // eslint-disable-next-line @next/next/no-img-element -- same-origin proxy of a provider image
           <img
             src={`/api/place-photo?session_id=${encodeURIComponent(sessionId)}&index=${index}`}
             alt=""
             onLoad={() => setState("loaded")}
             onError={() => setState("failed")}
-            className={`h-full w-full object-cover transition-opacity duration-500 ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
           />
-        )}
-      </div>
-      <figcaption className="mt-1 text-[11px] text-muted">Photo from Google Maps{author ? ` · ${author}` : ""}</figcaption>
-    </figure>
+        )
+      )}
+    </MediaFrame>
   );
 }
 
-function Placeholder() {
+function Band() {
   return (
     <div className="mb-3 flex h-14 w-full items-center gap-3 rounded-xl bg-accent-soft/40 px-4 text-accent/70" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

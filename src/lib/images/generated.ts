@@ -31,7 +31,7 @@ export const IMAGE_SETTINGS = {
   quality: "low",
   format: "webp",
   compression: 80,
-  timeoutMs: 60_000,
+  timeoutMs: 45_000,
 } as const;
 
 export function resolveImageSettings(env: Record<string, string | undefined> = process.env) {

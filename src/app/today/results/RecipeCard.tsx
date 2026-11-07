@@ -35,7 +35,7 @@ export default function RecipeCard({
       index={index}
       selection={selection}
       onChoose={onChoose}
-      media={<RecipeImage key={`${sessionId}:${index}`} target={{ session_id: sessionId, index }} size="large" />}
+      media={<RecipeImage key={`${sessionId}:${index}`} target={{ session_id: sessionId, index }} size="large" slot={index} />}
       corner={<RecipeSaveControl key={`${sessionId}:${index}`} sessionId={sessionId} index={index} initialSaved={saved} />}
       after={
         <>

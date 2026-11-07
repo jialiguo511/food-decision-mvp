@@ -1,6 +1,7 @@
 "use client";
 
 import { Children, useEffect, useRef, useState } from "react";
+import { ActiveSlideContext } from "./useMediaWanted";
 
 /**
  * One card at a time, with the next one peeking in. Swipe is native
@@ -86,7 +87,7 @@ export default function Carousel({
             aria-label={`${i + 1} of ${count}`}
             className={`shrink-0 snap-start ${count > 1 ? "w-[calc(100%-1.75rem)]" : "w-full"}`}
           >
-            {item}
+            <ActiveSlideContext.Provider value={active}>{item}</ActiveSlideContext.Provider>
           </div>
         ))}
       </div>

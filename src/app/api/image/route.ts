@@ -1,8 +1,11 @@
 // POST /api/image { session_id, index } | { saved_id } — one Cook card's picture, on demand,
 // AFTER its text is already on screen. Entirely independent of /api/recommend:
 // a slow or failed lookup here can never delay or break a recommendation, and
-// every failure is a 200 with `{ url: null }` (the card keeps its quiet
-// no-photo band), so the client never has to tell "no image" from "error".
+// every failure is a 200 with `{ url: null, reason }`, so a slow or failed
+// picture never turns into an error page. `reason` lets the card tell "nothing
+// to show" (no_image, unavailable — settled) from "worth another try"
+// (generation_failed). A dropped connection or a 5xx is the client's own
+// "request failed", which it also offers to retry.
 //
 // The recipe is read from the caller's own stored session by (session, index), or
 // from their own Saved row — never taken from the request — so this can't be used to generate an image of
@@ -13,11 +16,17 @@
 import { NextResponse } from "next/server";
 import { resolveImageProvider } from "@/lib/images";
 import { resolveImageGenerator } from "@/lib/images/generated";
-import { createSupabaseImageCache, resolveRecipeImage } from "@/lib/images/recipeImage";
+import { createSupabaseImageCache, resolveRecipeImageOutcome } from "@/lib/images/recipeImage";
 import { storedRecommendationSchema } from "@/lib/recommend/output";
 import { createClient } from "@/lib/supabase/server";
 
-const EMPTY = { url: null } as const;
+// A generation can take most of a minute (generated.ts: 45 s timeout). Without
+// this the host's default function limit can kill the request AFTER the image
+// vendor has been paid and BEFORE the picture is stored — money spent, nothing
+// cached, and the next request pays again.
+export const maxDuration = 60;
+
+const EMPTY = { url: null, reason: "unavailable" } as const;
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -42,10 +51,10 @@ export async function POST(request: Request) {
   const parsed = storedRecommendationSchema.safeParse(typeof card === "object" && card !== null && !("decision_mode" in card) ? { ...card, decision_mode: "cook" } : card);
   if (!parsed.success || parsed.data.decision_mode !== "cook") return NextResponse.json(EMPTY);
 
-  const result = await resolveRecipeImage(parsed.data, {
+  const outcome = await resolveRecipeImageOutcome(parsed.data, {
     photos: resolveImageProvider(),
     cache: createSupabaseImageCache(supabase),
     generator: resolveImageGenerator(),
   });
-  return NextResponse.json(result ?? EMPTY);
+  return NextResponse.json("image" in outcome ? outcome.image : { url: null, reason: outcome.none });
 }

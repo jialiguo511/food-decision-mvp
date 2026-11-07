@@ -75,10 +75,24 @@ const inFlight = new Map<string, Promise<string | null>>();
 
 type Recipe = Pick<CookRecommendation, "title" | "image_query" | "ingredients_on_hand" | "ingredients_needed" | "steps">;
 
-export async function resolveRecipeImage(
-  recipe: Recipe,
-  deps: { photos: ImageProvider; cache: GeneratedImageCache; generator: ImageGenerator | null },
-): Promise<RecipeImageResult | null> {
+/** Why there is no picture. The card treats these differently: "no_image" is a
+ *  settled answer (nothing relevant, or no image source configured — don't ask
+ *  again); "generation_failed" is worth a retry (nothing was cached, so a retry
+ *  may succeed). Cases that never reach this resolver (not signed in, card not
+ *  found) are the route's own "unavailable". */
+export type NoImageReason = "no_image" | "generation_failed";
+
+export type ImageOutcome = { image: RecipeImageResult } | { none: NoImageReason };
+
+type Deps = { photos: ImageProvider; cache: GeneratedImageCache; generator: ImageGenerator | null };
+
+/** The picture or null — the shape callers that only need "a picture or nothing" use. */
+export async function resolveRecipeImage(recipe: Recipe, deps: Deps): Promise<RecipeImageResult | null> {
+  const outcome = await resolveRecipeImageOutcome(recipe, deps);
+  return "image" in outcome ? outcome.image : null;
+}
+
+export async function resolveRecipeImageOutcome(recipe: Recipe, deps: Deps): Promise<ImageOutcome> {
   // 1. A relevant real photo, when one exists. (Pexels' own relevance bar and
   //    24 h cache live in the provider.) Never fatal.
   if (recipe.image_query) {
@@ -86,7 +100,7 @@ export async function resolveRecipeImage(
       const photo = await deps.photos.resolve(recipe.image_query);
       if (photo) {
         imageStats.photo++;
-        return { source: "photo", ...photo };
+        return { image: { source: "photo", ...photo } };
       }
     } catch (error) {
       console.warn("[images] photo lookup errored", error instanceof Error ? error.message : error);
@@ -101,7 +115,7 @@ export async function resolveRecipeImage(
   if (cached) {
     imageStats.cache_hit++;
     console.info("[images] recipe image", { outcome: "cache_hit", key: short });
-    return { source: "generated", url: cached };
+    return { image: { source: "generated", url: cached } };
   }
   imageStats.cache_miss++;
 
@@ -109,7 +123,7 @@ export async function resolveRecipeImage(
   if (!deps.generator) {
     imageStats.not_configured++;
     console.info("[images] recipe image", { outcome: "cache_miss_no_generator", key: short });
-    return null;
+    return { none: "no_image" };
   }
   const generator = deps.generator;
   let pending = inFlight.get(key);
@@ -139,5 +153,5 @@ export async function resolveRecipeImage(
     inFlight.set(key, pending);
   }
   const url = await pending;
-  return url ? { source: "generated", url } : null;
+  return url ? { image: { source: "generated", url } } : { none: "generation_failed" };
 }
