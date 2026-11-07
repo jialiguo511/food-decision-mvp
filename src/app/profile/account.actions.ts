@@ -46,9 +46,13 @@ export async function resetMyData(): Promise<AccountResult> {
  *   1. the admin key must exist (otherwise refuse before touching anything);
  *   2. all app data is removed and verified (a failure here leaves the login
  *      intact, so the user can retry);
- *   3. only then the auth user is deleted — Supabase Auth deletion needs the
+ *   3. shared Storage files this user happens to own (a generated recipe
+ *      picture is uploaded with their session) are RELEASED — Supabase refuses to
+ *      delete a user who still owns any object. The picture stays; it belongs to
+ *      the dish, not the person;
+ *   4. only then the auth user is deleted — Supabase Auth deletion needs the
  *      service-role key, so it happens here on the server and nowhere else;
- *   4. the session cookie is cleared.
+ *   5. the session cookie is cleared.
  * If (3) fails after (2), the account is left empty-but-valid — a reset state —
  * and retrying completes it.
  */
@@ -73,9 +77,17 @@ export async function deleteAccount(): Promise<AccountResult> {
     return { ok: false, error: "Couldn't delete everything. Your account is still active — please try again." };
   }
 
+  // Not fatal by itself: if the function is missing (its migration not run) or the
+  // user owns nothing, deleting the auth user is still the real test — but say so,
+  // because "Database error deleting user" alone doesn't point at Storage.
+  const released = await admin.rpc("release_user_storage", { p_user: user.id });
+  if (released.error) {
+    console.error("[account] delete: couldn't release shared Storage files (run supabase/migrations/2026-11-08_release_user_storage.sql)", { code: released.error.code });
+  }
+
   const { error } = await admin.auth.admin.deleteUser(user.id);
   if (error) {
-    console.error("[account] delete: auth user removal failed (data already cleared)", { message: error.message });
+    console.error("[account] delete: auth user removal failed (data already cleared)", { message: error.message, storageReleased: !released.error });
     return { ok: false, error: "Your data was cleared, but the account couldn't be removed. Please try again." };
   }
 

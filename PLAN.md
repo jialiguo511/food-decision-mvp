@@ -454,6 +454,11 @@ deployed; not validated with any user.** Facts, checks and the setup list are in
       questions from the first. Editing fields makes it a step-by-step decision. Not real-nearby
       verified: the browser checks used a stand-in that mimics the server rule; the real route's
       exclusion is tested against the real route code with a fake Places provider.
+      (3) *"Delete my account" failed for anyone who had caused a picture to be generated.* Supabase
+      refuses to delete a user who owns Storage files, and the generated picture is uploaded with the
+      user's own session. New `release_user_storage()` (service-role only) releases them just before the
+      auth user is removed; reproduced and fixed on real Postgres with Supabase's real owner foreign key.
+      Needs `migrations/2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY`.
       *Same weakness, not changed (not asked):* Cook / Get food-by-type / Snack "more" still pass only
       the last batch to the model as things to avoid.
 

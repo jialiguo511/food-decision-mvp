@@ -62,6 +62,49 @@ describe("each migration is safe to run on a database that already has the schem
   }
 });
 
+describe("deleting an account that owns shared Storage files", () => {
+  const U = "00000000-0000-0000-0000-0000000000aa";
+  const setup = async () => {
+    const db = await fresh([SCHEMA]);
+    await db.addUser(U);
+    // A generated recipe picture, uploaded under this user's own session.
+    await db.admin("insert into storage.objects (bucket_id, name, owner, owner_id) values ('recipe-images', 'abc.webp', $1::uuid, $1::text)", [U]);
+    return db;
+  };
+
+  it("the failure is real: Supabase's own foreign key refuses to delete a user who owns a file", async () => {
+    const db = await setup();
+    await expect(db.admin("delete from auth.users where id = $1", [U])).rejects.toThrow(/storage\.objects|objects_owner|violates foreign key/i);
+  });
+
+  it("releasing first fixes it — and the shared picture itself stays", async () => {
+    const db = await setup();
+    const [released] = await db.admin<{ n: number }>("select public.release_user_storage($1) as n", [U]);
+    expect(released.n).toBe(1);
+    await db.admin("delete from auth.users where id = $1", [U]); // no longer blocked
+    const files = await db.admin<{ name: string; owner: string | null; owner_id: string | null }>("select name, owner, owner_id from storage.objects");
+    expect(files).toEqual([{ name: "abc.webp", owner: null, owner_id: null }]);
+  });
+
+  it("only the server's service role may call it — not a signed-in user, not anonymous", async () => {
+    const db = await setup();
+    for (const role of ["authenticated", "anon"]) {
+      await expect(db.db.transaction(async (tx) => { await tx.exec(`set local role ${role}`); await tx.query("select public.release_user_storage($1)", [U]); })).rejects.toThrow(/permission denied/i);
+    }
+    await db.db.transaction(async (tx) => { await tx.exec("set local role service_role"); await tx.query("select public.release_user_storage($1)", [U]); });
+  });
+
+  it("a user who owns nothing is untouched; someone else's files are not released", async () => {
+    const db = await setup();
+    const OTHER = "00000000-0000-0000-0000-0000000000bb";
+    await db.addUser(OTHER);
+    const [none] = await db.admin<{ n: number }>("select public.release_user_storage($1) as n", [OTHER]);
+    expect(none.n).toBe(0);
+    const [stillOwned] = await db.admin<{ owner: string }>("select owner from storage.objects");
+    expect(stillOwned.owner).toBe(U);
+  });
+});
+
 describe("supabase/metrics.sql", () => {
   it("every query runs against the real schema (an empty database simply returns no rows)", async () => {
     const db = await fresh([SCHEMA]);
@@ -81,6 +124,6 @@ describe("supabase/check-schema.sql", () => {
   it("a database that stops at the last release (everything but the web-beta migration) is told exactly that", async () => {
     const before = await fresh([SCHEMA.slice(0, SCHEMA.indexOf("-- Web beta: per-user daily usage limits"))]);
     const gaps = await missing(before);
-    expect(gaps.sort()).toEqual(["function consume_usage", "table product_events", "table usage_counters"].sort());
+    expect(gaps.sort()).toEqual(["function consume_usage", "function release_user_storage", "table product_events", "table usage_counters"].sort());
   });
 });

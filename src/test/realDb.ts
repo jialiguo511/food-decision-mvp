@@ -28,6 +28,7 @@ const AUTH_STUB = `
   do $$ begin
     if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
     if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+    if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if;
   end $$;
   grant usage on schema auth to authenticated, anon;
   grant execute on function auth.uid() to authenticated, anon;
@@ -36,7 +37,8 @@ const AUTH_STUB = `
   -- Supabase Storage's two tables, as far as policies and migrations touch them.
   create schema if not exists storage;
   create table if not exists storage.buckets (id text primary key, name text, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
-  create table if not exists storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, created_at timestamptz default now());
+  -- As in Supabase: the owner is a foreign key to auth.users with NO cascade, so a user who owns an object cannot be deleted.
+  create table if not exists storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid references auth.users (id), owner_id text, created_at timestamptz default now());
   alter table storage.objects enable row level security;
   grant usage on schema storage to authenticated, anon;
   grant select, insert on storage.objects to authenticated;

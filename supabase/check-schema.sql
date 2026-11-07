@@ -41,6 +41,9 @@ union all
 select 'function consume_usage',
        case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage') then 'ok' else 'MISSING' end
 union all
+select 'function release_user_storage',
+       case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'release_user_storage') then 'ok' else 'MISSING' end
+union all
 select 'storage bucket recipe-images',
        case when to_regclass('storage.buckets') is not null and exists (select 1 from storage.buckets b where b.id = 'recipe-images') then 'ok' else 'MISSING' end
 order by 1;

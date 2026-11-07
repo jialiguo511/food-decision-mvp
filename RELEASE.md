@@ -72,7 +72,7 @@ Don't run every file. Pick by what your Supabase project already has.
 4. **If your project already exists and rows are `MISSING`:** run `supabase/schema.sql` — it's idempotent (verified twice-over on a
    real engine) and only adds what is missing. The narrower alternative, if you want to add *only* the web-beta pieces to a
    database that already has everything through Oct 2:
-   `supabase/migrations/2026-11-07_usage_and_events.sql` — **and nothing else**. The four older migrations are subsets of `schema.sql`
+   `supabase/migrations/2026-11-07_usage_and_events.sql`, then `supabase/migrations/2026-11-08_release_user_storage.sql` (needed for "Delete my account" — see below) — **and nothing else**. The four older migrations are subsets of `schema.sql`
    (place feedback, Saved, recipe images, Saved repair) and are only for a database that lacks them; the profile-v2 columns
    exist only in `schema.sql`, so an old database that is missing them needs `schema.sql`, not a migration file.
 5. Run `check-schema.sql` again; expect no `MISSING`.
@@ -80,6 +80,13 @@ Don't run every file. Pick by what your Supabase project already has.
 **Order matters in one way:** do the SQL **before** deploying this code. In production the app refuses every paid request while
 `consume_usage()` doesn't exist (so a deploy without the migration is safe, but useless). Do not edit a production database from
 anywhere else until you have read the SQL — `schema.sql` is plain text.
+
+**"Delete my account" needs `2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY`.** Supabase refuses to delete a user who still owns
+Storage files ([docs](https://supabase.com/docs/guides/auth/managing-user-data)). A generated recipe picture is uploaded with the signed-in user's own
+session, so anyone who caused a picture to be generated could no longer delete their account (found on the first Preview that generated real pictures).
+The function releases those shared files (the picture stays; its owner becomes null) just before the auth user is removed; only the service role can call it.
+If delete says *"Deleting an account isn't set up on this server yet"*, the service-role key is missing on that Vercel environment; if it says *"Your data was
+cleared, but the account couldn't be removed"*, check the Vercel log for `[account] delete` (it names this migration when the function is missing).
 
 The web-beta migration adds two tables and one function. `usage_counters` is deliberately **not** wiped by "Reset my data" (that would
 refund a day's allowance) and cascades with the account on delete; `product_events` **is** wiped by reset.
@@ -137,9 +144,10 @@ Do this on your phone against the preview URL (§3), signed in with your own ema
 9. [ ] Choose a card → "Nice — this is your pick" → say whether you ate it. Tap the bookmark on a recipe → it appears under **Saved**.
 10. [ ] Step by step → **Get food** → *Eat nearby* → allow location → real places; a photo or the neutral placeholder; **Not for me** works.
 11. [ ] Me → set an allergy → ask again → it is respected (and remember `/about`: this is not a guarantee).
-12. [ ] After a few requests, run `supabase/metrics.sql` query 3–4 in the SQL editor: your requests are there, with entry and mode, and no text.
-13. [ ] To see a limit: set `USAGE_LIMIT_RECOMMEND=2` on the preview, ask three times → the third says you've reached today's limit.
-14. [ ] Nav shows only Home / Saved / Me.
+12. [ ] With a **throwaway email** that has generated a picture: Me → Account & data → Delete my account → you land on the sign-in page, and signing in again starts from an empty account.
+13. [ ] After a few requests, run `supabase/metrics.sql` query 3–4 in the SQL editor: your requests are there, with entry and mode, and no text.
+14. [ ] To see a limit: set `USAGE_LIMIT_RECOMMEND=2` on the preview, ask three times → the third says you've reached today's limit.
+15. [ ] Nav shows only Home / Saved / Me.
 
 ## 8. Known gaps (so nobody is surprised)
 

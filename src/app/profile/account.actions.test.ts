@@ -24,6 +24,8 @@ let db = createFakeDb();
 let currentUser: string | null = "u1";
 const signOut = vi.fn(async () => ({ error: null }));
 const deleteUser = vi.fn<(id: string) => Promise<{ error: { message: string } | null }>>(async () => ({ error: null }));
+/** release_user_storage(): the user's shared Storage files stop blocking the auth deletion. */
+const releaseStorage = vi.fn<(args: { p_user: string }) => Promise<{ data: unknown; error: { code: string; message: string } | null }>>(async () => ({ data: 0, error: null }));
 let adminConfigured = true;
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -38,7 +40,7 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => {
     if (!adminConfigured) return null;
     const c = db.clientFor("service-role");
-    return { ...c, auth: { ...c.auth, admin: { deleteUser } } };
+    return { ...c, rpc: (fn: string, args: { p_user: string }) => (fn === "release_user_storage" ? releaseStorage(args) : c.rpc(fn, args)), auth: { ...c.auth, admin: { deleteUser } } };
   },
 }));
 
@@ -88,6 +90,7 @@ beforeEach(() => {
   db = createFakeDb();
   currentUser = "u1";
   adminConfigured = true;
+  releaseStorage.mockClear();
   signOut.mockClear();
   deleteUser.mockClear();
   deleteUser.mockResolvedValue({ error: null });
@@ -209,6 +212,38 @@ describe("Delete my account", () => {
     });
     await deleteAccount();
     expect(rowsWhenAuthDeleted).toBe(0);
+  });
+
+  it("releases the user's shared Storage files BEFORE removing the auth user (Supabase refuses to delete a user who owns files)", async () => {
+    await useTheApp();
+    const order: string[] = [];
+    releaseStorage.mockImplementationOnce(async (args) => (order.push(`release:${args.p_user}`), { data: 1, error: null }));
+    deleteUser.mockImplementationOnce(async (id) => (order.push(`delete:${id}`), { error: null }));
+    expect(await deleteAccount()).toEqual({ ok: true });
+    expect(order).toEqual(["release:u1", "delete:u1"]);
+  });
+
+  it("only ever releases the signed-in user's files", async () => {
+    await useTheApp();
+    await deleteAccount();
+    expect(releaseStorage).toHaveBeenCalledTimes(1);
+    expect(releaseStorage).toHaveBeenCalledWith({ p_user: "u1" });
+  });
+
+  it("if releasing fails (the migration wasn't run), it still tries the deletion — which is the real test — and names the cause in the log", async () => {
+    await useTheApp();
+    releaseStorage.mockResolvedValueOnce({ data: null, error: { code: "PGRST202", message: "no function" } });
+    deleteUser.mockResolvedValueOnce({ error: { message: "Database error deleting user" } });
+    const log = vi.mocked(console.error);
+    expect(await deleteAccount()).toEqual({ ok: false, error: "Your data was cleared, but the account couldn't be removed. Please try again." });
+    expect(deleteUser).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/2026-11-08_release_user_storage\.sql/);
+  });
+
+  it("reset never needs it: it uses the user's own client and releases nothing", async () => {
+    await useTheApp();
+    await resetMyData();
+    expect(releaseStorage).not.toHaveBeenCalled();
   });
 
   it("without SUPABASE_SERVICE_ROLE_KEY it refuses up front — nothing is touched", async () => {

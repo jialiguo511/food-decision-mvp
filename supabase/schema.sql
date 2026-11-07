@@ -476,3 +476,39 @@ create policy "own product events" on public.product_events
   with check (auth.uid() = user_id);
 
 grant select, insert, delete on public.product_events to authenticated;
+
+-- ===========================================================================
+-- Account deletion must not be blocked by shared files the user happened to
+-- upload (a generated recipe picture). Also supabase/migrations/2026-11-08_*;
+-- see that file for the why.
+-- ===========================================================================
+
+create or replace function public.release_user_storage(p_user uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public, storage
+as $$
+declare
+  v_released integer := 0;
+begin
+  if p_user is null then
+    return 0;
+  end if;
+
+  update storage.objects set owner = null where owner = p_user;
+  get diagnostics v_released = row_count;
+
+  -- Newer Storage versions also keep the owner as text; older ones don't have the column.
+  begin
+    update storage.objects set owner_id = null where owner_id = p_user::text;
+  exception when undefined_column then
+    null;
+  end;
+
+  return v_released;
+end;
+$$;
+
+revoke all on function public.release_user_storage(uuid) from public, anon, authenticated;
+grant execute on function public.release_user_storage(uuid) to service_role;
