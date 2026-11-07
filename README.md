@@ -12,6 +12,7 @@ constraints you actually have tonight.
 | [`PERSONALIZATION.md`](PERSONALIZATION.md) | How the product remembers and learns — explicit, routine, behavioral memory |
 | [`CLAUDE.md`](CLAUDE.md) | Coding and product rules for AI-assisted development |
 | [`LEARNINGS.md`](LEARNINGS.md) | Evidence and product learnings |
+| [`RELEASE.md`](RELEASE.md) | **Web beta: what's built, what was and wasn't verified, migrations, env vars, external setup, 10-minute acceptance checklist** |
 
 ---
 
@@ -30,13 +31,12 @@ npm install
 
 1. Go to [supabase.com](https://supabase.com) → **New project** (free tier is fine).
 2. Open the **SQL Editor**, paste the entire contents of `supabase/schema.sql`,
-   and hit **Run**. This creates the five tables and the security policies.
-   It is safe to re-run: if your database predates a newer column (such as
-   `daily_calorie_target_kcal`), running the whole file again adds it.
-   **For an existing database, prefer the targeted migrations in
-   `supabase/migrations/`** — each is self-contained, idempotent and touches
-   only its own tables (`2026-09-30_place_feedback.sql`, then
-   `2026-09-30_saved.sql`).
+   and hit **Run**. This creates every table, function and security policy. It is
+   idempotent (checked on a real Postgres by `src/test/schema.realdb.test.ts`):
+   re-running it only adds what is missing.
+   **For an existing database,** first run the read-only `supabase/check-schema.sql`
+   to see what is missing, then follow `RELEASE.md` §4 — don't run every file in
+   `supabase/migrations/` (they are subsets of `schema.sql`).
 3. Go to **Project Settings → API** and copy the **Project URL** and the
    **anon public** key.
 
@@ -89,6 +89,13 @@ is used for that one search, and is never saved. The browser only shares
 location on `https://` or `localhost` — for phone testing use your deployed
 URL or a tunnel, not `http://<your-LAN-IP>:3000`.
 
+### 3c. Other optional keys
+
+`ANTHROPIC_API_KEY` powers the recommendations and the one-sentence entry.
+`PEXELS_API_KEY` / `OPENAI_API_KEY` add recipe pictures. `USAGE_LIMIT_*` change the
+per-person daily limits on paid calls (defaults in `src/lib/usage/limits.ts`).
+See `.env.local.example`.
+
 ### 4. Start the dev server
 
 ```bash
@@ -106,9 +113,11 @@ server remains available as `npm run dev:webpack` only for troubleshooting.
 
 Enter your email and click the button. Supabase emails you a one-time link.
 
-- On the free tier the built-in email sender is rate-limited (a few per hour).
-  If the email is slow, open Supabase → **Authentication → Users** and use
-  "Send magic link", or just add yourself there manually.
+- The built-in Supabase email sender is for trying things yourself: per Supabase's
+  docs it allows about 2 emails an hour for the whole project and only sends to
+  members of your organization. **To invite anyone else you must set up your own SMTP**
+  (`RELEASE.md` §6). If the email is slow while developing, open Supabase →
+  **Authentication → Users** and use "Send magic link", or add yourself there manually.
 - Make sure `http://localhost:3000/**` is listed under
   **Authentication → URL Configuration → Redirect URLs**.
 
@@ -122,9 +131,10 @@ Tap **Me** in the bottom bar to set your Food Profile.
 | URL | State |
 |---|---|
 | `/login` | Magic-link sign-in |
-| **`/today`** (Home) | **Built** — one decision per screen: Make something / Get food / Grab a snack, then three recommendations |
-| `/plan` | Placeholder container (not built) |
-| `/groceries` | Placeholder container (not built) |
+| `/demo` | **Built** — public, static, clearly-labelled example walkthrough (no sign-in, no model, no data) |
+| `/about` | **Built** — public: privacy, what leaves the app, estimates, no safety guarantee |
+| **`/today`** (Home) | **Built** — say what's going on in a sentence, *or* choose step by step (Make something / Get food / Grab a snack); then three recommendations |
+| `/plan`, `/groceries` | Placeholder containers (not built) — **not linked from the nav** in the web beta |
 | **`/saved`** | **Built** — recipes and places you saved to come back to |
 | **`/profile`** (Me) | **Built** — Food Profile, Kitchen staples, account & data |
 
@@ -143,8 +153,17 @@ profile**, reload the page — the choices come back. Then look at
 ```bash
 npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
+npm test            # unit + route + real-Postgres (PGlite) tests
 npm run build       # full production build
+
+# Costs real (small) money and needs ANTHROPIC_API_KEY — never part of `npm test`:
+INTERPRET_CONFIRM=1 npm run check:interpret   # the sentence reader, on the real model
+BENCH_CONFIRM=1 npm run bench:recommend       # recommender model benchmark
 ```
+
+Dev-only pages (404 in production): `/dev/home` (the real Home with a fake network,
+`?returning=1` for a returning user) and `/dev/carousel` (picture loading; add
+`?mode=fail|genfail|broken|none&delay=3000`).
 
 ---
 
@@ -154,3 +173,7 @@ Push to GitHub, import the repo on [vercel.com](https://vercel.com), and add
 the same environment variables in the Vercel project settings — with
 `NEXT_PUBLIC_SITE_URL` set to your real domain. Then add
 `https://your-app.vercel.app/**` to Supabase's redirect URL list.
+
+**Before anyone but you uses it, read `RELEASE.md`:** run the database SQL first (in
+production the app refuses paid requests without it), set up your own SMTP, and
+walk the acceptance checklist on a preview deployment.

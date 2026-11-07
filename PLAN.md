@@ -402,6 +402,48 @@ behavioral hints; alias-aware allergen matching.
 
 ---
 
+## Done — web beta pass, 2026-11-07
+
+Founder-requested, on branch `codex/web-beta`: a testable, deployable web beta for a
+résumé demo and a first small group of users. **Built and tested locally; not
+deployed; not validated with any user.** Facts, checks and the setup list are in
+`RELEASE.md`; this entry says what changed and why.
+
+- [x] **Carousel pictures.** Root causes (not CSS): a card's picture waited on the
+      viewport observer alone, which a horizontal scroller clips — card 2 loaded only
+      because a sliver peeked in, card 3 only after the swipe, then a whole generation
+      (tens of seconds) behind a placeholder; request state lived in the component, so a
+      remount re-asked and a failure was final and indistinguishable from "no photo"; the
+      placeholder, the picture and "no photo" had three different heights (a measured
+      20–106 px jump); `/api/image` had no `maxDuration`, so a host could kill a generation
+      after the vendor was paid and before it was stored. Fix: a card also loads when it is
+      the active card or its neighbour (one ahead, never two); requests live in `imageStore`
+      (one in flight per card, answers kept, failures retryable but capped); one fixed frame +
+      caption line; the route says why there is no picture (`no_image` / `generation_failed` /
+      `limit_reached`); `maxDuration` 60 > the 45 s generation timeout. *Not verified:* a real
+      generated picture (no OpenAI/Pexels key here).
+- [x] **One-sentence entry** (the NEXT item above). Home leads with a text box;
+      step-by-step is the second path; "Last time → Use again" is unchanged. Reads into the
+      existing vocabulary; said > remembered > missing; only the missing is asked; "What I
+      understood" with Edit; never stored or logged. Checked on the real model (found and fixed
+      one miss: "something nearby" wasn't setting the method). **Not built:** training load, a
+      saved fridge, in-app voice, open chat.
+- [x] **Per-person daily limits on every paid call**, atomic in Postgres, counted before the call
+      and even on failure, refused in production if they can't be checked; clear copy; numbers in
+      `src/lib/usage/limits.ts`.
+- [x] **Minimal product events** + `supabase/metrics.sql` (picked→ate reuses `decision_sessions` /
+      `meal_feedback`).
+- [x] **Public `/demo` and `/about`**; nav = Home / Saved / Me (Plan, Groceries kept, unlinked);
+      one `BRAND` constant.
+- [x] **Deployment SQL proven** on a real engine; `check-schema.sql`.
+
+Not done, on purpose: native app, Plan/Groceries contents, open-ended chat, training load,
+persisting today's food, in-app voice, third-party analytics, a real deployment.
+**Still the open question** (proof steps 1–2): does anyone, including the founder, use it
+repeatedly and eat the pick? Nothing in this pass answers that.
+
+---
+
 ## NOW — the Core-loop MVP
 
 Everything required before the product hypothesis can be tested at all. See
@@ -638,7 +680,7 @@ contents into NOW.
   refinement."
 - Meal context — breakfast / lunch / dinner / snack / dessert, or the current eating situation
 - Measurement-style preference — everyday measures / precise weights / both
-- Basic product analytics
+- Basic product analytics — **minimal slice built 2026-11-07** (six first-party events + `supabase/metrics.sql`; see "Done — web beta pass"). Not a dashboard, not third-party tracking.
 - Recruit the first 5–15 external testers
 - **Recipe visualization** (legacy label; "option images" if extended beyond Cook) — added 2026-09-28. Recipe cards should show an
   image to help "do I want to eat this?" decide faster, but a recommendation
@@ -658,9 +700,12 @@ contents into NOW.
   generation) is a separate decision, not yet made.
 - **Natural-language entry ("What's going on?")** — promoted 2026-10-21 at the
   founder's explicit request, from `LEARNINGS.md` → "Post-CrossFit dinner that
-  never got decided". **Not built.** A hypothesis: a tired user will say their
-  situation in one sentence when they would not answer a sequence of
-  questions.
+  never got decided". **Status 2026-11-07: text entry built, unvalidated —
+  training load deliberately NOT built; voice = phone-keyboard dictation only.**
+  A hypothesis: a tired user will say their situation in one sentence when they
+  would not answer a sequence of questions. (Details and what was tested: "Done —
+  web beta pass" below. The bullets that follow are the original scope, kept for
+  the success test.)
   - Home gets one text/voice box above the existing mode choices. The server
     extracts the sentence into the **existing structured context** (mode,
     hunger, time, today's food, budget) plus one new per-request field,

@@ -149,9 +149,13 @@ If a change pushes toward one of the four guardrail items, flag it rather than
 building it. New features must not reorder the priority order.
 
 **Terminology in code.** Some labels are hard-coded and are legacy, not
-positioning — for example the app name "Nutrition Coach" in `layout.tsx` and
-`manifest.ts`, the "Plan" nav tab, and the "daily calorie target" Profile
-field. Do not rename them in passing; a rename is its own promoted task.
+positioning — for example the "Plan" nav tab (now unlinked) and the "daily
+calorie target" Profile field. Do not rename them in passing; a rename is its
+own promoted task. **The app's public name lives in one place,
+`src/lib/brand.ts`** (tab title, manifest, home-screen label, sign-in page, About) —
+it replaced three inconsistent names, including the legacy "Nutrition Coach",
+which contradicted the guardrail against being a nutrition coach. The current name
+is a placeholder; change it there, nowhere else.
 
 ## Personalization rules
 
@@ -300,6 +304,21 @@ table above and the visible nav label are the source of truth.
 
 Do not add a sixth area. Do not add features to these areas without being
 asked.
+
+**Web beta (2026-11-07):** the bottom nav shows only **Home / Saved / Me**.
+Plan and Groceries are still part of the information architecture, and their
+pages are kept, but they are empty placeholders so they are not linked; add them
+back to `BottomNav.tsx` when they have contents. Two public pages sit outside the
+five areas and are not navigation: `/demo` (static labelled example) and
+`/about` (privacy and estimates).
+
+**Paid calls are metered per person, before the call.** Every paid entry point
+(`/api/recommend`, nearby search, `/api/recommend/interpret`, nearby wording, picture
+generation, place photos) spends `consumeUsage()` (`src/lib/usage/`) first — counted
+even if the call fails, in Postgres, refused in production if it can't be checked.
+A new paid call must be added to `limits.ts` and call it. Product events
+(`src/lib/events/`) are names + enumerated props only — never text, health data or
+location; a new event needs the schema, the SQL `CHECK` list and `metrics.sql`.
 
 Two things follow, same as before:
 
@@ -493,10 +512,16 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
 - Mobile-first. Warm, clean, consumer — not a developer dashboard.
 - **Chips, buttons, defaults, one-tap.** The user should almost never type.
   Free text is allowed only where there is no alternative (dislikes, craving).
-  One planned exception: the natural-language entry ("What's going on?",
-  `PLAN.md` NEXT, **not built**) — a single optional sentence or voice input
-  extracted into the existing structured context, beside the chips, never a
-  chat.
+  The one exception: the one-sentence entry ("Tell me what's going on",
+  `PLAN.md` NEXT, **built 2026-11-07, unvalidated**) — a single sentence read into
+  the existing structured context (`/api/recommend/interpret`), beside the
+  chips, never a chat. Its rules: the sentence is untrusted data; it fills only
+  what was clearly said (never an ingredient, budget, place or equipment
+  inferred); a real earlier answer may fill a gap but never beats the sentence;
+  only what a request cannot go without is asked (one `ClarifyScreen`, not the
+  questionnaire again); it never sees the Profile, so hard constraints are
+  applied by `/api/recommend` exactly as for any request; it is never stored or
+  logged. "Voice" is the phone keyboard's own dictation — not an in-app feature.
 - Every field has a sensible default so the user can hit the button immediately.
 - Show **three** recommendations when the user is deciding (`PRODUCT.md` →
   "Exactly 3"). Never a longer list.

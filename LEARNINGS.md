@@ -282,3 +282,33 @@ Gates proposed by the review (not adopted):
 **Investigate**, plus one **change** (natural-language entry, promoted to NEXT
 2026-10-21, not built) and one open **conflict** (fridge snapshot). No code
 changed.
+
+## Web beta build — what the build itself showed (2026-11-07)
+
+**Status: engineering observations from building and testing. Not product evidence — no user has used this.**
+
+#### Observation
+
+1. The carousel's picture bug had no CSS cause. Loading was tied to the viewport observer, which a horizontal
+   scroller clips; the visible symptom (a long placeholder after a swipe) was a *latency-hiding* failure, and the
+   other symptoms (jumps, no retry, "no photo" for failures) were independent defects.
+2. On the real model, the one-sentence reader handled the three example sentences, a Chinese sentence, a bare
+   craving, a prompt-injection attempt and a fake closing tag as intended — after one fix (it read "something nearby"
+   as a distance but not as the way of getting food, which would have cost a user an extra question for exactly the
+   kind of sentence the box invites).
+3. Supabase's built-in email sender is documented at about 2 emails an hour per project, to organization members only.
+
+#### Interpretation / hypothesis
+
+Nothing about whether people *want* to say a sentence instead of tapping. The hypothesis in "Post-CrossFit dinner that
+never got decided" is untouched: the entry cost may be the real barrier. The build only removes "it isn't built" as an excuse.
+
+#### Next test
+
+Founder self-use on the preview deployment against the one-week Claude Project baseline; then 5–10 people from the
+CrossFit box. Read `supabase/metrics.sql` queries 1, 3 and 4 (sentence vs step-by-step, follow-up rate, picked → ate).
+
+#### Product implication
+
+**Investigate.** Keep the question flow as the fallback. If sentence use is not higher than step-by-step use in the first
+two weeks, the entry-cost hypothesis fails (the stated failure condition in `PLAN.md`).
