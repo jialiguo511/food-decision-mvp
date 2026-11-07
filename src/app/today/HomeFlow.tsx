@@ -12,10 +12,10 @@ import { createAdvanceScheduler } from "./flow/advance";
 import EquipmentScreen from "./flow/EquipmentScreen";
 import ClarifyScreen, { KindScreen } from "./flow/ClarifyScreen";
 import { homeReducer, initialScreen, modeToChange } from "./flow/homeReducer";
-import { applyInterpretation, describeUnderstanding, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
+import { applyInterpretation, changeTarget, describeUnderstanding, stepIndexForField, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
 import QuestionFlow, { type FormValues } from "./flow/QuestionFlow";
 import StartScreen, { ModeScreen } from "./flow/StartScreen";
-import { ingredientsStepIndex, searchesNearby } from "./flow/steps";
+import { ingredientsStepIndex, orderSteps, searchesNearby } from "./flow/steps";
 import { contextSummary, ctaLabel } from "./flow/summary";
 import { useHomeForms } from "./flow/useHomeForms";
 import { interpretErrorCopy, interpretText } from "./interpretClient";
@@ -77,7 +77,7 @@ export default function HomeFlow({
   /** Set only when the optional nutrition step may be offered after results. */
   nutritionProfile: ProfileFormValues | null;
 }) {
-  const { session, selection, request, requested, notice, live, run, retry, choose, ensureEnriched, rescore } = useRecommend(ownerId, {
+  const { session, selection, request, requested, notice, noMore, live, run, retry, choose, ensureEnriched, rescore } = useRecommend(ownerId, {
     session: initialSession,
     chosenIndex: initialChosenIndex,
   });
@@ -239,10 +239,47 @@ export default function HomeFlow({
 
   /** "Show me 3 more": the session's own context, with its cards sent as
    *  exclusions. A true re-roll — the answers can't have drifted from it,
-   *  because changing an answer means leaving the results screen. */
+   *  because changing an answer means leaving the results screen.
+   *
+   *  For nearby places the exclusion is EVERY place shown in this decision, not
+   *  just the last batch (otherwise batch 1 can come round again in batch 3). The
+   *  list rides with the session — and is stored with it, so it survives a
+   *  reload; a fresh question (Change → send) starts again from nothing. */
   function showMore() {
     if (!session) return;
-    void run(session.context, session.recommendations, "more");
+    const places = session.recommendations.flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : []));
+    const shown = places.length > 0 ? [...new Set([...(session.shown_place_ids ?? []), ...places])] : undefined;
+    void run(session.context, session.recommendations, "more", shown);
+  }
+
+  /** "Try a wider distance": straight to the distance question, with everything
+   *  else as it was. Never done for the person — a wider search is their choice. */
+  function widerDistance() {
+    const mode = modeToChange(session?.context.decision_mode ?? null, lastMode);
+    const travel = mode === "order" ? orderSteps(forms.order).indexOf("travel") : -1;
+    dispatch({ type: "customize", mode, step: travel >= 0 ? travel : 0 });
+  }
+
+  /** "Change" on the results screen. A decision that started from a typed
+   *  sentence goes back to that sentence — kept in this page's memory only, shown
+   *  in the box, editable, sent again like a new one. A decision from the
+   *  questions goes back to the questions. */
+  function change() {
+    if (changeTarget(understood) === "sentence" && understood) {
+      readId.current++; // any read still running is for the old text
+      setDescribing(false);
+      setDescribeError(null);
+      setPending(null);
+      setDraft(understood.text);
+      return dispatch({ type: "start" });
+    }
+    dispatch({ type: "customize", mode: modeToChange(session?.context.decision_mode ?? null, lastMode) });
+  }
+
+  /** One item in "What I understood": open just that question. */
+  function editField(field: Said) {
+    const mode = modeToChange(session?.context.decision_mode ?? null, lastMode);
+    dispatch({ type: "customize", mode, step: stepIndexForField(mode, forms, field) });
   }
 
   /** After a thin or empty "Use what I have": the same question with a few
@@ -396,7 +433,11 @@ export default function HomeFlow({
         onShowMore={showMore}
         onWhatToBuy={showWhatToBuy}
         onIdeasByType={() => find("order", true)}
-        onChange={() => dispatch({ type: "customize", mode: modeToChange(session?.context.decision_mode ?? null, lastMode) })}
+        onChange={change}
+        noMore={noMore}
+        onWiderDistance={widerDistance}
+        onEditDetails={() => dispatch({ type: "customize", mode: modeToChange(session?.context.decision_mode ?? null, lastMode) })}
+        onEditField={editField}
         onStartOver={() => dispatch({ type: "start" })}
         nutritionNudge={
           nutritionProfile && !nutritionDone ? { onOpen: () => dispatch({ type: "openNutrition" }), onDismiss: dismissNutrition } : undefined

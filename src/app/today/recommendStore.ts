@@ -32,7 +32,7 @@ import { LocationError, requestLocation } from "@/lib/location";
 import { contextsEqual } from "@/lib/recommend/contextEquality";
 import { newRequestId, requestLog } from "@/lib/recommend/requestLog";
 import { SESSION_RESTORE_WINDOW_MS } from "@/lib/recommend/sessionWindow";
-import type { ActiveSession, DecisionContext, RecommendFailure, RecommendSuccess, RecommendUiError } from "@/lib/types";
+import type { ActiveSession, DecisionContext, RecommendFailure, RecommendNoMore, RecommendSuccess, RecommendUiError } from "@/lib/types";
 import { chooseRecommendation, rescoreSession } from "./actions";
 
 export type Selection =
@@ -75,6 +75,9 @@ export type Snapshot = {
    *  "Change" after a failure. */
   requested: DecisionContext | null;
   notice: NutritionNotice | null;
+  /** The session id for which "Show me 3 more" found nothing new (nearby). The
+   *  cards on screen stay; this only says there is no more to ask for. */
+  noMore: string | null;
 };
 
 const EMPTY: Snapshot = {
@@ -86,6 +89,7 @@ const EMPTY: Snapshot = {
   request: { kind: "idle" },
   requested: null,
   notice: null,
+  noMore: null,
 };
 
 /** The one request that may write to the store. Replaced (and the old one
@@ -96,6 +100,8 @@ type ActiveRequest = {
   context: DecisionContext;
   previous?: PreviousRecommendations;
   entry?: Entry;
+  /** Nearby "more": every place already shown in this decision. */
+  shown?: string[];
   /** Settles when the request has fully finished, however it ended. */
   done: Promise<void>;
 };
@@ -111,7 +117,7 @@ let ledger: { requestId: string; state: "loading" | "stored" | "failed" | "abort
 /** Sessions whose enrichment / re-score has been asked for — each once. */
 const enrichAsked = new Set<string>();
 const rescoreAsked = new Set<string>();
-let lastRequest: { context: DecisionContext; previous?: PreviousRecommendations; entry?: Entry } | null = null;
+let lastRequest: { context: DecisionContext; previous?: PreviousRecommendations; entry?: Entry; shown?: string[] } | null = null;
 
 function set(patch: Partial<Snapshot>) {
   snap = { ...snap, ...patch };
@@ -162,6 +168,8 @@ export type RecommendView = {
   request: RequestStatus;
   requested: DecisionContext | null;
   notice: NutritionNotice | null;
+  /** "Show me 3 more" found nothing new for the session on screen. */
+  noMore: boolean;
   /** True when this tab has a request or a session of its own — Home opens on
    *  the results screen rather than Start. */
   live: boolean;
@@ -188,6 +196,7 @@ export function viewOf(
     request: { kind: "idle" },
     requested: null,
     notice: null,
+    noMore: false,
     live: false,
   };
   if (!state.touched || state.owner !== owner) return fromServer;
@@ -203,6 +212,7 @@ export function viewOf(
     request: state.request,
     requested: state.requested,
     notice: state.notice,
+    noMore: !!state.session && state.noMore === state.session.session_id,
     live: true,
   };
 }
@@ -227,7 +237,7 @@ function sameSubmit(a: ActiveRequest, context: DecisionContext, previous?: Previ
  *     becomes current and the old one is aborted; its response can never
  *     overwrite this one's.
  */
-export function run(owner: string, context: DecisionContext, previous?: PreviousRecommendations, entry?: Entry): Promise<void> {
+export function run(owner: string, context: DecisionContext, previous?: PreviousRecommendations, entry?: Entry, shown?: string[]): Promise<void> {
   claim(owner);
   if (active) {
     if (sameSubmit(active, context, previous)) {
@@ -239,9 +249,9 @@ export function run(owner: string, context: DecisionContext, previous?: Previous
     active.controller.abort();
   }
   const controller = new AbortController();
-  const handle: ActiveRequest = { requestId: newRequestId(), controller, context, previous, entry, done: Promise.resolve() };
+  const handle: ActiveRequest = { requestId: newRequestId(), controller, context, previous, entry, shown, done: Promise.resolve() };
   active = handle;
-  lastRequest = { context, previous, entry };
+  lastRequest = { context, previous, entry, shown };
   handle.done = execute(owner, handle).finally(() => {
     if (active === handle) active = null;
   });
@@ -249,7 +259,7 @@ export function run(owner: string, context: DecisionContext, previous?: Previous
 }
 
 async function execute(owner: string, handle: ActiveRequest): Promise<void> {
-  const { requestId, context, previous, controller, entry } = handle;
+  const { requestId, context, previous, controller, entry, shown } = handle;
   const startedAt = Date.now();
   const isCurrent = () => active === handle;
   const mode = context.decision_mode === "order" && context.nearby ? "nearby" : context.decision_mode;
@@ -259,6 +269,7 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
   set({
     touched: true,
     requested: context,
+    noMore: null,
     request: nearby ? { kind: "locating", requestId, startedAt } : { kind: "loading", requestId, startedAt },
   });
 
@@ -277,7 +288,7 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
     const response = await fetch("/api/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-      body: JSON.stringify({ context, previous_recommendations: previous, location, entry }),
+      body: JSON.stringify({ context, previous_recommendations: previous, location, entry, shown_place_ids: shown }),
       signal: controller.signal,
     });
     const body: unknown = await response.json();
@@ -293,16 +304,24 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
           recommendations: body.recommendations,
           saved: body.saved,
           targets_sig: body.targets_sig,
+          ...(body.shown_place_ids ? { shown_place_ids: body.shown_place_ids } : {}),
         },
         sessionAt: Date.now(),
         selection: { status: "none" },
         request: { kind: "idle" },
         notice: null,
+        noMore: null,
       });
       ledger = { requestId, state: "stored" };
       requestLog("stored", { requestId, session: body.session_id, ms: Date.now() - startedAt });
       // Nearby places are already on screen; the model's wording follows.
       if (body.enrichment_pending) void enrich(owner, body.session_id);
+    } else if (response.ok && isNoMore(body) && snap.session) {
+      // Nothing new nearby: the cards on screen stay exactly as they are, the
+      // pick (if any) stays, and the screen says there is no more.
+      set({ request: { kind: "idle" }, noMore: snap.session.session_id, session: { ...snap.session, shown_place_ids: body.shown_place_ids } });
+      ledger = { requestId, state: "stored" };
+      requestLog("stored", { requestId, session: "none_left", ms: Date.now() - startedAt });
     } else if (isFailure(body)) {
       fail(requestId, { kind: "error", requestId, error: body.error });
     } else {
@@ -415,7 +434,7 @@ export async function rescore(owner: string, session: ActiveSession, currentSig:
 }
 
 export function retry(owner: string) {
-  if (lastRequest) void run(owner, lastRequest.context, lastRequest.previous, lastRequest.entry);
+  if (lastRequest) void run(owner, lastRequest.context, lastRequest.previous, lastRequest.entry, lastRequest.shown);
 }
 
 /** Records the pick. `session` is the one on screen — adopted into the store
@@ -450,6 +469,10 @@ function isFailure(value: unknown): value is RecommendFailure {
   if (typeof value !== "object" || value === null || !("error" in value)) return false;
   const { error } = value;
   return typeof error === "object" && error !== null && "code" in error && "message" in error;
+}
+
+function isNoMore(value: unknown): value is RecommendNoMore {
+  return typeof value === "object" && value !== null && "no_more" in value && value.no_more === true && "shown_place_ids" in value && Array.isArray(value.shown_place_ids);
 }
 
 function isSuccess(value: unknown): value is RecommendSuccess {

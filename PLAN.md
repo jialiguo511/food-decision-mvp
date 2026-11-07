@@ -437,6 +437,26 @@ deployed; not validated with any user.** Facts, checks and the setup list are in
       one `BRAND` constant.
 - [x] **Deployment SQL proven** on a real engine; `check-schema.sql`.
 
+- [x] **Preview feedback fixes, 2026-11-07** (two things found by using the Preview):
+      (1) *Nearby "Show me 3 more" repeated places.* Root cause: the browser sent only the
+      LAST batch and the server excluded only that, so batch 3 could repeat batch 1. Now one
+      decision keeps the whole shown list (`shown_place_ids`: returned with each batch, sent back
+      with the next "more", stored beside the session's context so a reload carries on from it);
+      a fresh question starts a new list. Fewer than three left → exactly those, no padding,
+      "More" hidden; nothing new left → `no_more`: nothing stored, the cards on screen stay, a
+      notice with "Try a wider distance" (opens the distance question) / "Get food ideas by type" —
+      the search is never widened for the person. Being shown writes no feedback. A request whose
+      browser has gone away no longer stores a session (it could be restored over a newer one).
+      (2) *"Change" after a typed sentence opened the questions.* Now a sentence decision's Change
+      returns to the sentence box with the original text (in page memory only — no database, log or
+      analytics), editable and sent like a new one; a questions decision keeps the original Change;
+      tapping one item in "What I understood" opens just that question; "Edit details" opens the
+      questions from the first. Editing fields makes it a step-by-step decision. Not real-nearby
+      verified: the browser checks used a stand-in that mimics the server rule; the real route's
+      exclusion is tested against the real route code with a fake Places provider.
+      *Same weakness, not changed (not asked):* Cook / Get food-by-type / Snack "more" still pass only
+      the last batch to the model as things to avoid.
+
 Not done, on purpose: native app, Plan/Groceries contents, open-ended chat, training load,
 persisting today's food, in-app voice, third-party analytics, a real deployment.
 **Still the open question** (proof steps 1–2): does anyone, including the founder, use it

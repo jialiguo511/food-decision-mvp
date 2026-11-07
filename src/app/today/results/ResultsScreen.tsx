@@ -45,6 +45,10 @@ export default function ResultsScreen({
   onStartOver,
   nutritionNudge,
   understood,
+  noMore,
+  onWiderDistance,
+  onEditDetails,
+  onEditField,
 }: {
   session: ActiveSession | null;
   selection: Selection;
@@ -68,6 +72,14 @@ export default function ResultsScreen({
   nutritionNudge?: { onOpen: () => void; onDismiss: () => void };
   /** Set when these cards came from a typed sentence: what was understood. */
   understood?: Understood | null;
+  /** Nearby: "Show me 3 more" found nothing new — the cards on screen stay. */
+  noMore?: boolean;
+  /** Open the distance question (never widened for the person). */
+  onWiderDistance: () => void;
+  /** Open the questions from the first one, everything filled in. */
+  onEditDetails: () => void;
+  /** Open just the question behind one "What I understood" item. */
+  onEditField: (field: NonNullable<Understood["parts"][number]["field"]>) => void;
 }) {
   // The raw reason stays available to whoever is debugging, never on screen.
   useEffect(() => {
@@ -124,7 +136,7 @@ export default function ResultsScreen({
         <h2 className="text-2xl font-semibold tracking-tight">
           {nearby ? "Places near you" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
         </h2>
-        {understood ? <UnderstoodPanel understood={understood} onEdit={onChange} /> : <p className="mt-1 text-sm text-muted">{contextSummary(session.context).join(" · ")}</p>}
+        {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} /> : <p className="mt-1 text-sm text-muted">{contextSummary(session.context).join(" · ")}</p>}
         <NutritionLine session={session} targets={nutritionTargets} notice={notice} />
       </div>
 
@@ -141,13 +153,33 @@ export default function ResultsScreen({
       {nearby && recs.length === 0 && (
         <Notice title="No open places nearby right now." body="Try a wider distance, or get food ideas by type instead.">
           <Button onClick={onIdeasByType}>Get food ideas by type</Button>
-          <Button variant="secondary" onClick={onChange}>
+          <Button variant="secondary" onClick={onWiderDistance}>
             Try a wider distance
           </Button>
         </Notice>
       )}
       {nearby && recs.length > 0 && recs.length < 3 && (
-        <Notice title={`Only ${recs.length === 1 ? "one good option" : `${recs.length} good options`} near you right now.`} body="That's all we found open nearby — we don't pad the list." />
+        <Notice
+          title={`Only ${recs.length === 1 ? "one good option" : `${recs.length} good options`} left near you right now.`}
+          body="That's every open place we found — we don't pad the list, and we don't widen your search for you."
+        >
+          <Button variant="secondary" onClick={onWiderDistance}>
+            Try a wider distance
+          </Button>
+          <Button variant="secondary" onClick={onIdeasByType}>
+            Get food ideas by type
+          </Button>
+        </Notice>
+      )}
+      {nearby && noMore && recs.length >= 3 && (
+        <Notice title="That's every open place we found nearby." body="You've seen them all — we don't repeat them, and we don't widen your search for you.">
+          <Button variant="secondary" onClick={onWiderDistance}>
+            Try a wider distance
+          </Button>
+          <Button variant="secondary" onClick={onIdeasByType}>
+            Get food ideas by type
+          </Button>
+        </Notice>
       )}
 
       {recs.length > 0 && (
@@ -202,7 +234,8 @@ export default function ResultsScreen({
       {limited ? (
         <Button onClick={onWhatToBuy}>Show me what to buy</Button>
       ) : (
-        recs.length > 0 && (
+        recs.length > 0 &&
+        !(nearby && (noMore || recs.length < 3)) && (
           <div className="pt-2 text-center">
             <p className="text-sm text-muted">None of these?</p>
             <Button variant="secondary" className="mt-2" onClick={onShowMore}>

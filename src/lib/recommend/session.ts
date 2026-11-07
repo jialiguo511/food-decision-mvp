@@ -51,15 +51,28 @@ export function parseStoredSession(row: unknown): RestoredSession | null {
       ? row.chosen_index
       : null;
 
+  const shown = shownPlaceIdsOf(row.context);
   return {
     session: {
       session_id: row.id,
       context: context.data,
       recommendations: sanitized as ActiveSession["recommendations"],
+      ...(shown ? { shown_place_ids: shown } : {}),
     },
     chosenIndex,
   };
 }
+
+/** The places already shown in this decision, as stored beside the context
+ *  (the typed context deliberately doesn't carry it — it is not an answer). */
+export function shownPlaceIdsOf(context: unknown): string[] | undefined {
+  if (!isRecord(context) || !Array.isArray(context.shown_place_ids)) return undefined;
+  const ids = context.shown_place_ids.filter((i): i is string => typeof i === "string" && i.length > 0 && i.length <= 300).slice(0, MAX_SHOWN_PLACES);
+  return ids.length > 0 ? ids : undefined;
+}
+
+/** More than one search can ever return (a search is capped at 20 places). */
+export const MAX_SHOWN_PLACES = 60;
 
 /** Rows written before the "I want to order food" mode existed have no
  *  `decision_mode` on their context — they all predate the field, and are

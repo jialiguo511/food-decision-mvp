@@ -6,6 +6,7 @@ import { DEFAULT_PROTEIN_TARGET_G } from "@/lib/options";
 import { toProfileFormValues } from "@/lib/profile";
 import { baseDefaults, rememberedDefaults } from "@/lib/recommend/rememberedDefaults";
 import { cookContext } from "@/test/cookFixtures";
+import { place } from "@/test/savedFixtures";
 import type { Recommendation } from "@/lib/types";
 
 // ?returning=1 — a user with a real earlier Cook session (remembered answers).
@@ -40,6 +41,14 @@ const idea = (role: "best_match" | "lowest_effort" | "alternative", title: strin
   order_notes: "Fixture.", modification: null, watch: null, estimated_calories: 600, estimated_protein_g: 35,
 });
 
+// Nearby: a fixed pool of places (?pool=7). The stand-in below mimics the SERVER's
+// rule — exclude everything in `shown_place_ids` plus the last batch, offer the
+// next three, say "no_more" when none are left — so what is checked here is the
+// browser: that it keeps the whole list, sends it back, and shows the right
+// screen. That the REAL server excludes correctly is route.nearbyMore.test.ts.
+const POOL_SIZE = typeof window === "undefined" ? 7 : Number(new URLSearchParams(window.location.search).get("pool") ?? 7);
+const POOL = Array.from({ length: POOL_SIZE }, (_, n) => place({ place_id: `p${n + 1}`, title: `Fixture place ${n + 1}`, role: (["best_match", "lowest_effort", "alternative"] as const)[n % 3], photo_name: null }));
+
 declare global {
   interface Window {
     __harness?: boolean;
@@ -66,6 +75,12 @@ if (typeof window !== "undefined" && !window.__harness) {
       window.__sent!.push({ url: "recommend", body });
       await new Promise((r) => setTimeout(r, 900));
       const mode = body.context.decision_mode;
+      if (mode === "order" && body.context.nearby === true) {
+        const shown = new Set<string>([...(body.shown_place_ids ?? []), ...(body.previous_recommendations ?? []).map((r: { place_id: string }) => r.place_id)]);
+        const fresh = POOL.filter((p) => !shown.has(p.place_id)).slice(0, 3).map((p, i) => ({ ...p, role: (["best_match", "lowest_effort", "alternative"] as const)[i] }));
+        if (shown.size > 0 && fresh.length === 0) return Response.json({ no_more: true, shown_place_ids: [...shown] });
+        return Response.json({ recommendations: fresh, insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "rules", session_id: `fixture-${window.__sent!.length}`, shown_place_ids: [...shown, ...fresh.map((p) => p.place_id)] });
+      }
       const recommendations = mode === "cook" ? [recipe("best_match", "Egg fried rice"), recipe("lowest_effort", "Rice and soft eggs"), recipe("alternative", "Egg and rice bowl")] : mode === "order" ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : [{ decision_mode: "store_snack", role: "best_match", title: "Dark chocolate squares", reason: "Fixture.", what_to_look_for: "70% cacao.", backup: null, watch: null, estimated_calories: 180, estimated_protein_g: 3 }];
       return Response.json({ recommendations, insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "fixture", session_id: `fixture-${window.__sent!.length}` });
     }

@@ -19,6 +19,7 @@ import type { Interpretation } from "@/lib/interpret/schema";
 import type { CookForm, DecisionMode, OrderContext, StoreSnackContext } from "@/lib/types";
 import type { FormValues } from "./QuestionFlow";
 import { summaryParts, type SummaryField } from "./summary";
+import { stepsFor, type Step } from "./steps";
 
 export type Said = SummaryField | "foods" | "craving";
 
@@ -147,7 +148,8 @@ export function cookReady(form: CookForm): boolean {
  *  itself is kept only in memory, only to show it back — never stored. */
 export type Understood = {
   text: string;
-  parts: { text: string; said: boolean }[];
+  /** `field` says which answer a chip is, so tapping it can open that question. */
+  parts: { text: string; said: boolean; field?: Said }[];
   foods: string[];
   craving: string | null;
 };
@@ -157,8 +159,47 @@ export function describeUnderstanding(text: string, mode: DecisionMode, forms: F
   const stated = new Set<Said>(said);
   return {
     text,
-    parts: summaryParts(form).map((p) => ({ text: p.text, said: stated.has(p.field) })),
+    parts: summaryParts(form).map((p) => ({ text: p.text, said: stated.has(p.field), field: p.field })),
     foods: form.decision_mode === "cook" ? form.ingredients_on_hand : [],
     craving: form.decision_mode === "cook" ? form.craving : form.decision_mode === "order" ? form.craving_note : null,
   };
+}
+
+/** Which question edits a given answer — so a chip in "What I understood" opens
+ *  the matching field instead of the first question. Null when this mode has no
+ *  question for it. Foods on hand live on their own question for "Use what I
+ *  have" and inside the budget question when shopping is allowed. */
+export function stepForField(mode: DecisionMode, form: FormValues[DecisionMode], field: Said): Step | null {
+  if (field === "hunger") return "hunger";
+  if (mode === "cook") {
+    if (field === "time" || field === "effort") return "time_effort";
+    if (field === "shopping") return "shopping";
+    if (field === "budget") return "budget";
+    if (field === "foods") return form.decision_mode === "cook" && form.shopping === "can_buy" ? "budget" : "ingredients";
+    if (field === "craving") return "craving";
+    return null;
+  }
+  if (mode === "order") {
+    if (field === "method") return "method";
+    if (field === "distance") return "travel";
+    if (field === "meal_budget") return "budget";
+    if (field === "craving") return "craving";
+    return null;
+  }
+  return field === "craving_type" || field === "craving" ? "craving" : null;
+}
+
+/** The index of that question in the mode's current list (0 if it isn't there). */
+export function stepIndexForField(mode: DecisionMode, forms: FormValues, field: Said): number {
+  const step = stepForField(mode, forms[mode], field);
+  const index = step ? stepsFor(forms[mode]).indexOf(step) : -1;
+  return Math.max(index, 0);
+}
+
+/** Where "Change" goes. A decision that started from a typed sentence returns to
+ *  that sentence (kept in memory only, to edit and send again); one that started
+ *  from the questions returns to the questions. Editing one answer from "What I
+ *  understood" is a different, narrower action and doesn't use this. */
+export function changeTarget(understood: Understood | null): "sentence" | "questions" {
+  return understood ? "sentence" : "questions";
 }

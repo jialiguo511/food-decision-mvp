@@ -8,7 +8,7 @@ import { parseInterpretation, type Interpretation } from "@/lib/interpret/schema
 import { baseDefaults, rememberedDefaults, type FormDefaults } from "@/lib/recommend/rememberedDefaults";
 import { toMealContext } from "@/lib/recommend/cookForm";
 import { cookContext } from "@/test/cookFixtures";
-import { applyInterpretation, cookReady, describeUnderstanding } from "./interpret";
+import { applyInterpretation, changeTarget, cookReady, describeUnderstanding, stepForField, stepIndexForField } from "./interpret";
 import type { FormValues } from "./QuestionFlow";
 
 const read = (o: Record<string, unknown>): Interpretation => parseInterpretation(o);
@@ -135,5 +135,36 @@ describe("the sentence never touches a hard constraint or the Profile", () => {
     if (a.status !== "ready") throw new Error("expected ready");
     const keys = Object.keys(a.forms.cook);
     expect(keys.filter((k) => /allerg|dietary|dislike|profile/i.test(k))).toEqual([]);
+  });
+});
+
+describe("Change vs. editing one item", () => {
+  it("a sentence decision changes back to the sentence; a questions decision to the questions", () => {
+    const u = describeUnderstanding("x", "store_snack", formsOf(NEW), ["hunger"]);
+    expect(changeTarget(u)).toBe("sentence");
+    expect(changeTarget(null)).toBe("questions");
+  });
+
+  it("each item in 'What I understood' opens the question that edits it", () => {
+    expect(stepForField("cook", NEW.cook, "time")).toBe("time_effort");
+    expect(stepForField("cook", NEW.cook, "effort")).toBe("time_effort");
+    expect(stepForField("cook", NEW.cook, "shopping")).toBe("shopping");
+    expect(stepForField("cook", NEW.cook, "budget")).toBe("budget");
+    expect(stepForField("cook", NEW.cook, "hunger")).toBe("hunger");
+    expect(stepForField("order", NEW.order, "method")).toBe("method");
+    expect(stepForField("order", NEW.order, "distance")).toBe("travel");
+    expect(stepForField("order", NEW.order, "meal_budget")).toBe("budget");
+    expect(stepForField("store_snack", NEW.store_snack, "craving_type")).toBe("craving");
+  });
+
+  it("today's foods sit on their own question for 'Use what I have', inside the budget question when shopping is allowed", () => {
+    expect(stepForField("cook", { ...NEW.cook, shopping: "inventory_only" }, "foods")).toBe("ingredients");
+    expect(stepForField("cook", { ...NEW.cook, shopping: "can_buy" }, "foods")).toBe("budget");
+  });
+
+  it("finds the question's place in the CURRENT list, and falls back to the first if it isn't there", () => {
+    expect(stepIndexForField("cook", formsOf(NEW), "time")).toBe(1); // hunger, time_effort, …
+    expect(stepIndexForField("order", formsOf(NEW), "distance")).toBe(0); // delivery asks no distance
+    expect(stepIndexForField("order", { ...formsOf(NEW), order: { ...NEW.order, method: "eat_nearby" } }, "distance")).toBe(4);
   });
 });

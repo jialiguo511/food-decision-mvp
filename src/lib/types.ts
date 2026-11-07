@@ -466,7 +466,17 @@ export type RecommendSuccess = {
   /** Nearby only: true while the places are shown with rule-written reasons and
    *  the model is still to add its wording (POST /api/recommend/enrich). */
   enrichment_pending?: boolean;
+  /** Nearby only: every place shown in this DECISION so far — this set and every
+   *  earlier "Show me 3 more" batch. The browser sends it back with the next
+   *  "more" so none comes round again. A fresh question starts a new list. Being
+   *  shown is not a preference: this is never read as dislike. */
+  shown_place_ids?: string[];
 };
+
+/** "Show me 3 more" found nothing new: every place the search returns has
+ *  already been shown (or is excluded). Nothing is stored — the cards on screen
+ *  stay — and the search was not widened to find something. */
+export type RecommendNoMore = { no_more: true; shown_place_ids: string[] };
 
 /** What of a set of cards is already in the user's Saved: indexes of Cook
  *  recipe cards (matched by content), and ids of nearby places. */
@@ -534,4 +544,7 @@ export type ActiveSession = {
   saved?: SavedState;
   /** See RecommendSuccess.targets_sig. */
   targets_sig?: string;
+  /** See RecommendSuccess.shown_place_ids. Restored from the stored session, so a
+   *  reload followed by "Show me 3 more" still carries on from the whole decision. */
+  shown_place_ids?: string[];
 };

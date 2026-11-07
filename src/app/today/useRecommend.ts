@@ -41,7 +41,7 @@ export function useRecommend(owner: string, initial: { session: ActiveSession | 
   useEffect(() => noteMounted(owner), [owner]);
 
   const runFor = useCallback(
-    (context: DecisionContext, previous?: ActiveSession["recommendations"], entry?: Entry) => run(owner, context, previous, entry),
+    (context: DecisionContext, previous?: ActiveSession["recommendations"], entry?: Entry, shown?: string[]) => run(owner, context, previous, entry, shown),
     [owner],
   );
   const chooseFor = useCallback(

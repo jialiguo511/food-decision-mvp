@@ -128,6 +128,15 @@ export const recommendRequestSchema = z.object({
   // How this decision started, for the product events only — never read by the
   // recommender. Optional so an older page still works.
   entry: z.enum(["sentence", "steps", "again", "more"]).optional(),
+  // Nearby "Show me 3 more" only: every place already shown in this decision.
+  // Lenient on purpose — it can only EXCLUDE places, so anything that isn't a
+  // short string is dropped rather than failing the request.
+  shown_place_ids: z
+    .array(z.unknown())
+    .max(60)
+    .optional()
+    .catch(undefined)
+    .transform((items) => items?.filter((i): i is string => typeof i === "string" && i.length > 0 && i.length <= 300)),
   previous_recommendations: storedRecommendationsSchema.optional(),
   // Only meaningful with an order context whose `nearby` is true. Used to
   // fulfil this one request and then dropped: it is never written to the

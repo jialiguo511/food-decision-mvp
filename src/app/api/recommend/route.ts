@@ -33,11 +33,13 @@ import { recordEvent } from "@/lib/events/record";
 import { consumeUsage } from "@/lib/usage/consume";
 import { createClient } from "@/lib/supabase/server";
 import { createTimer, type Timer } from "@/lib/timing";
+import { MAX_SHOWN_PLACES } from "@/lib/recommend/session";
 import type {
   DecisionContext,
   Recommendation,
   RecommendErrorCode,
   RecommendFailure,
+  RecommendNoMore,
   RecommendSuccess,
   SearchLocation,
 } from "@/lib/types";
@@ -118,8 +120,8 @@ async function recordOutcome(meta: Meta, response: Response, ms: number) {
     const body = (await response.clone().json().catch(() => null)) as { error?: { code?: string } } | null;
     code = typeof body?.error?.code === "string" ? body.error.code : "unknown";
   } else {
-    const body = (await response.clone().json().catch(() => null)) as { recommendations?: unknown[] } | null;
-    count = Array.isArray(body?.recommendations) ? Math.min(body.recommendations.length, 3) : undefined;
+    const body = (await response.clone().json().catch(() => null)) as { recommendations?: unknown[]; no_more?: boolean } | null;
+    count = body?.no_more ? 0 : Array.isArray(body?.recommendations) ? Math.min(body.recommendations.length, 3) : undefined;
   }
   await recordEvent(meta.supabase, meta.userId, {
     name: "recommend_done",
@@ -129,7 +131,7 @@ async function recordOutcome(meta: Meta, response: Response, ms: number) {
 
 /** JSON with the timing table attached as a Server-Timing header, so the same
  *  numbers show in the browser's Network → Timing tab. */
-function respond(timer: Timer, body: RecommendSuccess | RecommendFailure, status = 200) {
+function respond(timer: Timer, body: RecommendSuccess | RecommendNoMore | RecommendFailure, status = 200) {
   return NextResponse.json(body, { status, headers: { "Server-Timing": timer.header() } });
 }
 
@@ -157,7 +159,7 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
       parsedBody.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
     );
   }
-  const { context, previous_recommendations, location, entry } = parsedBody.data;
+  const { context, previous_recommendations, location, entry, shown_place_ids } = parsedBody.data;
   meta.mode = context.decision_mode;
   meta.nearby = context.decision_mode === "order" && context.nearby === true;
   meta.entry = entry;
@@ -192,7 +194,7 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
   if (!usage.allowed) return refuseUsage(timer, supabase, user.id, "recommend", usage.reason);
 
   if (wantsNearby && context.decision_mode === "order" && places && location) {
-    return handleNearby({ supabase, userId: user.id, places, context, location, previous: previous_recommendations, timer });
+    return handleNearby({ supabase, userId: user.id, places, context, location, previous: previous_recommendations, shown: shown_place_ids, signal: request.signal, timer });
   }
 
   // Every other mode needs the model, so a missing key is reported before any
@@ -318,14 +320,17 @@ async function persistAndRespond(args: {
   supabase: ServerSupabase;
   userId: string;
   context: DecisionContext;
+  /** What to store as the row's context, when it holds more than the answers
+   *  (nearby: the places shown so far). Defaults to `context`. */
+  storedContext?: Record<string, unknown>;
   recommendations: Recommendation[];
-  extra: Pick<RecommendSuccess, "insufficient_inventory" | "constraints" | "model"> & Partial<Pick<RecommendSuccess, "targets_sig" | "enrichment_pending">>;
+  extra: Pick<RecommendSuccess, "insufficient_inventory" | "constraints" | "model"> & Partial<Pick<RecommendSuccess, "targets_sig" | "enrichment_pending" | "shown_place_ids">>;
   timer: Timer;
 }) {
-  const { supabase, userId, context, recommendations, extra, timer } = args;
+  const { supabase, userId, context, storedContext, recommendations, extra, timer } = args;
   const [{ data: session, error: sessionError }, saved] = await timer.stage("session_write", () => Promise.all([
     timer.part("session_write", "persist", async () =>
-      supabase.from("decision_sessions").insert({ user_id: userId, context, recommendations }).select("id").single(),
+      supabase.from("decision_sessions").insert({ user_id: userId, context: storedContext ?? context, recommendations }).select("id").single(),
     ),
     timer.part("session_write", "saved_state", () => loadSavedState(supabase, userId, recommendations)),
   ]));
@@ -374,9 +379,13 @@ async function handleNearby(args: {
   context: Extract<DecisionContext, { decision_mode: "order" }>;
   location: SearchLocation;
   previous: Recommendation[] | undefined;
+  /** Every place shown so far in this decision (see RecommendSuccess.shown_place_ids). */
+  shown: string[] | undefined;
+  /** The browser's own signal: it goes away when the user moves on. */
+  signal: AbortSignal;
   timer: Timer;
 }) {
-  const { supabase, userId, places, context, previous, timer } = args;
+  const { supabase, userId, places, context, previous, shown, signal, timer } = args;
   // ~11 m precision is far finer than the search radius needs.
   const origin: SearchLocation = {
     latitude: Math.round(args.location.latitude * 1e4) / 1e4,
@@ -407,8 +416,12 @@ async function handleNearby(args: {
   if (!searchResult.ok) return fail(timer, "places_unavailable", "Couldn't look up places near you right now.");
   const profile = toProfileInput(profileResult.data);
 
-  // "Show me 3 more" never repeats a place the user just saw.
-  const alreadyShown = new Set((previous ?? []).flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : [])));
+  // "Show me 3 more" never repeats a place from ANY earlier batch of this
+  // decision. The browser sends the whole shown list; the last batch it sends
+  // as `previous` is added too, so a page that only knows the last batch still
+  // excludes that one. Being shown is NOT a dislike: nothing here is written as
+  // feedback, and a fresh question (no list sent) starts again from nothing.
+  const alreadyShown = new Set([...(shown ?? []), ...(previous ?? []).flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : []))]);
   // This user's own "not for me" feedback, by provider place id. Excluded
   // places never become candidates (and so can't be picked); downranked ones
   // stay eligible and are scored lower in feasibility.
@@ -438,15 +451,32 @@ async function handleNearby(args: {
     excluded_as_already_shown: alreadyShown.size,
   });
 
+  // The user moved on (changed an answer, left) while Places was answering:
+  // writing now could make THIS older request the newest stored session, and a
+  // reload would restore it over the newer one. Store nothing.
+  if (signal.aborted) return fail(timer, "upstream_error", "The request was cancelled.");
+
+  // "More" with nothing new left: not a failure and not an empty set. Keep what
+  // is on screen (nothing is stored), say so, and do NOT widen the search to
+  // find something — that is the user's decision, offered as a button.
+  if (alreadyShown.size > 0 && picks.length === 0) {
+    return respond(timer, { no_more: true, shown_place_ids: [...alreadyShown].slice(0, MAX_SHOWN_PLACES) });
+  }
+
+  // Everything shown in this decision, stored beside the context so a reload can
+  // carry on from it, and returned so the browser can send it with the next "more".
+  const shownNow = [...new Set([...alreadyShown, ...picks.flatMap((r) => (r.decision_mode === "nearby" ? [r.place_id] : []))])].slice(0, MAX_SHOWN_PLACES);
   return persistAndRespond({
     supabase,
     userId,
     context,
+    storedContext: { ...context, shown_place_ids: shownNow },
     recommendations: picks,
     extra: {
       insufficient_inventory: false,
       constraints: { decision_mode: "nearby", allergies: profile.allergies, dietary: { patterns: profile.dietary_patterns, other: profile.dietary_other } },
       model: "rules",
+      shown_place_ids: shownNow,
       // Nothing real to choose from is a valid, honest result — and then there
       // is nothing for a model to write about.
       ...(picks.length > 0 ? { enrichment_pending: true } : {}),
