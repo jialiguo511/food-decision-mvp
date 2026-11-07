@@ -4,6 +4,8 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/env";
 import SetupNotice from "@/components/SetupNotice";
+import Link from "next/link";
+import { BRAND } from "@/lib/brand";
 
 /**
  * Magic link sign-in. No passwords to store, reset, or leak — Supabase emails
@@ -43,12 +45,8 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        What should I eat?
-      </h1>
-      <p className="mt-2 text-muted">
-        Three options. Chosen for the night you&apos;re actually having.
-      </p>
+      <h1 className="text-3xl font-semibold tracking-tight">{BRAND.name}?</h1>
+      <p className="mt-2 text-muted">{BRAND.tagline}</p>
 
       {state === "sent" ? (
         <div className="mt-8 rounded-2xl border border-line bg-card p-5">
@@ -76,6 +74,15 @@ export default function LoginPage() {
           {state === "error" && <p className="text-sm text-red-600">{error}</p>}
         </form>
       )}
+
+      <div className="mt-8 flex flex-col gap-2 text-sm">
+        <Link href="/demo" className="font-semibold text-accent">
+          See an example first — no sign-in
+        </Link>
+        <Link href="/about" className="text-muted underline">
+          About this beta, privacy and estimates
+        </Link>
+      </div>
     </div>
   );
 }

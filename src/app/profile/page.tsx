@@ -1,6 +1,7 @@
 // Server Component. It runs on the server, reads from Postgres directly, and
 // ships only HTML to the browser. No loading spinner, no useEffect, no fetch.
 
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import SetupNotice from "@/components/SetupNotice";
 import SignOutButton from "@/components/SignOutButton";
@@ -46,6 +47,11 @@ export default async function ProfilePage() {
     >
       <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} />
       <AccountDataSection />
+      <p className="mt-6 text-center text-xs text-muted">
+        <Link href="/about" className="underline">
+          About this beta, privacy and estimates
+        </Link>
+      </p>
     </AppShell>
   );
 }

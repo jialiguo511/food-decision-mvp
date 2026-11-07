@@ -19,6 +19,8 @@ import { ingredientsStepIndex, searchesNearby } from "./flow/steps";
 import { contextSummary, ctaLabel } from "./flow/summary";
 import { useHomeForms } from "./flow/useHomeForms";
 import { interpretErrorCopy, interpretText } from "./interpretClient";
+import type { Entry } from "./recommendStore";
+import { track } from "./track";
 import type { FeedbackData } from "./MealFeedback";
 import NutritionStep from "./onboarding/NutritionStep";
 import Onboarding from "./onboarding/Onboarding";
@@ -158,7 +160,7 @@ export default function HomeFlow({
    *  answers to send (the sentence entry passes its own, because state set a
    *  moment ago is not yet visible); `sentence` is what to show back on the
    *  results, and is cleared by every other way of asking. */
-  function find(mode: DecisionMode, byType = false, source: FormValues = forms, sentence: Understood | null = null) {
+  function find(mode: DecisionMode, byType = false, source: FormValues = forms, sentence: Understood | null = null, entry: Entry = sentence ? "sentence" : "steps") {
     clearAdvance();
     readId.current++; // an unfinished read must not start a second request
     setDescribing(false);
@@ -173,7 +175,7 @@ export default function HomeFlow({
       setUsed((current) => ({ ...current, cook: true }));
       dispatch({ type: "showResults" });
       setForm("cook", cooked);
-      void run(cooked);
+      void run(cooked, undefined, entry);
       return;
     }
     setUsed((current) => ({ ...current, [mode]: true }));
@@ -185,9 +187,9 @@ export default function HomeFlow({
       };
       setForm("order", finalized);
       const nearby = !byType && searchesNearby(finalized);
-      void run(nearby ? { ...finalized, nearby: true } : finalized);
+      void run(nearby ? { ...finalized, nearby: true } : finalized, undefined, entry);
     } else {
-      void run(source.store_snack);
+      void run(source.store_snack, undefined, entry);
     }
   }
 
@@ -201,6 +203,7 @@ export default function HomeFlow({
     const id = ++readId.current;
     setDescribing(true);
     setDescribeError(null);
+    track({ name: "entry_selected", props: { entry: "sentence" } });
     const result = await interpretText(text);
     if (id !== readId.current) return; // the person went elsewhere meanwhile
     setDescribing(false);
@@ -214,6 +217,7 @@ export default function HomeFlow({
     const applied = applyInterpretation(interpretation, forms, used, forcedMode);
     if (applied.status === "needs_mode") {
       setPending({ text, interpretation, mode: null, said: [], missing: [] });
+      track({ name: "clarify_shown", props: { asked: 1 } });
       return dispatch({ type: "clarify" });
     }
     setForm(applied.mode, applied.forms[applied.mode] as never);
@@ -221,7 +225,10 @@ export default function HomeFlow({
     setPending({ text, interpretation, mode: applied.mode, said: applied.said, missing });
     // Cook needs to know what they can cook with, once; ask, then carry on.
     if (applied.mode === "cook" && !equipmentOk) return dispatch({ type: "askEquipment" });
-    if (missing.length > 0) return dispatch({ type: "clarify" });
+    if (missing.length > 0) {
+      track({ name: "clarify_shown", props: { mode: applied.mode, asked: Math.min(missing.length, 6) } });
+      return dispatch({ type: "clarify" });
+    }
     sendSentence(text, applied.mode, applied.forms, applied.said);
   }
 
@@ -235,7 +242,7 @@ export default function HomeFlow({
    *  because changing an answer means leaving the results screen. */
   function showMore() {
     if (!session) return;
-    void run(session.context, session.recommendations);
+    void run(session.context, session.recommendations, "more");
   }
 
   /** After a thin or empty "Use what I have": the same question with a few
@@ -251,6 +258,7 @@ export default function HomeFlow({
   /** Entering a mode: Cook asks what you can cook with first, once, if never
    *  said — everything else goes straight in. */
   function pick(mode: DecisionMode) {
+    track({ name: "entry_selected", props: { entry: "steps", mode } });
     readId.current++;
     setDescribing(false);
     setPending(null);
@@ -261,12 +269,12 @@ export default function HomeFlow({
   /** The one CTA of a used mode. A restored "Use what I have" has no foods
    *  (they're never remembered), so it goes to that question instead of
    *  running on nothing — strict inventory-only stays strict. */
-  function go(mode: DecisionMode) {
+  function go(mode: DecisionMode, entry: Entry = "steps") {
     if (mode === "cook" && !equipmentSaved) return dispatch({ type: "askEquipment" });
     if (mode === "cook" && forms.cook.shopping === "inventory_only" && forms.cook.ingredients_on_hand.length === 0) {
       return dispatch({ type: "customize", mode, step: ingredientsStepIndex(forms.cook) });
     }
-    find(mode);
+    find(mode, false, forms, null, entry);
   }
 
   /** "Not now": hides the step at once; the dismissal is stored best-effort —
@@ -404,7 +412,10 @@ export default function HomeFlow({
   return (
     <StartScreen
       lastTime={used[lastTimeMode] ? { mode: lastTimeMode, summary: contextSummary(forms[lastTimeMode]) } : null}
-      onUseAgain={() => go(lastTimeMode)}
+      onUseAgain={() => {
+        track({ name: "entry_selected", props: { entry: "again", mode: lastTimeMode } });
+        go(lastTimeMode, "again");
+      }}
       onPickMode={pick}
       onBackToPicks={session || request.kind !== "idle" ? () => dispatch({ type: "showResults" }) : undefined}
       draft={draft}

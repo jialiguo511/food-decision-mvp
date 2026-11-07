@@ -29,10 +29,18 @@ export type UserTable = {
   legacy?: true;
 };
 
+/** User-keyed tables that Reset deliberately does NOT clear. `usage_counters` is
+ *  the daily allowance for paid calls: wiping it on "Reset my data" would hand
+ *  out a fresh allowance on demand. The user can't touch it anyway (no grant,
+ *  no policy — see supabase/migrations/2026-11-07_usage_and_events.sql), and it
+ *  cascades away with the auth user on Delete account. */
+export const KEPT_ON_RESET = ["usage_counters"] as const;
+
 /** Children before parents; `profiles` last. */
 export const USER_TABLES: readonly UserTable[] = [
   { table: "meal_feedback", column: "user_id" }, // "did you eat it" — also cascades from decision_sessions
   { table: "place_feedback", column: "user_id" }, // "not for me" on places
+  { table: "product_events", column: "user_id" }, // first-party usage events (names + enumerated props only — never text, health data or location)
   { table: "saved_recipes", column: "user_id" }, // Saved
   { table: "saved_places", column: "user_id" }, // Saved
   { table: "decision_sessions", column: "user_id" }, // every request: its context, the 3 cards, the pick — also what "Last time" is read from

@@ -199,6 +199,15 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
       return this.run().then(ok, bad);
     }
   }
+  /** A PostgREST-style rpc: calls a public function as `userId`, passing named args. */
+  async function rpc(userId: string | null, fn: string, args: Record<string, unknown>): Promise<Result> {
+    const names = Object.keys(args);
+    const sql = `select * from public.${quote(fn)}(${names.map((n, i) => `${quote(n)} := $${i + 1}`).join(", ")})`;
+    const result = await asUser(userId, sql, names.map((n) => param(args[n])));
+    // PostgREST reports a missing function as PGRST202, not 42883.
+    if (result.error?.code === "42883") return { ...result, error: { ...result.error, code: "PGRST202" } };
+    return result;
+  }
   return {
     db,
     /** Run raw SQL as the database owner (setup, assertions that bypass RLS). */
@@ -209,6 +218,7 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
     clientFor: (userId: string | null) => ({
       auth: { getUser: async () => ({ data: { user: userId ? { id: userId } : null }, error: null }) },
       from: (table: string) => new Query(table, userId),
+      rpc: (fn: string, args: Record<string, unknown> = {}) => rpc(userId, fn, args),
     }),
   };
 }

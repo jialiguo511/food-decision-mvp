@@ -52,6 +52,10 @@ export type RequestStatus =
 
 type PreviousRecommendations = ActiveSession["recommendations"];
 
+/** How a decision started — sent only so the server can note it in its product
+ *  event; it never reaches the recommender. "more" is "Show me 3 more". */
+export type Entry = "sentence" | "steps" | "again" | "more";
+
 /** What Home says after the user's nutrition targets changed under a set of
  *  cards: they were re-scored ("updated" when the order moved, "checked" when
  *  it already fit). Tied to the session it describes. */
@@ -91,6 +95,7 @@ type ActiveRequest = {
   controller: AbortController;
   context: DecisionContext;
   previous?: PreviousRecommendations;
+  entry?: Entry;
   /** Settles when the request has fully finished, however it ended. */
   done: Promise<void>;
 };
@@ -106,7 +111,7 @@ let ledger: { requestId: string; state: "loading" | "stored" | "failed" | "abort
 /** Sessions whose enrichment / re-score has been asked for — each once. */
 const enrichAsked = new Set<string>();
 const rescoreAsked = new Set<string>();
-let lastRequest: { context: DecisionContext; previous?: PreviousRecommendations } | null = null;
+let lastRequest: { context: DecisionContext; previous?: PreviousRecommendations; entry?: Entry } | null = null;
 
 function set(patch: Partial<Snapshot>) {
   snap = { ...snap, ...patch };
@@ -222,7 +227,7 @@ function sameSubmit(a: ActiveRequest, context: DecisionContext, previous?: Previ
  *     becomes current and the old one is aborted; its response can never
  *     overwrite this one's.
  */
-export function run(owner: string, context: DecisionContext, previous?: PreviousRecommendations): Promise<void> {
+export function run(owner: string, context: DecisionContext, previous?: PreviousRecommendations, entry?: Entry): Promise<void> {
   claim(owner);
   if (active) {
     if (sameSubmit(active, context, previous)) {
@@ -234,9 +239,9 @@ export function run(owner: string, context: DecisionContext, previous?: Previous
     active.controller.abort();
   }
   const controller = new AbortController();
-  const handle: ActiveRequest = { requestId: newRequestId(), controller, context, previous, done: Promise.resolve() };
+  const handle: ActiveRequest = { requestId: newRequestId(), controller, context, previous, entry, done: Promise.resolve() };
   active = handle;
-  lastRequest = { context, previous };
+  lastRequest = { context, previous, entry };
   handle.done = execute(owner, handle).finally(() => {
     if (active === handle) active = null;
   });
@@ -244,7 +249,7 @@ export function run(owner: string, context: DecisionContext, previous?: Previous
 }
 
 async function execute(owner: string, handle: ActiveRequest): Promise<void> {
-  const { requestId, context, previous, controller } = handle;
+  const { requestId, context, previous, controller, entry } = handle;
   const startedAt = Date.now();
   const isCurrent = () => active === handle;
   const mode = context.decision_mode === "order" && context.nearby ? "nearby" : context.decision_mode;
@@ -272,7 +277,7 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
     const response = await fetch("/api/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-      body: JSON.stringify({ context, previous_recommendations: previous, location }),
+      body: JSON.stringify({ context, previous_recommendations: previous, location, entry }),
       signal: controller.signal,
     });
     const body: unknown = await response.json();
@@ -410,7 +415,7 @@ export async function rescore(owner: string, session: ActiveSession, currentSig:
 }
 
 export function retry(owner: string) {
-  if (lastRequest) void run(owner, lastRequest.context, lastRequest.previous);
+  if (lastRequest) void run(owner, lastRequest.context, lastRequest.previous, lastRequest.entry);
 }
 
 /** Records the pick. `session` is the one on screen — adopted into the store

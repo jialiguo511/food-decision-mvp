@@ -1,12 +1,13 @@
 import type { MetadataRoute } from "next";
+import { BRAND } from "@/lib/brand";
 
 // Served automatically at /manifest.webmanifest and linked in <head> — no
 // manual <link rel="manifest"> needed, Next.js does that for any app/manifest.ts.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Nutrition Coach",
-    short_name: "Nutrition Coach",
-    description: "What should I actually eat right now?",
+    name: BRAND.name,
+    short_name: BRAND.short,
+    description: BRAND.tagline,
     start_url: "/",
     display: "standalone",
     background_color: "#fdfaf5",

@@ -125,6 +125,9 @@ export const contextSchema = z.discriminatedUnion("decision_mode", [
  *  round-tripped from the client instead of read back from the database. */
 export const recommendRequestSchema = z.object({
   context: contextSchema,
+  // How this decision started, for the product events only — never read by the
+  // recommender. Optional so an older page still works.
+  entry: z.enum(["sentence", "steps", "again", "more"]).optional(),
   previous_recommendations: storedRecommendationsSchema.optional(),
   // Only meaningful with an order context whose `nearby` is true. Used to
   // fulfil this one request and then dropped: it is never written to the

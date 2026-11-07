@@ -15,7 +15,10 @@ let profileRow: Record<string, unknown> = { dislikes: ["Pork"] };
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: currentUser } } }) },
+    // The daily allowance (lib/usage): these tests are about the nearby pipeline, so it always allows.
+    rpc: async () => ({ data: [{ allowed: true, used: 1 }], error: null }),
     from: (table: string) => {
+      if (table === "product_events") return { insert: async () => ({ error: null }) };
       if (table === "saved_places") {
         const query = {
           select: () => query,

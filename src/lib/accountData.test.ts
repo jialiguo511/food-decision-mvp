@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeDb } from "@/test/fakeSupabase";
-import { USER_TABLES, wipeUserData } from "./accountData";
+import { KEPT_ON_RESET, USER_TABLES, wipeUserData } from "./accountData";
 
 const root = join(__dirname, "../..");
 
@@ -20,7 +20,16 @@ describe("USER_TABLES is the complete list of user-owned tables", () => {
 
   it("covers every table that references auth.users", () => {
     expect(ownedInSql.length).toBeGreaterThanOrEqual(9);
-    expect(USER_TABLES.map((t) => t.table).sort()).toEqual([...new Set(ownedInSql)].sort());
+    const owned = [...new Set(ownedInSql)];
+    // Every user-keyed table is either wiped by Reset or deliberately kept (and the keeping is explained in accountData.ts).
+    expect([...USER_TABLES.map((t) => t.table), ...KEPT_ON_RESET].sort()).toEqual(owned.sort());
+  });
+
+  it("a kept-on-reset table still cascades with the auth user, so Delete account leaves nothing behind", () => {
+    for (const table of KEPT_ON_RESET) {
+      const body = new RegExp(`create table if not exists public\\.${table}\\s*\\(([\\s\\S]*?)\\n\\);`).exec(sql)?.[1] ?? "";
+      expect(body, table).toMatch(/references auth\.users \(id\) on delete cascade/);
+    }
   });
 
   it("clears children before parents, and profiles last", () => {

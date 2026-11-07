@@ -3,6 +3,7 @@
 // Server Actions: the browser calls these like normal async functions.
 
 import { revalidatePath } from "next/cache";
+import { recordEvent } from "@/lib/events/record";
 import { calculateNutritionTargets, targetsSignature } from "@/lib/nutrition";
 import { NUTRITION_NUDGE_PREF, ONBOARDING_PREF } from "@/lib/onboarding";
 import { DEFAULT_PROTEIN_TARGET_G } from "@/lib/options";
@@ -49,7 +50,10 @@ export async function chooseRecommendation(
     .maybeSingle();
 
   if (error) return { ok: false, error: error.message };
-  if (data) return { ok: true, chosenIndex: data.chosen_index as 0 | 1 | 2 };
+  if (data) {
+    await noteChoice(supabase, user.id, sessionId, chosenIndex);
+    return { ok: true, chosenIndex: data.chosen_index as 0 | 1 | 2 };
+  }
 
   // No row was updated: either this session isn't found/owned, or it already
   // has a choice recorded. Read it to tell those apart.
@@ -352,4 +356,20 @@ export async function rescoreSession(sessionId: string): Promise<RescoreResult> 
   }
   const saved = await loadSavedState(supabase, user.id, ranked.recommendations);
   return { ok: true, targetsSig, rescored: true, changed: ranked.changed, recommendations: ranked.recommendations, saved };
+}
+
+/** The `choice_made` event: which kind of decision and which role was picked —
+ *  read from the session's own row, so it says nothing the row doesn't already
+ *  hold. A note, never part of the choice: any failure is dropped. */
+async function noteChoice(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, sessionId: string, index: 0 | 1 | 2) {
+  try {
+    const { data } = await supabase.from("decision_sessions").select("recommendations").eq("id", sessionId).eq("user_id", userId).maybeSingle();
+    const card = Array.isArray(data?.recommendations) ? (data.recommendations[index] as { decision_mode?: unknown; role?: unknown } | undefined) : undefined;
+    const mode = card?.decision_mode === "nearby" ? "nearby" : card?.decision_mode === "order" || card?.decision_mode === "store_snack" ? card.decision_mode : "cook";
+    const role = card?.role;
+    if (role !== "best_match" && role !== "lowest_effort" && role !== "alternative") return;
+    await recordEvent(supabase, userId, { name: "choice_made", props: { mode, role } });
+  } catch {
+    // never part of the choice
+  }
 }

@@ -1,15 +1,17 @@
 import type { Metadata, Viewport } from "next";
+import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Food Decision",
-  description: "What should I actually eat right now?",
+  // "%s · name" for inner pages (About, Demo, …); the bare name on Home.
+  title: { default: BRAND.name, template: `%s · ${BRAND.name}` },
+  description: BRAND.tagline,
   // Controls the label under the icon when added to the iPhone home screen —
   // independent of the browser-tab <title> above. `capable: true` is what
   // makes the home-screen launch open without Safari's address bar/tab UI.
   appleWebApp: {
     capable: true,
-    title: "Nutrition Coach",
+    title: BRAND.short,
     statusBarStyle: "default",
   },
   // This Next.js version only emits the modern standard name

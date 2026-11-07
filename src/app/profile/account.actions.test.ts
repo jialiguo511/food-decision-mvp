@@ -15,6 +15,7 @@ import { cookContext } from "@/test/cookFixtures";
 import { recipe } from "@/test/savedFixtures";
 import { saveFromSession } from "../saved/actions";
 import { completeOnboarding } from "../today/actions";
+import { trackEvent } from "../today/events.actions";
 import { saveEquipment, saveProfile } from "./actions";
 import { DEFAULT_FORM_VALUES } from "@/lib/profile";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -59,6 +60,7 @@ async function useTheApp(user = "u1") {
   db.seed("saved_places", { user_id: user, provider: "google_places", place_id: "p2", name: "P" });
   db.seed("recipes", { user_id: user, raw: "x" });
   db.seed("pantry_items", { user_id: user, name: "Chicken" });
+  await trackEvent({ name: "entry_selected", props: { entry: "sentence" } }); // the usage log is the user's data too
 }
 
 const rowsFor = (user: string) =>

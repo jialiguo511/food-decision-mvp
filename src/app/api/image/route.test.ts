@@ -81,6 +81,59 @@ describe("POST /api/image — reasons", () => {
   });
 });
 
+describe("POST /api/image — the daily allowance is spent only on a paid generation", () => {
+  const ok = () => generate.mockResolvedValue({ bytes: new Uint8Array([1]), contentType: "image/webp", model: "m" });
+  const titled = (title: string) => recipe({ title, image_query: null });
+  const seedTwo = () => db.seed("decision_sessions", { id: "s2", user_id: "user-1", context: {}, recommendations: [titled("Alpha stew"), titled("Beta salad"), titled("Gamma toast")], chosen_index: null });
+
+  it("a generation costs one; the same picture again (a cache hit) costs nothing", async () => {
+    ok();
+    await call({ session_id: "s1", index: 0 });
+    expect(db.usageOf("user-1", "image")).toBe(1);
+    await call({ session_id: "s1", index: 0 });
+    await call({ session_id: "s1", index: 0 });
+    expect(db.usageOf("user-1", "image")).toBe(1);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("not configured, or an unreadable card, costs nothing", async () => {
+    generatorConfigured = false;
+    await call({ session_id: "s1", index: 0 });
+    expect(db.usageOf("user-1", "image")).toBe(0);
+  });
+
+  it("three cards asking at once for the same recipe share one generation and one unit", async () => {
+    ok();
+    await Promise.all([call({ session_id: "s1", index: 0 }), call({ session_id: "s1", index: 0 }), call({ session_id: "s1", index: 0 })]);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(db.usageOf("user-1", "image")).toBe(1);
+  });
+
+  it("past the daily allowance: 429 limit_reached, nothing is generated — but pictures already made are still served", async () => {
+    vi.stubEnv("USAGE_LIMIT_IMAGE", "1");
+    ok();
+    seedTwo();
+    const first = await call({ session_id: "s2", index: 0 });
+    expect((await first.json()).source).toBe("generated");
+    const refused = await call({ session_id: "s2", index: 1 });
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ url: null, reason: "limit_reached" });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect((await call({ session_id: "s2", index: 0 })).status).toBe(200); // the cached one is free
+    vi.unstubAllEnvs();
+  });
+
+  it("an allowance that can't be checked (production) generates nothing", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    db.failRpc({ code: "PGRST202", message: "no function" });
+    ok();
+    const res = await call({ session_id: "s1", index: 0 });
+    expect((await res.json()).reason).toBe("limit_reached");
+    expect(generate).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+});
+
 describe("POST /api/image — time budget", () => {
   it("may run longer than a generation is allowed to — else the host kills it after the vendor was paid and before it is cached", () => {
     expect(maxDuration * 1000).toBeGreaterThan(IMAGE_SETTINGS.timeoutMs);

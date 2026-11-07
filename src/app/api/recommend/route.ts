@@ -29,6 +29,8 @@ import {
 } from "@/lib/recommend/input";
 import { pickNearby } from "@/lib/recommend/nearbyPicks";
 import { withoutExcludedPlaces } from "@/lib/recommend/placeExclusions";
+import { recordEvent } from "@/lib/events/record";
+import { consumeUsage } from "@/lib/usage/consume";
 import { createClient } from "@/lib/supabase/server";
 import { createTimer, type Timer } from "@/lib/timing";
 import type {
@@ -65,6 +67,9 @@ const STATUS: Record<RecommendErrorCode, number> = {
   upstream_timeout: 504,
   upstream_error: 502,
   session_save_failed: 500,
+  daily_limit: 429,
+  nearby_limit: 429,
+  usage_unavailable: 503,
 };
 
 const MODE_LABEL = { cook: "Cook", order: "Get food", store_snack: "Snack" } as const;
@@ -78,15 +83,48 @@ function requestIdOf(request: Request): string | null {
   return raw && /^[A-Za-z0-9_-]{1,40}$/.test(raw) ? raw : null;
 }
 
+/** What the request turned out to be, for its one product event — filled in as
+ *  `handle` learns it. Modes and codes only; never answers, never a location. */
+type Meta = {
+  supabase?: Awaited<ReturnType<typeof createClient>>;
+  userId?: string;
+  mode?: "cook" | "order" | "store_snack";
+  nearby?: boolean;
+  entry?: "sentence" | "steps" | "again" | "more";
+};
+
 export async function POST(request: Request) {
   const requestId = requestIdOf(request);
   const timer = createTimer("recommend", undefined, requestId);
   console.info(`[recommend] received requestId=${requestId ?? "none"}`);
+  const startedAt = Date.now();
+  const meta: Meta = {};
   try {
-    return await handle(request, timer, requestId);
+    const response = await handle(request, timer, requestId, meta);
+    await recordOutcome(meta, response, Date.now() - startedAt);
+    return response;
   } finally {
     timer.report();
   }
+}
+
+/** One `recommend_done` event per request that got as far as a signed-in user
+ *  and a readable mode: ok with how many cards, or the failure code. */
+async function recordOutcome(meta: Meta, response: Response, ms: number) {
+  if (!meta.supabase || !meta.userId || !meta.mode) return;
+  let code: string | undefined;
+  let count: number | undefined;
+  if (response.status !== 200) {
+    const body = (await response.clone().json().catch(() => null)) as { error?: { code?: string } } | null;
+    code = typeof body?.error?.code === "string" ? body.error.code : "unknown";
+  } else {
+    const body = (await response.clone().json().catch(() => null)) as { recommendations?: unknown[] } | null;
+    count = Array.isArray(body?.recommendations) ? Math.min(body.recommendations.length, 3) : undefined;
+  }
+  await recordEvent(meta.supabase, meta.userId, {
+    name: "recommend_done",
+    props: { mode: meta.mode, ...(meta.nearby ? { nearby: true } : {}), ...(meta.entry ? { entry: meta.entry } : {}), ok: response.status === 200, ...(code ? { code } : {}), ms: Math.min(ms, 600_000), ...(count !== undefined ? { count } : {}) },
+  });
 }
 
 /** JSON with the timing table attached as a Server-Timing header, so the same
@@ -95,12 +133,14 @@ function respond(timer: Timer, body: RecommendSuccess | RecommendFailure, status
   return NextResponse.json(body, { status, headers: { "Server-Timing": timer.header() } });
 }
 
-async function handle(request: Request, timer: Timer, requestId: string | null) {
+async function handle(request: Request, timer: Timer, requestId: string | null, meta: Meta) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await timer.stage("auth", () => supabase.auth.getUser());
   if (!user) return fail(timer, "unauthenticated", "You are signed out. Please sign in again.");
+  meta.supabase = supabase;
+  meta.userId = user.id;
 
   let body: unknown;
   try {
@@ -117,7 +157,10 @@ async function handle(request: Request, timer: Timer, requestId: string | null) 
       parsedBody.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
     );
   }
-  const { context, previous_recommendations, location } = parsedBody.data;
+  const { context, previous_recommendations, location, entry } = parsedBody.data;
+  meta.mode = context.decision_mode;
+  meta.nearby = context.decision_mode === "order" && context.nearby === true;
+  meta.entry = entry;
   timer.setLabel(
     context.decision_mode === "order" && context.nearby === true ? "Get food (nearby)" : MODE_LABEL[context.decision_mode],
   );
@@ -135,6 +178,18 @@ async function handle(request: Request, timer: Timer, requestId: string | null) 
   if (wantsNearby && !location) {
     return fail(timer, "invalid_location", "We didn't receive your location, so we can't look for places near you.");
   }
+
+  // The daily allowance, spent BEFORE any paid call (the Places search, the
+  // model). Counted whether or not the work succeeds, atomically in Postgres,
+  // so a failed or concurrent request can't be used to get around it. A nearby
+  // search is metered on its own as well, since Places is billed per search —
+  // and is checked first, so being out of those still leaves food ideas by type.
+  if (wantsNearby) {
+    const nearbyUsage = await timer.stage("usage", () => consumeUsage(supabase, "nearby"));
+    if (!nearbyUsage.allowed) return refuseUsage(timer, supabase, user.id, "nearby", nearbyUsage.reason);
+  }
+  const usage = await timer.stage("usage", () => consumeUsage(supabase, "recommend"));
+  if (!usage.allowed) return refuseUsage(timer, supabase, user.id, "recommend", usage.reason);
 
   if (wantsNearby && context.decision_mode === "order" && places && location) {
     return handleNearby({ supabase, userId: user.id, places, context, location, previous: previous_recommendations, timer });
@@ -237,6 +292,16 @@ async function handle(request: Request, timer: Timer, requestId: string | null) 
     },
     timer,
   });
+}
+
+/** A paid call refused for today (or held back because the allowance couldn't
+ *  be checked). The limit event is a note, not part of the answer. */
+function refuseUsage(timer: Timer, supabase: ServerSupabase, userId: string, kind: "recommend" | "nearby", reason: "limit" | "unavailable") {
+  if (reason === "unavailable") return fail(timer, "usage_unavailable", "Suggestions are paused for a moment. Please try again shortly.");
+  void recordEvent(supabase, userId, { name: "limit_hit", props: { kind } });
+  return kind === "nearby"
+    ? fail(timer, "nearby_limit", "You've used today's nearby searches.")
+    : fail(timer, "daily_limit", "You've reached today's limit for suggestions.");
 }
 
 function nutritionTargetsOf(profileRow: unknown) {

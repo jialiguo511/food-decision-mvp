@@ -71,7 +71,9 @@ export function resetImageStats() {
   for (const k of Object.keys(imageStats) as (keyof typeof imageStats)[]) imageStats[k] = 0;
 }
 
-const inFlight = new Map<string, Promise<string | null>>();
+/** One generation per key at a time; what it ended as. */
+type Generation = { url: string } | { failed: true } | { limited: true };
+const inFlight = new Map<string, Promise<Generation>>();
 
 type Recipe = Pick<CookRecommendation, "title" | "image_query" | "ingredients_on_hand" | "ingredients_needed" | "steps">;
 
@@ -80,11 +82,19 @@ type Recipe = Pick<CookRecommendation, "title" | "image_query" | "ingredients_on
  *  again); "generation_failed" is worth a retry (nothing was cached, so a retry
  *  may succeed). Cases that never reach this resolver (not signed in, card not
  *  found) are the route's own "unavailable". */
-export type NoImageReason = "no_image" | "generation_failed";
+export type NoImageReason = "no_image" | "generation_failed" | "limit_reached";
 
 export type ImageOutcome = { image: RecipeImageResult } | { none: NoImageReason };
 
-type Deps = { photos: ImageProvider; cache: GeneratedImageCache; generator: ImageGenerator | null };
+type Deps = {
+  photos: ImageProvider;
+  cache: GeneratedImageCache;
+  generator: ImageGenerator | null;
+  /** Asked once, right before a PAID generation starts (never for a photo or a
+   *  cache hit, and once per recipe however many cards ask at the same time).
+   *  false = today's allowance is used up: nothing is generated. */
+  allowGeneration?: () => Promise<boolean>;
+};
 
 /** The picture or null — the shape callers that only need "a picture or nothing" use. */
 export async function resolveRecipeImage(recipe: Recipe, deps: Deps): Promise<RecipeImageResult | null> {
@@ -128,30 +138,35 @@ export async function resolveRecipeImageOutcome(recipe: Recipe, deps: Deps): Pro
   const generator = deps.generator;
   let pending = inFlight.get(key);
   if (!pending) {
-    pending = (async () => {
+    pending = (async (): Promise<Generation> => {
       const startedAt = performance.now();
       try {
+        if (deps.allowGeneration && !(await deps.allowGeneration())) {
+          console.info("[images] recipe image", { outcome: "limit_reached", key: short });
+          return { limited: true };
+        }
         const image = await generator.generate(buildImagePrompt(recipe));
         const ms = Math.round(performance.now() - startedAt);
         if (!image) {
           imageStats.generation_failed++;
           console.warn("[images] recipe image", { outcome: "generation_failed", key: short, duration_ms: ms, model: generator.model });
-          return null;
+          return { failed: true };
         }
         const url = await deps.cache.save(key, image, recipe.title);
         imageStats.generated++;
         console.info("[images] recipe image", { outcome: "cache_miss_generated", key: short, duration_ms: ms, bytes: image.bytes.length, model: image.model, stored: url !== null });
-        return url;
+        return url ? { url } : { failed: true };
       } catch (error) {
         imageStats.generation_failed++;
         console.warn("[images] recipe image", { outcome: "generation_failed", key: short, error: error instanceof Error ? error.message : String(error) });
-        return null;
+        return { failed: true };
       } finally {
         inFlight.delete(key);
       }
     })();
     inFlight.set(key, pending);
   }
-  const url = await pending;
-  return url ? { image: { source: "generated", url } } : { none: "generation_failed" };
+  const result = await pending;
+  if ("url" in result) return { image: { source: "generated", url: result.url } };
+  return { none: "limited" in result ? "limit_reached" : "generation_failed" };
 }

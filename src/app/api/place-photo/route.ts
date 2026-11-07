@@ -11,7 +11,9 @@
 // that as "no photo".
 
 import { storedRecommendationSchema } from "@/lib/recommend/output";
+import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { consumeUsage } from "@/lib/usage/consume";
 
 const NOT_FOUND = () => new Response(null, { status: 404 });
 
@@ -34,6 +36,14 @@ export async function GET(request: Request) {
   const card: unknown = Array.isArray(data?.recommendations) ? data.recommendations[index] : undefined;
   const parsed = storedRecommendationSchema.safeParse(card);
   if (!parsed.success || parsed.data.decision_mode !== "nearby" || !parsed.data.photo_name) return NOT_FOUND();
+
+  // The billed step: spend the daily allowance first. Out of it, the card just
+  // keeps its neutral placeholder (404 reads as "no photo").
+  const usage = await consumeUsage(supabase, "place_photo");
+  if (!usage.allowed) {
+    if (usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "place_photo" } });
+    return NOT_FOUND();
+  }
 
   try {
     const upstream = await fetch(`https://places.googleapis.com/v1/${parsed.data.photo_name}/media?maxWidthPx=640`, {

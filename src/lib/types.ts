@@ -487,7 +487,13 @@ export type RecommendErrorCode =
   | "rate_limited"
   | "upstream_timeout"
   | "upstream_error"
-  | "session_save_failed";
+  | "session_save_failed"
+  /** Today's allowance of suggestion requests is used up. */
+  | "daily_limit"
+  /** Today's allowance of nearby searches is used up (food ideas by type still work). */
+  | "nearby_limit"
+  /** The allowance couldn't be checked, so paid calls are held back. */
+  | "usage_unavailable";
 
 export type RecommendFailure = {
   error: { code: RecommendErrorCode; message: string; details?: string[] };

@@ -3,20 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Visible labels are the Home / Plan / Groceries / Saved / Me information
-// architecture (see CLAUDE.md → "The top-level information architecture").
+// What is in the nav is what exists. Home / Saved / Me are the three tabs of the
+// web beta. Plan (/plan) and Groceries (/groceries) are still part of the
+// information architecture (CLAUDE.md → "The top-level information
+// architecture") but are empty placeholders, so they are NOT linked from here —
+// their pages are kept, and the two tabs return when they have contents (add
+// them back to this list, in the order Home / Plan / Groceries / Saved / Me).
 // Route names (/today, /profile) are kept internally to avoid churn while
 // the UX is still stabilizing — do not infer product meaning from them.
 const TABS = [
   { href: "/today", label: "Home", icon: "M4 11l8-6 8 6v8a1 1 0 01-1 1h-4v-5h-6v5H5a1 1 0 01-1-1z" },
-  { href: "/plan", label: "Plan", icon: "M5 6h14v13H5zM5 10h14M9 4v4M15 4v4" },
-  { href: "/groceries", label: "Groceries", icon: "M4 6h2l2 10h9l2-7H7M10 20h.01M17 20h.01" },
   { href: "/saved", label: "Saved", icon: "M7 4h10v16l-5-3.5L7 20z" },
   { href: "/profile", label: "Me", icon: "M12 12a4 4 0 100-8 4 4 0 000 8zM5 20a7 7 0 0114 0" },
 ];
 
-/** Five tabs fit a 320px phone at ~64px each; every tab is a 56px-tall
- *  target. Fixed to the bottom — AppShell's <main> reserves its height plus
+/** Three tabs, each a wide 56px-tall target. Fixed to the bottom — AppShell's <main> reserves its height plus
  *  the safe area, so it never covers content. */
 export default function BottomNav() {
   const pathname = usePathname();

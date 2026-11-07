@@ -50,6 +50,20 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
     byType: false,
     change: false,
   },
+  daily_limit: {
+    title: "You've reached today's limit.",
+    body: "To keep this beta affordable, each person gets a set number of suggestions a day. It resets tomorrow.",
+    retry: false,
+    byType: false,
+    change: false,
+  },
+  nearby_limit: {
+    title: "You've used today's nearby searches.",
+    body: "You can still get food ideas by type, or look again tomorrow.",
+    ...NEARBY,
+    retry: false,
+  },
+  usage_unavailable: { title: "Suggestions are paused for a moment.", body: "Please try again shortly.", retry: true, byType: false, change: false },
   rate_limited: { title: "Lots of requests right now.", body: "Give it a moment, then try again.", retry: true, byType: false, change: false },
   upstream_timeout: { title: "That took too long.", body: "Try again — it usually works on a second go.", retry: true, byType: false, change: false },
   invalid_context: {

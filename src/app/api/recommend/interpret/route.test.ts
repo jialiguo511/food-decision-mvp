@@ -3,7 +3,7 @@
 // and the text never reaches a log line.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { INTERPRET_MAX_CHARS } from "@/lib/interpret/schema";
 import { createFakeDb } from "@/test/fakeSupabase";
 
@@ -28,6 +28,59 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   logged = [];
   for (const level of ["info", "warn", "error", "log"] as const) vi.spyOn(console, level).mockImplementation((...args) => void logged.push(args));
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe("POST /api/recommend/interpret — the daily allowance and events", () => {
+  const events = () => (db.tables.product_events ?? []) as { name: string; props: Record<string, unknown> }[];
+
+  it("past the limit: 429 limit_reached, and the model is not called", async () => {
+    vi.stubEnv("USAGE_LIMIT_INTERPRET", "2");
+    read.mockResolvedValue({ ...empty, mode: "cook" });
+    expect((await call({ text: "one" })).status).toBe(200);
+    expect((await call({ text: "two" })).status).toBe(200);
+    const refused = await call({ text: "three" });
+    expect(refused.status).toBe(429);
+    expect((await refused.json()).error).toBe("limit_reached");
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(events().filter((e) => e.name === "limit_hit")).toHaveLength(1);
+  });
+
+  it("a failing read still uses the allowance — retrying a broken read is not free", async () => {
+    vi.stubEnv("USAGE_LIMIT_INTERPRET", "2");
+    read.mockRejectedValue(new Error("down"));
+    await call({ text: "one" });
+    await call({ text: "two" });
+    expect((await call({ text: "three" })).status).toBe(429);
+  });
+
+  it("invalid text spends nothing", async () => {
+    await call({ text: "" });
+    await call({ text: "a".repeat(INTERPRET_MAX_CHARS + 1) });
+    expect(db.usageOf("user-1", "interpret")).toBe(0);
+  });
+
+  it("can't check the allowance (production): refuses and calls no model", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    db.failRpc({ code: "PGRST202", message: "no function" });
+    expect((await call({ text: "very hungry" })).status).toBe(502);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("records interpret_done: ok with the mode and a field count — and not one word of the text", async () => {
+    read.mockResolvedValue({ ...empty, mode: "cook", craving: SECRET, foods: [SECRET, "rice"] });
+    await call({ text: `I want ${SECRET}` });
+    expect(events()).toHaveLength(1);
+    expect(events()[0]).toMatchObject({ name: "interpret_done", props: { ok: true, mode: "cook", fields: 3 } });
+    expect(JSON.stringify(events())).not.toContain(SECRET);
+  });
+
+  it("records a failed read with its code", async () => {
+    read.mockResolvedValue(empty);
+    await call({ text: "asdf" });
+    expect(events()[0]).toMatchObject({ name: "interpret_done", props: { ok: false, code: "nothing_found" } });
+  });
 });
 
 describe("POST /api/recommend/interpret", () => {

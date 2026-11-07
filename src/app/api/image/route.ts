@@ -18,7 +18,9 @@ import { resolveImageProvider } from "@/lib/images";
 import { resolveImageGenerator } from "@/lib/images/generated";
 import { createSupabaseImageCache, resolveRecipeImageOutcome } from "@/lib/images/recipeImage";
 import { storedRecommendationSchema } from "@/lib/recommend/output";
+import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { consumeUsage } from "@/lib/usage/consume";
 
 // A generation can take most of a minute (generated.ts: 45 s timeout). Without
 // this the host's default function limit can kill the request AFTER the image
@@ -55,6 +57,15 @@ export async function POST(request: Request) {
     photos: resolveImageProvider(),
     cache: createSupabaseImageCache(supabase),
     generator: resolveImageGenerator(),
+    // The one paid step: spent right before a generation starts, so a photo, a
+    // cache hit, or a card asked about twice costs nothing against the allowance.
+    allowGeneration: async () => {
+      const usage = await consumeUsage(supabase, "image");
+      if (!usage.allowed && usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "image" } });
+      return usage.allowed;
+    },
   });
-  return NextResponse.json("image" in outcome ? outcome.image : { url: null, reason: outcome.none });
+  if ("image" in outcome) return NextResponse.json(outcome.image);
+  // Out of today's pictures: 429, so the card says so and doesn't retry in a loop.
+  return NextResponse.json({ url: null, reason: outcome.none }, { status: outcome.none === "limit_reached" ? 429 : 200 });
 }

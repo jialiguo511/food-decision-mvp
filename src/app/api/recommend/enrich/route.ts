@@ -20,8 +20,10 @@ import {
   parseEnrichment,
 } from "@/lib/recommend/enrich";
 import { parseStoredSession } from "@/lib/recommend/session";
+import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
 import { createTimer } from "@/lib/timing";
+import { consumeUsage } from "@/lib/usage/consume";
 import type { NearbyRecommendation } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -62,6 +64,15 @@ export async function POST(request: Request) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (context.decision_mode !== "order" || pending.length === 0 || !apiKey) {
       return NextResponse.json({ recommendations, enriched: pending.length === 0 });
+    }
+
+    // The model call below is paid: spend the daily allowance first. Out of it
+    // (or unable to check) is not an error — the cards simply keep their
+    // rule-written reasons, exactly as when the model fails.
+    const usage = await timer.stage("usage", () => consumeUsage(supabase, "enrich"));
+    if (!usage.allowed) {
+      if (usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "enrich" } });
+      return NextResponse.json({ recommendations, enriched: false });
     }
 
     const profile = toProfileInput(profileRow);

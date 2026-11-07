@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ActiveSession, DecisionContext } from "@/lib/types";
 import {
+  type Entry,
   adopt,
   choose,
   enrich,
@@ -40,7 +41,7 @@ export function useRecommend(owner: string, initial: { session: ActiveSession | 
   useEffect(() => noteMounted(owner), [owner]);
 
   const runFor = useCallback(
-    (context: DecisionContext, previous?: ActiveSession["recommendations"]) => run(owner, context, previous),
+    (context: DecisionContext, previous?: ActiveSession["recommendations"], entry?: Entry) => run(owner, context, previous, entry),
     [owner],
   );
   const chooseFor = useCallback(

@@ -15,7 +15,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { readSituation } from "@/lib/interpret/read";
 import { isEmptyInterpretation, validateInterpretText, type Interpretation, type InterpretErrorCode } from "@/lib/interpret/schema";
+import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { consumeUsage } from "@/lib/usage/consume";
 
 export const maxDuration = 30;
 
@@ -46,7 +48,23 @@ export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return fail("not_configured");
 
+  // The daily allowance, spent before the model is called (and counted whether
+  // or not the read then works). Reading a sentence is cheap, but unmetered is
+  // unmetered.
+  const usage = await consumeUsage(supabase, "interpret");
+  if (!usage.allowed) {
+    if (usage.reason === "limit") {
+      void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "interpret" } });
+      return fail("limit_reached");
+    }
+    return fail("unavailable");
+  }
+
   const startedAt = Date.now();
+  // Event: counts and codes only — never the text, never what was read from it.
+  const note = (props: { ok: boolean; code?: InterpretErrorCode; mode?: Interpretation["mode"]; fields?: number }) =>
+    recordEvent(supabase, user.id, { name: "interpret_done", props: { ok: props.ok, ...(props.code ? { code: props.code } : {}), ms: Math.min(Date.now() - startedAt, 120_000), ...(props.mode ? { mode: props.mode } : {}), ...(props.fields !== undefined ? { fields: props.fields } : {}) } });
+
   let interpretation: Interpretation;
   try {
     interpretation = await readSituation(checked.text, apiKey);
@@ -54,11 +72,17 @@ export async function POST(request: Request) {
     const timedOut = failure instanceof Anthropic.APIConnectionTimeoutError;
     // The error's message can echo the request; the class and status are enough.
     console.warn("[interpret] model call failed", { kind: failure instanceof Error ? failure.name : "unknown", status: failure instanceof Anthropic.APIError ? failure.status : null, ms: Date.now() - startedAt });
+    await note({ ok: false, code: timedOut ? "timeout" : "unavailable" });
     return fail(timedOut ? "timeout" : "unavailable");
   }
 
   const empty = isEmptyInterpretation(interpretation);
+  const fields = Object.values(interpretation).filter((v) => (Array.isArray(v) ? v.length > 0 : v !== null)).length;
   console.info("[interpret]", { chars: checked.text.length, ms: Date.now() - startedAt, empty, mode: interpretation.mode });
-  if (empty) return fail("nothing_found");
+  if (empty) {
+    await note({ ok: false, code: "nothing_found", fields: 0 });
+    return fail("nothing_found");
+  }
+  await note({ ok: true, mode: interpretation.mode ?? undefined, fields });
   return NextResponse.json({ interpretation });
 }

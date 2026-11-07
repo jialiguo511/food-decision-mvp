@@ -23,6 +23,25 @@ export function createFakeDb() {
   /** Every table a query was started against, in order — to assert batching. */
   const queries: string[] = [];
   let seq = 0;
+
+  /** consume_usage's semantics, in memory: per (user, kind) — the fake has no
+   *  clock, so one "day". Mirrors the SQL (supabase/migrations/2026-11-07_*):
+   *  add one only while under the limit; refused calls change nothing. */
+  const usage = new Map<string, number>();
+  /** Set to make every rpc fail like a database that never ran the migration. */
+  let rpcError: { code: string; message: string } | null = null;
+  const rpc = async (userId: string | null, fn: string, args: Record<string, unknown>) => {
+    if (rpcError) return { data: null, error: rpcError };
+    if (fn !== "consume_usage") return { data: null, error: { code: "PGRST202", message: `no function ${fn}` } };
+    const limit = args.p_limit as number;
+    const kind = args.p_kind as string;
+    if (!userId || !Number.isInteger(limit) || limit < 1 || !/^[a-z_]{1,32}$/.test(kind)) return { data: [{ allowed: false, used: 0 }], error: null };
+    const key = `${userId}:${kind}`;
+    const used = usage.get(key) ?? 0;
+    if (used >= limit) return { data: [{ allowed: false, used }], error: null };
+    usage.set(key, used + 1);
+    return { data: [{ allowed: true, used: used + 1 }], error: null };
+  };
   const rows = (table: string) => (tables[table] ??= []);
 
   /** Tables where delete() "succeeds" but removes nothing — what RLS with no
@@ -142,9 +161,14 @@ export function createFakeDb() {
       rows(table).push({ id: `id-${++seq}`, created_at: new Date(1e12 + seq * 1000).toISOString(), ...row });
     },
     count: (table: string) => rows(table).length,
+    /** How many paid calls of `kind` this user has used (consume_usage). */
+    usageOf: (userId: string, kind: string) => usage.get(`${userId}:${kind}`) ?? 0,
+    /** Pretend the usage migration was never run (every rpc errors). */
+    failRpc: (error: { code: string; message: string } | null) => void (rpcError = error),
     clientFor: (userId: string | null) => ({
       auth: { getUser: async () => ({ data: { user: userId ? { id: userId } : null } }) },
       from: (table: string) => (queries.push(table), new Query(table)),
+      rpc: (fn: string, args: Record<string, unknown> = {}) => rpc(userId, fn, args),
     }),
   };
 }
