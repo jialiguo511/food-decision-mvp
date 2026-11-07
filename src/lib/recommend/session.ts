@@ -9,11 +9,9 @@ import { contextSchema } from "./input";
 import { storedRecommendationsSchema, stripLeakedImageQueryStep } from "./output";
 import type { ActiveSession } from "../types";
 
-/** How long a saved decision session auto-restores on page open. A session is
- *  temporary state for one eating decision — after this, Home starts fresh
- *  (remembered defaults still apply). Expired rows are kept as history, never
- *  deleted; they just stop being restored. */
-export const SESSION_RESTORE_WINDOW_MS = 6 * 60 * 60 * 1000;
+import { SESSION_RESTORE_WINDOW_MS } from "./sessionWindow";
+
+export { SESSION_RESTORE_WINDOW_MS };
 
 /** Whether a row's `created_at` is recent enough to auto-restore. A missing,
  *  unparseable or future-dated timestamp is treated as not recent — never

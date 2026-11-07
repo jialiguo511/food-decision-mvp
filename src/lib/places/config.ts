@@ -13,8 +13,8 @@ import type { TravelWillingness } from "../types";
  *  costs up to `distance_weight` points by the time it reaches `radius_m`.
  *  Walkable therefore punishes distance hard; worth_a_trip barely does, and
  *  neither gives distance a bonus — far is never better, only cheaper.
- *  no_preference is the moderate default (also used for delivery/pickup, which
- *  never ask the question). */
+ *  no_preference is the moderate default (also used for delivery, which
+ *  never asks the question). */
 export const TRAVEL_SEARCH = {
   walkable: { radius_m: 1200, comfortable_m: 500, distance_weight: 3 },
   nearby: { radius_m: 4500, comfortable_m: 1500, distance_weight: 2 },
@@ -35,6 +35,10 @@ export const FEASIBILITY = {
   budget_may_be_over: -1,
   /** Two or more steps above it. */
   budget_unlikely_fit: -2.5,
+  /** The user said "not for me" softly (too expensive, other). Sized like the
+   *  worst budget mismatch: enough to fall to "weak" and be held back while
+   *  enough other places exist, never enough to remove the place. */
+  user_downrank: -2.5,
   /** Total score at or above → "strong"; at or below → "weak"; else "ok". */
   strong_at: 0.5,
   weak_at: -1.5,
@@ -99,7 +103,7 @@ export const EXCLUDED_PRIMARY_TYPES = [
  *  - Pro:        id, displayName, location, shortFormattedAddress,
  *                primaryType, primaryTypeDisplayName, googleMapsUri,
  *                businessStatus
- *  - Enterprise: currentOpeningHours, priceLevel, rating, websiteUri, …
+ *  - Enterprise: currentOpeningHours, priceLevel, websiteUri, rating, …
  * MVP DECISION (deliberate, not an oversight): we ask for
  * `currentOpeningHours.openNow` and `priceLevel`, which puts each request at
  * the Enterprise tier, because this product answers "what should I eat right
@@ -109,9 +113,14 @@ export const EXCLUDED_PRIMARY_TYPES = [
  * precisely so the cost/utility tradeoff can be changed in one place. The
  * feature does not depend on either field — drop the two Enterprise entries
  * below and every request falls to Pro, with open_now / price_level simply
- * coming back null. Do not add more Enterprise or Atmosphere fields.
- * Never requested: reviews, photos, rating, editorial/generative summaries,
- * and other Atmosphere fields.
+ * coming back null. `websiteUri` is also Enterprise, so it rides in the tier
+ * the request is already billed at — it adds no cost and is the only reliable
+ * destination URL Places offers (there is no menu, menu-URL, or ordering
+ * field). Drop it together with the other two if the mask is ever cut to Pro.
+ * Do not add more Enterprise or Atmosphere fields.
+ * Never requested: reviews, rating, editorial/generative summaries, and other
+ * Atmosphere fields. Photos are requested by explicit decision — see the entry
+ * in the mask below.
  *
  * COST CONTROL: one explicit user action = one Places request (no automatic
  * retries, no polling; see useRecommend's in-flight guard). Configure
@@ -129,4 +138,13 @@ export const PLACES_FIELD_MASK = [
   "places.businessStatus",
   "places.currentOpeningHours.openNow",
   "places.priceLevel",
+  "places.websiteUri",
+  // Added 2026-10-02 at the founder's explicit request (a restaurant card shows a
+  // real photo of the place, never a generated one). Only the photo REFERENCE
+  // (name + author) comes back here; the picture itself is a separate, billed
+  // "Place Photos" request made lazily, per card shown, by /api/place-photo.
+  // That second request — roughly three per nearby search if every card is seen —
+  // is the real cost of this field; see PLAN.md / LEARNINGS.md.
+  "places.photos.name",
+  "places.photos.authorAttributions.displayName",
 ].join(",");

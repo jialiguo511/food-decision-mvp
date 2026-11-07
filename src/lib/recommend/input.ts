@@ -8,10 +8,11 @@
 // `decision_mode` throughout — see types.ts.
 
 import { z } from "zod";
-import { DEFAULT_PROFILE, EQUIPMENT, FRIDGE_SIZES, GOALS, MEAL_BUDGETS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS, TRAVEL_OPTIONS } from "../options";
+import { EQUIPMENT, FRIDGE_SIZES, MEAL_BUDGETS, SYSTEM_FALLBACKS, ORDER_CRAVINGS, ORDER_METHODS, STORE_SNACK_CRAVINGS, TRAVEL_OPTIONS } from "../options";
 import type {
   ActiveConstraints,
   CravingType,
+  DietaryConstraint,
   DecisionContext,
   Effort,
   FridgeSize,
@@ -22,6 +23,7 @@ import type {
   OrderContext,
   OrderCravingCategory,
   OrderMethod,
+  NutritionPriority,
   ProfileInput,
   Recommendation,
   RecommendationRole,
@@ -31,10 +33,16 @@ import type {
 import type { PlaceCandidate } from "../places/candidates";
 import { effectiveTravel } from "../places/travel";
 import { budgetFit, type BudgetFit } from "./budget";
+import type { BehaviorHints } from "./behavior";
 import { assessFeasibility, type FeasibilityTier } from "./feasibility";
 import { storedRecommendationsSchema } from "./output";
 
 const NO_COOKING = "No cooking at all";
+
+/** The hard dietary constraint, from the Profile — in every mode. */
+function dietaryOf(profile: ProfileInput): DietaryConstraint {
+  return { patterns: profile.dietary_patterns, other: profile.dietary_other };
+}
 
 /** The dynamic context for "I can cook", as sent from Today. It comes from
  *  the browser, so nothing in it is trusted until it passes this schema. */
@@ -140,6 +148,9 @@ export type CookRecommendationInput = {
   hard_constraints: Extract<ActiveConstraints, { decision_mode: "cook" }>;
   soft_preferences: SoftGoalPreferences & {
     preferred_cuisines: string[];
+    /** Profile "disliked foods": a very strong negative signal, NOT an allergy
+     *  or restriction. Allergies are in hard_constraints. */
+    disliked_foods: string[];
     craving: string | null;
     ingredients_on_hand: string[];
     /** True only for the "Show me what to buy" fallback — see
@@ -147,13 +158,22 @@ export type CookRecommendationInput = {
     minimize_purchases: boolean;
     hunger: Hunger;
     effort: Effort;
-    fridge_size: FridgeSize;
+    /** null when the user hasn't said — nothing is assumed about the fridge. */
+    fridge_size: FridgeSize | null;
     fridge_note: string;
   };
   /** Present only for "Show me 3 more". Trimmed to what matters for telling
    *  the model what to avoid — no numbers, so it can't be mistaken for
    *  another constraint. */
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+  /** The user's CONFIRMED nutrition priorities — strong guidance, not a hard
+   *  constraint. Absent when none are set, so such a user's request is exactly
+   *  what it was before they existed. Health conditions are never sent. */
+  nutrition_priorities?: NutritionPriority[];
+  /** Lowest-priority, optional: a tiny summary of what the user has recently
+   *  chosen in this mode. Absent for a new user or sparse history. Soft
+   *  context only — see behavior.ts and the prompt's "Behavioral hints". */
+  behavioral_hints?: BehaviorHints;
 };
 
 export type OrderRecommendationInput = {
@@ -161,6 +181,7 @@ export type OrderRecommendationInput = {
   hard_constraints: Extract<ActiveConstraints, { decision_mode: "order" }>;
   soft_preferences: SoftGoalPreferences & {
     preferred_cuisines: string[];
+    disliked_foods: string[];
     hunger: Hunger;
     craving_category: OrderCravingCategory;
     craving_note: string | null;
@@ -170,16 +191,33 @@ export type OrderRecommendationInput = {
     meal_budget: MealBudget;
   };
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+  /** The user's CONFIRMED nutrition priorities — strong guidance, not a hard
+   *  constraint. Absent when none are set, so such a user's request is exactly
+   *  what it was before they existed. Health conditions are never sent. */
+  nutrition_priorities?: NutritionPriority[];
+  /** Lowest-priority, optional: a tiny summary of what the user has recently
+   *  chosen in this mode. Absent for a new user or sparse history. Soft
+   *  context only — see behavior.ts and the prompt's "Behavioral hints". */
+  behavioral_hints?: BehaviorHints;
 };
 
 export type StoreSnackRecommendationInput = {
   decision_mode: "store_snack";
   hard_constraints: Extract<ActiveConstraints, { decision_mode: "store_snack" }>;
   soft_preferences: SoftGoalPreferences & {
+    disliked_foods: string[];
     hunger: Hunger;
     craving_type: CravingType;
   };
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+  /** The user's CONFIRMED nutrition priorities — strong guidance, not a hard
+   *  constraint. Absent when none are set, so such a user's request is exactly
+   *  what it was before they existed. Health conditions are never sent. */
+  nutrition_priorities?: NutritionPriority[];
+  /** Lowest-priority, optional: a tiny summary of what the user has recently
+   *  chosen in this mode. Absent for a new user or sparse history. Soft
+   *  context only — see behavior.ts and the prompt's "Behavioral hints". */
+  behavioral_hints?: BehaviorHints;
 };
 
 /** One real place, as the model sees it: an id to refer to it by, and only
@@ -226,12 +264,20 @@ export type NearbyRecommendationInput = {
     /** How far the user would go. Already reflected in the search radius and
      *  in each candidate's `feasibility`; passed so the model reads
      *  `distance_m` the way the user meant it. Always "no_preference" unless
-     *  the method is eat_nearby. */
+     *  the method is eat_nearby or pickup. */
     travel_willingness: TravelWillingness;
   };
   /** The ONLY places that may be recommended — this request's provider
    *  results, after filtering. */
   candidates: ModelCandidate[];
+  /** The user's CONFIRMED nutrition priorities — strong guidance, not a hard
+   *  constraint. Absent when none are set, so such a user's request is exactly
+   *  what it was before they existed. Health conditions are never sent. */
+  nutrition_priorities?: NutritionPriority[];
+  /** Lowest-priority, optional: a tiny summary of what the user has recently
+   *  chosen in this mode. Absent for a new user or sparse history. Soft
+   *  context only — see behavior.ts and the prompt's "Behavioral hints". */
+  behavioral_hints?: BehaviorHints;
 };
 
 export type RecommendationInput =
@@ -248,13 +294,14 @@ export function resolveNearbyInput(
   profile: ProfileInput,
   context: OrderContext,
   candidates: readonly PlaceCandidate[],
+  behavioralHints?: BehaviorHints | null,
 ): NearbyRecommendationInput {
   const travel = effectiveTravel(context);
   return {
     decision_mode: "nearby",
-    // No dedicated allergy/dietary-restriction field exists yet, so there are
-    // no hard constraints to state. Dislikes are soft — see NearbyConstraints.
-    hard_constraints: { decision_mode: "nearby" },
+    // Allergies are the hard constraint; dislikes stay soft — see
+    // NearbyConstraints.
+    hard_constraints: { decision_mode: "nearby", allergies: profile.allergies, dietary: dietaryOf(profile) },
     soft_preferences: {
       goal: profile.goal,
       daily_protein_target_g: profile.protein_target_g,
@@ -278,6 +325,8 @@ export function resolveNearbyInput(
       feasibility: assessFeasibility(c, { meal_budget: context.meal_budget, travel }).tier,
       budget_fit: budgetFit(context.meal_budget, c.price_level),
     })),
+    ...(profile.nutrition_priorities.length > 0 ? { nutrition_priorities: profile.nutrition_priorities } : {}),
+    ...(behavioralHints ? { behavioral_hints: behavioralHints } : {}),
   };
 }
 
@@ -292,21 +341,28 @@ export function resolveRecommendationInput(
    *  kitchenStaples, nothing else. Today's foods are never persisted and
    *  never carried into a later session — see MealContext.ingredients_on_hand. */
   kitchenStaples: readonly string[] = [],
+  /** Optional, lowest-priority summary of recent choices — see behavior.ts. */
+  behavioralHints?: BehaviorHints | null,
 ): RecommendationInput {
   const previous =
     previousRecommendations && previousRecommendations.length > 0
       ? previousRecommendations.map((r) => ({ role: r.role, title: r.title, reason: r.reason }))
       : undefined;
+  const hints = {
+    ...(profile.nutrition_priorities.length > 0 ? { nutrition_priorities: profile.nutrition_priorities } : {}),
+    ...(behavioralHints ? { behavioral_hints: behavioralHints } : {}),
+  };
 
   if (context.decision_mode === "order") {
     return {
       decision_mode: "order",
-      hard_constraints: { decision_mode: "order", avoid: profile.dislikes },
+      hard_constraints: { decision_mode: "order", allergies: profile.allergies, dietary: dietaryOf(profile) },
       soft_preferences: {
         goal: profile.goal,
         daily_protein_target_g: profile.protein_target_g,
         daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
         preferred_cuisines: profile.cuisines,
+        disliked_foods: profile.dislikes,
         hunger: context.hunger,
         craving_category: context.craving_category,
         craving_note: context.craving_note,
@@ -314,55 +370,70 @@ export function resolveRecommendationInput(
         meal_budget: context.meal_budget,
       },
       ...(previous ? { previous_recommendations: previous } : {}),
+      ...hints,
     };
   }
 
   if (context.decision_mode === "store_snack") {
     return {
       decision_mode: "store_snack",
-      hard_constraints: { decision_mode: "store_snack", avoid: profile.dislikes },
+      hard_constraints: { decision_mode: "store_snack", allergies: profile.allergies, dietary: dietaryOf(profile) },
       soft_preferences: {
         goal: profile.goal,
         daily_protein_target_g: profile.protein_target_g,
         daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
+        disliked_foods: profile.dislikes,
         hunger: context.hunger,
         craving_type: context.craving_type,
       },
       ...(previous ? { previous_recommendations: previous } : {}),
+      ...hints,
     };
   }
 
   // Only equipment from the controlled vocabulary counts. "No cooking at all"
-  // wins over everything else, and owning nothing means the same thing.
-  const owned = profile.equipment.filter((item) =>
-    (EQUIPMENT as readonly string[]).includes(item),
-  );
+  // wins over everything else. Equipment the user never told us about is NOT
+  // assumed: unknown behaves like "no appliance at all" until they answer
+  // (the app asks before a first Cook request), so a recipe can never lean on a
+  // microwave or oven nobody said exists.
+  const owned = (profile.equipment ?? []).filter((item) => (EQUIPMENT as readonly string[]).includes(item));
+  const equipmentKnown = owned.length > 0;
   const appliances = owned.filter((item) => item !== NO_COOKING);
-  const noCooking = owned.includes(NO_COOKING) || appliances.length === 0;
+  const noCooking = !equipmentKnown || owned.includes(NO_COOKING) || appliances.length === 0;
 
   // The explicit "Use what I have" signal, not an inference from budget.
   // It forces the budget to 0 itself, so a stale or leftover override never
   // silently permits shopping once this is chosen.
   const noShopping = context.shopping === "inventory_only";
   const overriding = !noShopping && context.budget_override_usd !== null;
+  // The ceiling: tonight's choice, else a budget the user set in Me, else the
+  // system's internal fallback — which is never shown to them as theirs.
+  const budgetUsd = noShopping
+    ? 0
+    : (context.budget_override_usd ?? profile.budget_per_meal_usd ?? SYSTEM_FALLBACKS.extras_budget_usd);
+  const budgetSource =
+    noShopping || overriding ? "override" : profile.budget_per_meal_usd !== null ? "profile" : "default";
 
   return {
     decision_mode: "cook",
     hard_constraints: {
       decision_mode: "cook",
       max_minutes: context.cook_minutes,
-      budget_usd: noShopping ? 0 : (context.budget_override_usd ?? profile.budget_per_meal_usd),
-      budget_source: noShopping || overriding ? "override" : "profile",
+      budget_usd: budgetUsd,
+      budget_source: budgetSource,
       equipment: noCooking ? [] : appliances,
+      equipment_known: equipmentKnown,
       no_cooking: noCooking,
       no_shopping: noShopping,
-      avoid: profile.dislikes,
+      allergies: profile.allergies,
+      dietary: dietaryOf(profile),
     },
     soft_preferences: {
       goal: profile.goal,
       daily_protein_target_g: profile.protein_target_g,
       daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
       preferred_cuisines: profile.cuisines,
+      disliked_foods: profile.dislikes,
       craving: context.craving,
       ingredients_on_hand: buildAvailableIngredients(context.ingredients_on_hand, kitchenStaples),
       minimize_purchases: !noShopping && context.minimize_purchases === true,
@@ -372,6 +443,7 @@ export function resolveRecommendationInput(
       fridge_note: FRIDGE_SIZES.find((f) => f.value === profile.fridge_size)?.hint ?? "",
     },
     ...(previous ? { previous_recommendations: previous } : {}),
+    ...hints,
   };
 }
 
@@ -392,41 +464,4 @@ function buildAvailableIngredients(todayFoods: readonly string[], kitchenStaples
   return merged;
 }
 
-/** A `profiles` row, or null for a user who has never saved, as a complete
- *  ProfileInput. Anything missing or out of vocabulary falls back to defaults. */
-export function toProfileInput(row: unknown): ProfileInput {
-  if (!isRecord(row)) return { ...DEFAULT_PROFILE };
-  return {
-    display_name: typeof row.display_name === "string" ? row.display_name : null,
-    goal: pick(row.goal, GOALS.map((g) => g.value), DEFAULT_PROFILE.goal),
-    protein_target_g: positive(row.protein_target_g, DEFAULT_PROFILE.protein_target_g),
-    daily_calorie_target_kcal: Number.isInteger(row.daily_calorie_target_kcal) && Number(row.daily_calorie_target_kcal) > 0
-      ? Number(row.daily_calorie_target_kcal)
-      : null,
-    // numeric(6,2) arrives from PostgREST as a string.
-    budget_per_meal_usd: positive(row.budget_per_meal_usd, DEFAULT_PROFILE.budget_per_meal_usd),
-    fridge_size: pick(row.fridge_size, FRIDGE_SIZES.map((f) => f.value), DEFAULT_PROFILE.fridge_size),
-    default_cook_minutes: positive(row.default_cook_minutes, DEFAULT_PROFILE.default_cook_minutes),
-    cuisines: strings(row.cuisines),
-    dislikes: strings(row.dislikes),
-    equipment: strings(row.equipment),
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return allowed.find((option) => option === value) ?? fallback;
-}
-
-function positive(value: unknown, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function strings(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string");
-}
+export { toProfileInput } from "../profile";

@@ -1,182 +1,68 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { LocationError, requestLocation } from "@/lib/location";
-import type { ActiveSession, DecisionContext, RecommendFailure, RecommendSuccess, RecommendUiError } from "@/lib/types";
-import { chooseRecommendation } from "./actions";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { ActiveSession, DecisionContext } from "@/lib/types";
+import {
+  adopt,
+  choose,
+  enrich,
+  getServerSnapshot,
+  getSnapshot,
+  needsEnrichment,
+  noteMounted,
+  rescore,
+  retry,
+  run,
+  subscribe,
+  viewOf,
+  type RecommendView,
+} from "./recommendStore";
 
-export type Selection =
-  | { status: "none" }
-  | { status: "choosing"; index: 0 | 1 | 2 }
-  | { status: "chosen"; index: 0 | 1 | 2 }
-  | { status: "failed"; index: 0 | 1 | 2; message: string };
-
-export type RequestStatus =
-  | { kind: "idle" }
-  /** Waiting on the browser's location prompt / fix — nearby requests only. */
-  | { kind: "locating" }
-  | { kind: "loading" }
-  | { kind: "error"; error: RecommendUiError };
+export type { RequestStatus, Selection } from "./recommendStore";
 
 /**
- * Owns the Today recommendation flow: at most one in-flight
- * POST /api/recommend at a time, the currently active session (freshly
- * generated, regenerated, or restored from the database), and the selection
- * made against it.
+ * Home's window onto the recommendation request. The state itself lives in
+ * recommendStore.ts, outside React, so it survives leaving Home and coming
+ * back — see the rule there. `initial` is what the server restored for this
+ * visit (≤ 6 h old); this tab's own state wins over it when it has any.
  *
- * `session` and `request` are deliberately separate pieces of state. A failed
- * regenerate only touches `request` — the last successful `session` (and its
- * selection) is left alone, so the UI can keep showing it. Every *successful*
- * call to `run` — first generation, "Regenerate recommendations", or "Show me
- * 3 more" — replaces `session` with a new one and resets `selection`, because
- * each is a new decision_sessions row with chosen_index starting null.
- *
- * `run` and `choose` must be called from event handlers, never from an
- * effect. That is what keeps each to exactly one request per click: React
- * Strict Mode double-invokes effects, not event handlers, and the ref flags
- * below additionally block a second call landing before the state update
- * that disables the button has re-rendered — a synchronous guard, so it also
- * covers a rapid double click within the same render.
+ * `run` and `choose` must be called from event handlers, never from an effect:
+ * a remount is not intent, so only a tap may create a (paid) request.
  */
-export function useRecommend(initial: { session: ActiveSession | null; chosenIndex: 0 | 1 | 2 | null }) {
-  const [session, setSession] = useState<ActiveSession | null>(initial.session);
-  const [selection, setSelection] = useState<Selection>(
-    initial.chosenIndex === null ? { status: "none" } : { status: "chosen", index: initial.chosenIndex },
+export function useRecommend(owner: string, initial: { session: ActiveSession | null; chosenIndex: 0 | 1 | 2 | null }) {
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  // Derived fresh each render from (store, server restore); both are stable
+  // between changes, so this is cheap and has no state of its own.
+  const view: RecommendView = viewOf(snap, owner, initial);
+
+  // Development trace only: says whether this Home attached to a request that
+  // already exists. It reads the store and logs; it never starts anything.
+  useEffect(() => noteMounted(owner), [owner]);
+
+  const runFor = useCallback(
+    (context: DecisionContext, previous?: ActiveSession["recommendations"]) => run(owner, context, previous),
+    [owner],
   );
-  const [request, setRequest] = useState<RequestStatus>({ kind: "idle" });
-
-  const inFlight = useRef(false);
-  const choosingInFlight = useRef(false);
-  const controller = useRef<AbortController | null>(null);
-  // What "Try again" resends after a failed run — the exact request that
-  // specific attempt made, whether that was the first generate, a regenerate
-  // with edited fields, or "Show me 3 more" with the prior context and
-  // recommendations attached as exclusions.
-  const lastRequest = useRef<{ context: DecisionContext; previousRecommendations?: ActiveSession["recommendations"] } | null>(
-    null,
+  const chooseFor = useCallback(
+    (index: 0 | 1 | 2) => {
+      if (view.session) void choose(owner, view.session, index);
+    },
+    [owner, view.session],
   );
-  // Lets `choose` notice its session changed (a regenerate landed) while its
-  // own request was still in flight, so it doesn't apply a stale result.
-  const sessionRef = useRef(session);
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
-
-  // Unmounting mid-request shouldn't try to setState afterwards.
-  useEffect(() => () => controller.current?.abort(), []);
-
-  /** `previousRecommendations` is only ever passed by "Show me 3 more" — see
-   *  TodayForm. Anything else (first generate, "Regenerate recommendations")
-   *  omits it, so the request and the resulting prompt are unchanged. */
-  async function run(context: DecisionContext, previousRecommendations?: ActiveSession["recommendations"]) {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    lastRequest.current = { context, previousRecommendations };
-    const signal = (controller.current = new AbortController()).signal;
-
-    try {
-      // "Find food near me" is the only request that involves location, and
-      // this only runs from that button's click (or "Show me 3 more" /
-      // "Try again" on a nearby session) — never on load. The browser is
-      // asked every time rather than remembering coordinates: they're used
-      // for this one request and dropped. A fix the browser already has is
-      // returned instantly (maximumAge), so there's no repeat prompt.
-      let location: Awaited<ReturnType<typeof requestLocation>> | undefined;
-      if (context.decision_mode === "order" && context.nearby) {
-        setRequest({ kind: "locating" });
-        location = await requestLocation();
-      }
-      if (signal.aborted) return;
-
-      setRequest({ kind: "loading" });
-      const response = await fetch("/api/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context, previous_recommendations: previousRecommendations, location }),
-        signal,
-      });
-      const body: unknown = await response.json();
-      if (response.ok && isSuccess(body)) {
-        // A new decision_sessions row — chosen_index starts null on the
-        // server, so selection resets here to match.
-        setSession({ session_id: body.session_id, context, recommendations: body.recommendations });
-        setSelection({ status: "none" });
-        setRequest({ kind: "idle" });
-      } else if (isFailure(body)) {
-        setRequest({ kind: "error", error: body.error });
-      } else {
-        setRequest({
-          kind: "error",
-          error: { code: "upstream_error", message: `Unexpected response (HTTP ${response.status}).` },
-        });
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      if (error instanceof LocationError) {
-        setRequest({ kind: "error", error: { code: error.code, message: error.message } });
-        return;
-      }
-      setRequest({
-        kind: "error",
-        error: { code: "upstream_error", message: error instanceof Error ? error.message : "Request failed." },
-      });
-    } finally {
-      inFlight.current = false;
-    }
-  }
-
-  async function choose(index: 0 | 1 | 2) {
-    if (!session) return;
-    if (selection.status === "chosen") return;
-    if (choosingInFlight.current) return;
-    choosingInFlight.current = true;
-
-    const sessionId = session.session_id;
-    setSelection({ status: "choosing", index });
-    try {
-      const result = await chooseRecommendation(sessionId, index);
-      // A regenerate may have replaced the session while this was in flight;
-      // don't mark a since-abandoned session as chosen.
-      if (sessionRef.current?.session_id !== sessionId) return;
-      setSelection(
-        result.ok ? { status: "chosen", index: result.chosenIndex } : { status: "failed", index, message: result.error },
-      );
-    } catch (error) {
-      if (sessionRef.current?.session_id !== sessionId) return;
-      setSelection({
-        status: "failed",
-        index,
-        message: error instanceof Error ? error.message : "Couldn't save your choice.",
-      });
-    } finally {
-      choosingInFlight.current = false;
-    }
-  }
-
-  function retry() {
-    if (lastRequest.current) void run(lastRequest.current.context, lastRequest.current.previousRecommendations);
-  }
-
-  return { session, selection, request, run, retry, choose };
-}
-
-function isFailure(value: unknown): value is RecommendFailure {
-  if (typeof value !== "object" || value === null || !("error" in value)) return false;
-  const { error } = value;
-  return typeof error === "object" && error !== null && "code" in error && "message" in error;
-}
-
-function isSuccess(value: unknown): value is RecommendSuccess {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "recommendations" in value &&
-    Array.isArray(value.recommendations) &&
-    // Three — or 0–3 for a strict "Use what I have" request, where the
-    // user's ingredients may support fewer, or none. The server has already
-    // validated it.
-    value.recommendations.length <= 3 &&
-    "session_id" in value &&
-    typeof value.session_id === "string"
+  const retryFor = useCallback(() => retry(owner), [owner]);
+  /** Nearby places restored without their wording: ask for it once. */
+  const ensureEnriched = useCallback(
+    (session: ActiveSession) => {
+      if (!needsEnrichment(session)) return;
+      adopt(owner, session);
+      void enrich(owner, session.session_id);
+    },
+    [owner],
   );
+  const rescoreFor = useCallback(
+    (session: ActiveSession, sig: string, explicit: boolean) => void rescore(owner, session, sig, { explicit }),
+    [owner],
+  );
+
+  return { ...view, run: runFor, retry: retryFor, choose: chooseFor, ensureEnriched, rescore: rescoreFor };
 }

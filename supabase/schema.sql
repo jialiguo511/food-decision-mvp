@@ -35,6 +35,41 @@ alter table public.profiles
   add column if not exists daily_calorie_target_kcal integer
   check (daily_calorie_target_kcal between 1000 and 5000);
 
+-- Profile v2 — explicit nutrition personalization. All optional, all entered by
+-- the user, never inferred from behavior. Idempotent ALTERs so re-running this
+-- file upgrades an existing database; old rows stay valid (new columns are null
+-- / empty).
+--   * allergies: a SAFETY constraint, kept separate from dislikes (a preference).
+--   * body inputs are stored in metric only; the form converts US units.
+--   * sex is "sex used for the BMR equation" and nothing else.
+--   * protein_target_g becomes nullable: null = "use the calculated suggestion".
+--     Every existing value stays as a manual target. The daily calorie target
+--     above already works the same way (null = no manual target).
+--   * Calculated values (BMR, TDEE, suggestions) are never stored.
+alter table public.profiles
+  add column if not exists allergies      jsonb not null default '[]'::jsonb,
+  add column if not exists sex            text     check (sex in ('male', 'female')),
+  add column if not exists age_years      smallint check (age_years between 18 and 100),
+  add column if not exists height_cm      numeric(4,1) check (height_cm between 100 and 250),
+  add column if not exists weight_kg      numeric(4,1) check (weight_kg between 30 and 300),
+  add column if not exists activity_level text
+    check (activity_level in ('sedentary', 'lightly_active', 'moderately_active', 'very_active'));
+alter table public.profiles alter column protein_target_g drop not null;
+alter table public.profiles alter column protein_target_g drop default;
+
+-- Health & nutrition priorities. Two SEPARATE jsonb arrays, both explicit and
+-- user-entered, never inferred:
+--   * health_conditions: optional context (high_blood_pressure,
+--     prediabetes_or_diabetes, high_cholesterol). Never sent to the recommender;
+--     a condition can only suggest a priority, which the user must confirm.
+--   * nutrition_priorities: what the user confirmed they want to limit
+--     (lower_sodium, limit_added_sugar, lower_saturated_fat). This is what the
+--     recommender reads, as strong guidance (not a hard constraint).
+-- Unsupported values are dropped by the app on read and save. Old rows get [].
+alter table public.profiles
+  add column if not exists health_conditions   jsonb not null default '[]'::jsonb,
+  add column if not exists nutrition_priorities jsonb not null default '[]'::jsonb;
+
 -- ---------------------------------------------------------------------------
 -- pantry_items — LEGACY, UNUSED BY THIS CODE. No app code in this branch
 -- reads or writes this table; kitchen_staples (below) replaces it — see
@@ -151,6 +186,64 @@ create index if not exists meal_feedback_user_idx
   on public.meal_feedback (user_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
+-- place_feedback — "not for me" on a real nearby place. Personal and
+-- per-user: the user's own opinion, never a public or verified fact about the
+-- place. Keyed by the provider's place id (plus the provider), never the
+-- name. meal_feedback can't hold this: it is one write-once row per session
+-- about "did you eat it", with no place id. `action` is derived from `reason`
+-- in app code (places/feedback.ts); one row per place, latest answer wins.
+--   exclude  — never recommend this place to this user (until they undo it)
+--   downrank — rank it lower; still eligible
+-- ---------------------------------------------------------------------------
+create table if not exists public.place_feedback (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid        not null references auth.users (id) on delete cascade,
+  provider    text        not null default 'google_places',
+  place_id    text        not null,
+  action      text        not null check (action in ('exclude', 'downrank')),
+  reason      text        not null check (reason in ('closed', 'dont_like', 'too_expensive', 'bad_experience', 'other')),
+  created_at  timestamptz not null default now(),
+  unique (user_id, provider, place_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- saved_recipes / saved_places — "Saved": things the user wants to come back
+-- to. Explicit interest only — not picked, not ate, not loved, and not (yet)
+-- read by any ranking. created_at is the saved-at time. Two tables because the
+-- identities differ; neither is the legacy `recipes` Recipe Inbox table, which
+-- holds raw captured text, not generated recommendations.
+--   saved_recipes: `recipe` is the canonical Cook recommendation, verbatim.
+--     recipe_key is a sha256 of its title + ingredients + steps (app code,
+--     lib/saved/saved.ts), so saving the same recipe twice is one row.
+--   saved_places: keyed by the provider's place id (never the name).
+-- ---------------------------------------------------------------------------
+create table if not exists public.saved_recipes (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid        not null references auth.users (id) on delete cascade,
+  recipe_key  text        not null,
+  recipe      jsonb       not null,
+  created_at  timestamptz not null default now(),
+  unique (user_id, recipe_key)
+);
+create index if not exists saved_recipes_user_idx on public.saved_recipes (user_id, created_at desc);
+
+create table if not exists public.saved_places (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid        not null references auth.users (id) on delete cascade,
+  provider    text        not null default 'google_places',
+  place_id    text        not null,
+  name        text        not null,
+  address     text,
+  category    text,
+  maps_url    text,
+  website_url text,
+  look_for    text,       -- the "what to look for" guidance as saved; guidance, not a menu item
+  created_at  timestamptz not null default now(),
+  unique (user_id, provider, place_id)
+);
+create index if not exists saved_places_user_idx on public.saved_places (user_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
 alter table public.profiles          enable row level security;
@@ -159,6 +252,9 @@ alter table public.kitchen_staples   enable row level security;
 alter table public.recipes           enable row level security;
 alter table public.decision_sessions enable row level security;
 alter table public.meal_feedback     enable row level security;
+alter table public.place_feedback    enable row level security;
+alter table public.saved_recipes     enable row level security;
+alter table public.saved_places      enable row level security;
 
 -- profiles is keyed on id (which IS the auth user id), the rest on user_id.
 drop policy if exists "own profile" on public.profiles;
@@ -184,6 +280,18 @@ create policy "own sessions" on public.decision_sessions
 
 drop policy if exists "own feedback" on public.meal_feedback;
 create policy "own feedback" on public.meal_feedback
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own place feedback" on public.place_feedback;
+create policy "own place feedback" on public.place_feedback
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own saved recipes" on public.saved_recipes;
+create policy "own saved recipes" on public.saved_recipes
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own saved places" on public.saved_places;
+create policy "own saved places" on public.saved_places
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
@@ -214,6 +322,50 @@ grant select, insert, update, delete on public.kitchen_staples   to authenticate
 grant select, insert, update, delete on public.recipes           to authenticated;
 grant select, insert, update, delete on public.decision_sessions to authenticated;
 grant select, insert, update, delete on public.meal_feedback     to authenticated;
+grant select, insert, update, delete on public.place_feedback    to authenticated;
+grant select, insert, update, delete on public.saved_recipes     to authenticated;
+grant select, insert, update, delete on public.saved_places      to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- recipe_images — shared cache of generated recipe pictures (see
+-- supabase/migrations/2026-10-02_recipe_images.sql for the design and the
+-- trade-off). Not user data: no user_id, not in accountData.ts.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.recipe_images (
+  cache_key      text primary key check (cache_key ~ '^[0-9a-f]{64}$'),
+  storage_path   text        not null check (storage_path like cache_key || '.%'),
+  model          text        not null,
+  prompt_version smallint    not null,
+  title          text        not null,
+  created_at     timestamptz not null default now()
+);
+
+alter table public.recipe_images enable row level security;
+
+drop policy if exists "recipe images are readable" on public.recipe_images;
+create policy "recipe images are readable" on public.recipe_images
+  for select to authenticated using (true);
+
+drop policy if exists "recipe images can be added" on public.recipe_images;
+create policy "recipe images can be added" on public.recipe_images
+  for insert to authenticated with check (true);
+
+grant select, insert on public.recipe_images to authenticated;
+
+-- The bucket. Public read; no update, no delete for anyone but the owner role.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('recipe-images', 'recipe-images', true, 1048576, array['image/webp', 'image/jpeg', 'image/png'])
+on conflict (id) do nothing;
+
+drop policy if exists "recipe images are public" on storage.objects;
+create policy "recipe images are public" on storage.objects
+  for select using (bucket_id = 'recipe-images');
+
+drop policy if exists "signed-in users add recipe images" on storage.objects;
+create policy "signed-in users add recipe images" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'recipe-images' and name ~ '^[0-9a-f]{64}\.(webp|jpg|png)$');
 
 -- ---------------------------------------------------------------------------
 -- keep profiles.updated_at honest

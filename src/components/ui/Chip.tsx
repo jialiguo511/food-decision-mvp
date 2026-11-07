@@ -17,7 +17,7 @@ export default function Chip({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`rounded-full border px-3.5 py-2 text-left text-sm transition-colors ${
+      className={`min-h-11 rounded-full border px-4 py-2 text-left text-sm transition-colors ${
         selected
           ? "border-accent bg-accent-soft font-medium text-accent"
           : "border-line bg-card text-ink hover:border-muted"

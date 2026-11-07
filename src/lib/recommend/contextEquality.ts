@@ -27,7 +27,7 @@ export function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
       a.craving_note === b.craving_note &&
       a.method === b.method &&
       a.meal_budget === b.meal_budget &&
-      // Compared as it would be searched: only Eat nearby reads it.
+      // Compared as it would be searched: Eat nearby and Pickup read it.
       effectiveTravel(a) === effectiveTravel(b)
     );
   }

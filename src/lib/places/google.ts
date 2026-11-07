@@ -120,7 +120,33 @@ export function normalizeGooglePlace(raw: unknown): NearbyPlace | null {
     open_now: openNow,
     price_level: typeof raw.priceLevel === "string" ? (PRICE_LEVELS[raw.priceLevel] ?? null) : null,
     maps_url: mapsUrl(id, name, raw.googleMapsUri),
+    website_url: websiteUrl(raw.websiteUri),
+    ...firstPhoto(raw.photos),
   };
+}
+
+/** The first photo's reference and credit. Only a reference of the exact form
+ *  `places/<id>/photos/<ref>` is kept — it becomes part of a request path later,
+ *  so anything else is "no photo". */
+function firstPhoto(photos: unknown): { photo_name: string | null; photo_author: string | null } {
+  const first = Array.isArray(photos) && isRecord(photos[0]) ? photos[0] : null;
+  const name = first && typeof first.name === "string" && /^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/.test(first.name) ? first.name : null;
+  if (!name) return { photo_name: null, photo_author: null };
+  const attributions = isRecord(first) && Array.isArray(first.authorAttributions) ? first.authorAttributions : [];
+  const author = isRecord(attributions[0]) ? cleanText(attributions[0].displayName, 60) : null;
+  return { photo_name: name, photo_author: author };
+}
+
+/** The place's own site, only when it parses as http(s). Anything else
+ *  (missing, malformed, javascript:, a bare string) is "no website". */
+function websiteUrl(websiteUri: unknown): string | null {
+  if (typeof websiteUri !== "string" || websiteUri.length > 500) return null;
+  try {
+    const url = new URL(websiteUri);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Google's own link when it's a real https URL; otherwise the documented

@@ -1,56 +1,55 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ImageResult } from "@/lib/images";
+import { useEffect, useRef, useState } from "react";
+import { useNearViewport } from "@/components/useNearViewport";
+import type { RecipeImageResult } from "@/lib/images";
 
-type ImageState =
-  | { status: "loading" }
-  | { status: "empty" }
-  | { status: "loaded"; result: ImageResult };
+type ImageState = { status: "waiting" } | { status: "loading" } | { status: "empty" } | { status: "loaded"; result: RecipeImageResult };
 
 /**
- * Cook-only recommendation image, fetched from /api/image on mount — never
- * from /api/recommend, which stays independent of image lookup. Renders a
- * fixed-size skeleton while loading and the same clean fallback on "no
- * image" or any fetch failure, so the card is fully usable either way.
+ * Cook-only recommendation image. The card's text is already on screen; this
+ * asks /api/image for the picture afterwards — never from /api/recommend — by
+ * (session, card), so the server reads the recipe itself. The server tries a
+ * relevant real photo, then a previously generated image, then generates one
+ * (once, cached for everyone). While that runs the card shows a quiet
+ * placeholder; the picture fades in over it when it arrives; any failure
+ * leaves the same clean no-photo band. The card is fully usable throughout.
  */
+export type RecipeImageTarget =
+  /** A card of one of the user's recommendation sessions. */
+  | { session_id: string; index: number }
+  /** A row of the user's Saved recipes. */
+  | { saved_id: string };
+
 export default function RecipeImage({
-  query,
+  target,
   size,
 }: {
-  /** A Cook recommendation's image_query. Null on sessions saved before the
-   *  field existed — treated the same as "no image found". */
-  query: string | null;
+  /** What to draw — the server reads the recipe itself from the user's own rows. */
+  target: RecipeImageTarget;
   /** best_match gets the larger image; the other two roles get a compact one. */
   size: "large" | "thumbnail";
 }) {
-  const [state, setState] = useState<ImageState>(query ? { status: "loading" } : { status: "empty" });
+  const [state, setState] = useState<ImageState>({ status: "waiting" });
+  const box = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(box);
+  const key = "saved_id" in target ? `saved:${target.saved_id}` : `${target.session_id}:${target.index}`;
 
   useEffect(() => {
-    if (!query) {
-      setState({ status: "empty" });
-      return;
-    }
+    if (!near) return;
     let cancelled = false;
     setState({ status: "loading" });
 
-    fetch(`/api/image?q=${encodeURIComponent(query)}`)
+    fetch("/api/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(target),
+    })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { url: string | null } & Partial<ImageResult>) => {
+      .then((data: ({ url: string | null } & Record<string, unknown>) | null) => {
         if (cancelled) return;
-        if (data?.url && data.photographerName && data.photographerUrl && data.sourceUrl) {
-          setState({
-            status: "loaded",
-            result: {
-              url: data.url,
-              photographerName: data.photographerName,
-              photographerUrl: data.photographerUrl,
-              sourceUrl: data.sourceUrl,
-            },
-          });
-        } else {
-          setState({ status: "empty" });
-        }
+        const result = toResult(data);
+        setState(result ? { status: "loaded", result } : { status: "empty" });
       })
       .catch(() => {
         if (!cancelled) setState({ status: "empty" });
@@ -59,45 +58,79 @@ export default function RecipeImage({
     return () => {
       cancelled = true;
     };
-  }, [query]);
+    // The target's parts, not the object: a new object each render must not refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [near, key]);
 
-  // Thumbnail is narrower than before (140px, was 200px) so best_match plus
-  // two secondary images don't stack up into an excessively long mobile
-  // page — a little more compact, not a different shape (still landscape,
-  // matching what Pexels was asked to search for).
-  const boxClass = `w-full overflow-hidden rounded-xl bg-accent-soft/40 ${
-    size === "large" ? "aspect-video" : "aspect-[4/3] max-w-[140px]"
-  }`;
+  // The no-photo state is deliberate, not a broken image: a short, quiet band
+  // with a plate icon — constant height from card to card, never pretending to
+  // be a photo of this dish. While the picture is on its way a photo-shaped
+  // placeholder holds the space so nothing jumps when it arrives.
+  const photoBox = `w-full overflow-hidden rounded-xl bg-accent-soft/40 ${size === "large" ? "aspect-video" : "aspect-[4/3] max-w-[140px]"}`;
 
-  if (state.status === "loading") {
-    return <div className={`${boxClass} mb-3 animate-pulse`} aria-hidden="true" />;
+  if (state.status === "waiting" || state.status === "loading") {
+    return <div ref={box} className={`${photoBox} mb-3 ${state.status === "loading" ? "animate-pulse" : ""}`} aria-hidden="true" />;
   }
 
   if (state.status === "empty") {
     return (
-      <div className={`${boxClass} mb-3 flex items-center justify-center`} aria-hidden="true">
-        <span className="text-2xl opacity-40">🍽️</span>
+      <div className="mb-3 flex h-14 w-full items-center gap-3 rounded-xl bg-accent-soft/40 px-4 text-accent/70" aria-hidden="true">
+        <PlateIcon />
+        <span className="text-xs">No photo for this one</span>
       </div>
     );
   }
 
-  const { url, photographerName, photographerUrl, sourceUrl } = state.result;
+  const { result } = state;
   return (
     <figure className="mb-3">
-      <div className={boxClass}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- external, unconfigured host; kept simple for MVP */}
-        <img src={url} alt="" className="h-full w-full object-cover" />
+      <div className={photoBox}>
+        <FadeInImage src={result.url} />
       </div>
       <figcaption className="mt-1 text-[11px] text-muted">
-        Photo by{" "}
-        <a href={photographerUrl} target="_blank" rel="noopener noreferrer" className="underline">
-          {photographerName}
-        </a>{" "}
-        on{" "}
-        <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
-          Pexels
-        </a>
+        {result.source === "generated" ? (
+          "Illustration generated for this recipe"
+        ) : (
+          <>
+            Photo by{" "}
+            <a href={result.photographerUrl} target="_blank" rel="noopener noreferrer" className="underline">
+              {result.photographerName}
+            </a>{" "}
+            on{" "}
+            <a href={result.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">
+              Pexels
+            </a>
+          </>
+        )}
       </figcaption>
     </figure>
+  );
+}
+
+/** Fades in once the bytes have arrived, over the placeholder behind it. */
+function FadeInImage({ src }: { src: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- external, unconfigured host; kept simple for MVP
+    <img src={src} alt="" onLoad={() => setShown(true)} className={`h-full w-full object-cover transition-opacity duration-500 ${shown ? "opacity-100" : "opacity-0"}`} />
+  );
+}
+
+/** The route's response → a result, or null for "no image" in any form. */
+export function toResult(data: ({ url: string | null } & Record<string, unknown>) | null): RecipeImageResult | null {
+  if (!data?.url || typeof data.url !== "string") return null;
+  if (data.source === "generated") return { source: "generated", url: data.url };
+  if (typeof data.photographerName === "string" && typeof data.photographerUrl === "string" && typeof data.sourceUrl === "string") {
+    return { source: "photo", url: data.url, photographerName: data.photographerName, photographerUrl: data.photographerUrl, sourceUrl: data.sourceUrl };
+  }
+  return null;
+}
+
+function PlateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="4.5" />
+    </svg>
   );
 }

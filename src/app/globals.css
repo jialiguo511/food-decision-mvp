@@ -23,8 +23,7 @@ body {
   background-color: var(--color-cream);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  /* Room for the fixed bottom nav on phones. */
-  padding-bottom: env(safe-area-inset-bottom);
+  /* Room for the fixed bottom nav is reserved by AppShell's <main>. */
 }
 
 /* Keep iOS from zooming when a text input is focused. */
@@ -32,4 +31,53 @@ input,
 textarea,
 select {
   font-size: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. Short and functional only: a question sliding in, a card revealing
+   its details, a skeleton pulsing. Everything collapses to an instant change
+   for people who ask the OS for reduced motion.
+   ------------------------------------------------------------------------- */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-step-in {
+  animation: step-in 200ms ease-out both;
+}
+.animate-fade-in {
+  animation: fade-in 200ms ease-out both;
+}
+
+/* Horizontal card carousel: native swipe via scroll-snap, no scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }

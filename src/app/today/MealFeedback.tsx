@@ -14,6 +14,7 @@ import {
 } from "@/lib/options";
 import type { DecisionMode } from "@/lib/types";
 import { recordMealFeedback, setMealFeedbackNote } from "./actions";
+import { friendlyActionError } from "./results/errorCopy";
 
 export type FeedbackData = {
   /** meal_feedback.id, once a row exists. Null means nothing recorded yet. */
@@ -24,7 +25,7 @@ export type FeedbackData = {
 
 /**
  * The core loop's final step. Shown once a card is selected — see
- * RecommendationResults. Writes to the existing meal_feedback table only; no
+ * results/ResultsScreen.tsx. Writes to the existing meal_feedback table only; no
  * new schema, no rating, no comments.
  *
  * The three modes ask different questions here, not just different labels on
@@ -58,7 +59,7 @@ export default function MealFeedback({
   sessionId: string;
   mealTitle: string;
   decisionMode: DecisionMode;
-  /** The session came from "Find food near me" — see RecommendationResults. */
+  /** The session came from a nearby search — see results/sessionKind.ts. */
   nearby?: boolean;
   initial: FeedbackData;
 }) {
@@ -76,9 +77,9 @@ export default function MealFeedback({
     try {
       const result = await recordMealFeedback(sessionId, mealTitle, didEat);
       if (result.ok) setFeedback({ id: result.id, didEat: result.didEat, note: result.note });
-      else setError(result.error);
+      else setError(friendlyActionError(result.error, "Couldn't save your answer. Please try again."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save your answer.");
+      setError(friendlyActionError(err instanceof Error ? err.message : "", "Couldn't save your answer. Please try again."));
     } finally {
       setSaving(false);
       answering.current = false;
@@ -93,9 +94,9 @@ export default function MealFeedback({
     try {
       const result = await setMealFeedbackNote(feedback.id, note);
       if (result.ok) setFeedback((current) => ({ ...current, note }));
-      else setError(result.error);
+      else setError(friendlyActionError(result.error, "Couldn't save your answer. Please try again."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save.");
+      setError(friendlyActionError(err instanceof Error ? err.message : "", "Couldn't save your answer. Please try again."));
     } finally {
       setSaving(false);
       noting.current = false;
@@ -120,14 +121,14 @@ export default function MealFeedback({
     try {
       const result = await recordMealFeedback(sessionId, mealTitle, true);
       if (!result.ok) {
-        setError(result.error);
+        setError(friendlyActionError(result.error, "Couldn't save your answer. Please try again."));
         return;
       }
       const noteResult = await setMealFeedbackNote(result.id, value);
       setFeedback({ id: result.id, didEat: true, note: noteResult.ok ? value : result.note });
-      if (!noteResult.ok) setError(noteResult.error);
+      if (!noteResult.ok) setError(friendlyActionError(noteResult.error, "Couldn't save your answer. Please try again."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save your answer.");
+      setError(friendlyActionError(err instanceof Error ? err.message : "", "Couldn't save your answer. Please try again."));
     } finally {
       setSaving(false);
       answering.current = false;

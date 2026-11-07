@@ -2,7 +2,8 @@
 // Cook's budget (extra spend on missing ingredients). See types.ts → MealBudget.
 
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PROFILE, MEAL_BUDGETS } from "../options";
+import { MEAL_BUDGETS } from "../options";
+import { DEFAULT_PROFILE } from "@/test/profileInput";
 import type { PlaceCandidate } from "../places/candidates";
 import type { MealBudget, MealContext, OrderContext, PlacePriceLevel, ProfileInput } from "../types";
 import { budgetFit } from "./budget";
@@ -38,6 +39,7 @@ function candidate(id: string, price_level: PlacePriceLevel | null): PlaceCandid
     open_now: true,
     price_level,
     maps_url: `https://www.google.com/maps/search/?api=1&query_place_id=${id}`,
+    website_url: null,
     distance_m: 300,
   };
 }
@@ -58,7 +60,7 @@ describe("Eat out context carries the meal budget", () => {
     const input = resolveRecommendationInput(profile, orderContext(band));
     if (input.decision_mode !== "order") throw new Error("expected order input");
     expect(input.soft_preferences.meal_budget).toBe(band);
-    expect(buildUserMessage(input)).toContain(`"meal_budget": "${band}"`);
+    expect(buildUserMessage(input)).toContain(`"meal_budget":"${band}"`);
   });
 
   it("nearby flow: the same band reaches the model input", () => {
@@ -220,7 +222,7 @@ describe("category-based order mode uses the meal budget as feasibility", () => 
     const input = resolveRecommendationInput(profile, orderContext("no_preference"));
     if (input.decision_mode !== "order") throw new Error("expected order input");
     // Everything else about the request is exactly what it was before budget existed.
-    expect(input.hard_constraints).toEqual({ decision_mode: "order", avoid: profile.dislikes });
+    expect(input.hard_constraints).toEqual({ decision_mode: "order", allergies: profile.allergies, dietary: { patterns: [], other: null } });
     expect(input.soft_preferences).toMatchObject({ hunger: "normal", craving_category: "warm_comforting", method: "delivery" });
     expect(recommendRequestSchema.safeParse({ context: orderContext("no_preference") }).success).toBe(true);
   });
@@ -265,7 +267,7 @@ describe("no unsupported price claims", () => {
 
   it("the model input never contains a dollar figure for a budget, only the band name", () => {
     const message = buildUserMessage(resolveRecommendationInput(profile, orderContext("under_15")));
-    expect(message).toContain('"meal_budget": "under_15"');
+    expect(message).toContain('"meal_budget":"under_15"');
     expect(message).not.toMatch(/\$\s?\d/);
   });
 });

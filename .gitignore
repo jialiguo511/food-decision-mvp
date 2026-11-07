@@ -14,3 +14,6 @@ next-env.d.ts
 .vercel
 npm-debug.log*
 yarn-error.log*
+
+# model benchmark output (npm run bench:recommend)
+bench-results/

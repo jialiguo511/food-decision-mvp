@@ -12,6 +12,9 @@ export type PlaceCandidate = NearbyPlace & {
   /** Approximate straight-line distance in meters (rounded), or null if the
    *  place has no coordinates. */
   distance_m: number | null;
+  /** True when this user marked the place "not for me" softly (too expensive,
+   *  other): it stays eligible but feasibility ranks it lower. */
+  user_downranked?: boolean;
 };
 
 const EXCLUDED = new Set<string>(EXCLUDED_PRIMARY_TYPES);
@@ -19,7 +22,7 @@ const EXCLUDED = new Set<string>(EXCLUDED_PRIMARY_TYPES);
 export function buildCandidates(
   places: readonly NearbyPlace[],
   origin: SearchLocation,
-  options: { excludeIds?: ReadonlySet<string>; max?: number } = {},
+  options: { excludeIds?: ReadonlySet<string>; downrankIds?: ReadonlySet<string>; max?: number } = {},
 ): PlaceCandidate[] {
   const withDistance = places
     .filter((p) => p.operational !== false) // closed temporarily or permanently
@@ -29,6 +32,7 @@ export function buildCandidates(
     .map((p): PlaceCandidate => ({
       ...p,
       distance_m: p.location ? roundDistance(distanceMeters(origin, p.location)) : null,
+      ...(options.downrankIds?.has(p.id) ? { user_downranked: true } : {}),
     }))
     .sort((a, b) => (a.distance_m ?? Infinity) - (b.distance_m ?? Infinity));
 

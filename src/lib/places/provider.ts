@@ -25,6 +25,15 @@ export type NearbyPlace = {
   price_level: PlacePriceLevel | null;
   /** https link that opens this place in Google Maps. */
   maps_url: string;
+  /** The place's own website, when the provider has one (http/https only).
+   *  Not a menu or ordering link — only ever labeled "Website". */
+  website_url: string | null;
+  /** The provider's reference to the place's first photo
+   *  (`places/<id>/photos/<ref>`), not a URL — the image is fetched separately,
+   *  server-side, only for a card actually shown. null = no photo. */
+  photo_name?: string | null;
+  /** Who took it, as the provider requires it credited. */
+  photo_author?: string | null;
 };
 
 export type PlacesSearchParams = {

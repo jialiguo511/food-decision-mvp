@@ -8,9 +8,11 @@ const CONSTRAINTS: CookConstraints = {
   budget_usd: 50,
   budget_source: "profile",
   equipment: [],
+  equipment_known: false,
   no_cooking: true,
   no_shopping: false,
-  avoid: [],
+  allergies: [],
+  dietary: { patterns: [], other: null },
 };
 
 function cookFields(overrides: { title: string; steps: string[] }) {
@@ -45,8 +47,8 @@ function rawResponse(steps: {
 
 describe("stripLeakedImageQueryStep", () => {
   it("removes an exact, case-insensitive, whitespace-padded 'image_query' entry", () => {
-    expect(stripLeakedImageQueryStep(["Toast the bread.", "image_query"])).toEqual(["Toast the bread."]);
-    expect(stripLeakedImageQueryStep(["Toast the bread.", "  Image_Query  "])).toEqual(["Toast the bread."]);
+    expect(stripLeakedImageQueryStep(["Slice the bread.", "image_query"])).toEqual(["Slice the bread."]);
+    expect(stripLeakedImageQueryStep(["Slice the bread.", "  Image_Query  "])).toEqual(["Slice the bread."]);
   });
 
   it("does not touch a real step that merely mentions the phrase", () => {
@@ -55,7 +57,7 @@ describe("stripLeakedImageQueryStep", () => {
   });
 
   it("leaves normal steps untouched", () => {
-    const steps = ["Toast the bread.", "Spread peanut butter."];
+    const steps = ["Slice the bread.", "Spread peanut butter."];
     expect(stripLeakedImageQueryStep(steps)).toEqual(steps);
   });
 });
@@ -63,9 +65,9 @@ describe("stripLeakedImageQueryStep", () => {
 describe("parseRecommendations — image_query leak into steps", () => {
   it("reproduces and sanitizes the reported bug: a stray 'image_query' step is stripped, not shown", () => {
     const text = rawResponse({
-      best_match: ["Toast the bread.", "Spread peanut butter and honey.", "image_query"],
+      best_match: ["Slice the bread.", "Spread peanut butter and honey.", "image_query"],
       lowest_effort: ["Mix yogurt and oats."],
-      alternative: ["Scramble the eggs.", "Serve with toast."],
+      alternative: ["Slice the cucumber.", "Serve with toast."],
     });
 
     const result = parseRecommendations(text, CONSTRAINTS);
@@ -73,17 +75,17 @@ describe("parseRecommendations — image_query leak into steps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const bestMatch = result.recommendations.find((r) => r.role === "best_match") as CookRecommendation;
-    expect(bestMatch.steps).toEqual(["Toast the bread.", "Spread peanut butter and honey."]);
+    expect(bestMatch.steps).toEqual(["Slice the bread.", "Spread peanut butter and honey."]);
     // Nothing in the other two recommendations should be touched.
     const alternative = result.recommendations.find((r) => r.role === "alternative") as CookRecommendation;
-    expect(alternative.steps).toEqual(["Scramble the eggs.", "Serve with toast."]);
+    expect(alternative.steps).toEqual(["Slice the cucumber.", "Serve with toast."]);
   });
 
   it("fails visibly, rather than rendering an empty recipe, if sanitizing empties a recommendation's steps", () => {
     const text = rawResponse({
       best_match: ["image_query"],
       lowest_effort: ["Mix yogurt and oats."],
-      alternative: ["Scramble the eggs."],
+      alternative: ["Slice the cucumber."],
     });
 
     const result = parseRecommendations(text, CONSTRAINTS);

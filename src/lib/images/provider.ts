@@ -15,6 +15,13 @@ export type ImageResult = {
   sourceUrl: string;
 };
 
+/** What a recipe card's image can be: a real photo (with its required
+ *  attribution) or an image generated for that recipe, which is labelled as
+ *  such and has no photographer. */
+export type RecipeImageResult =
+  | ({ source: "photo" } & ImageResult)
+  | { source: "generated"; url: string };
+
 export interface ImageProvider {
   resolve(query: string): Promise<ImageResult | null>;
 }

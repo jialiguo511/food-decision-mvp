@@ -7,8 +7,8 @@ constraints you actually have tonight.
 
 | file | what it covers |
 |---|---|
-| [`PRODUCT.md`](PRODUCT.md) | Product thesis, target user, principles, MVP, non-goals |
-| [`PLAN.md`](PLAN.md) | Current roadmap — NOW / NEXT / LATER / NOT NOW |
+| [`PRODUCT.md`](PRODUCT.md) | Product thesis, strategy (wedge vs. long-term product), target user, principles, success measures, MVP, non-goals |
+| [`PLAN.md`](PLAN.md) | Current roadmap — NOW / NEXT / LATER / NOT NOW, plus the four strategic stages |
 | [`PERSONALIZATION.md`](PERSONALIZATION.md) | How the product remembers and learns — explicit, routine, behavioral memory |
 | [`CLAUDE.md`](CLAUDE.md) | Coding and product rules for AI-assisted development |
 | [`LEARNINGS.md`](LEARNINGS.md) | Evidence and product learnings |
@@ -33,6 +33,10 @@ npm install
    and hit **Run**. This creates the five tables and the security policies.
    It is safe to re-run: if your database predates a newer column (such as
    `daily_calorie_target_kcal`), running the whole file again adds it.
+   **For an existing database, prefer the targeted migrations in
+   `supabase/migrations/`** — each is self-contained, idempotent and touches
+   only its own tables (`2026-09-30_place_feedback.sql`, then
+   `2026-09-30_saved.sql`).
 3. Go to **Project Settings → API** and copy the **Project URL** and the
    **anon public** key.
 
@@ -70,7 +74,7 @@ up.
 4. Put it in `.env.local` as `GOOGLE_PLACES_API_KEY=...` — no `NEXT_PUBLIC_`
    prefix, and never commit it. On Vercel, add the same variable and redeploy.
 5. Each tap is one Nearby Search request (up to 20 places). The field mask
-   intentionally includes two Enterprise-tier fields (open-now and price level)
+   intentionally includes Enterprise-tier fields (open-now, price level, and website)
    for MVP usefulness, so each request bills at the Enterprise tier. That is a
    deliberate cost/utility tradeoff, centralized in `src/lib/places/config.ts`
    so it can be changed later — revisit it if usage scales.
@@ -108,8 +112,8 @@ Enter your email and click the button. Supabase emails you a one-time link.
 - Make sure `http://localhost:3000/**` is listed under
   **Authentication → URL Configuration → Redirect URLs**.
 
-After clicking the link you land on `/today`. Tap **Profile** in the bottom
-bar to use the page that's actually built.
+After clicking the link you land on `/today` (labelled **Home** in the app).
+Tap **Me** in the bottom bar to set your Food Profile.
 
 ---
 
@@ -118,11 +122,15 @@ bar to use the page that's actually built.
 | URL | State |
 |---|---|
 | `/login` | Magic-link sign-in |
-| **`/today`** | **Built** — time, hunger, effort, craving, ingredients, budget override. `Find my meal` shows the captured context; it does not call an LLM yet |
-| `/results` | Placeholder (NOW — the recommendation flow) |
-| `/inbox` | Placeholder (NEXT) |
-| `/my-food` | Placeholder (NEXT) |
-| **`/profile`** | **Built** — set goal, protein, optional daily calories, budget, cuisines, dislikes, equipment, fridge, time |
+| **`/today`** (Home) | **Built** — one decision per screen: Make something / Get food / Grab a snack, then three recommendations |
+| `/plan` | Placeholder container (not built) |
+| `/groceries` | Placeholder container (not built) |
+| **`/saved`** | **Built** — recipes and places you saved to come back to |
+| **`/profile`** (Me) | **Built** — Food Profile, Kitchen staples, account & data |
+
+The earlier `/results`, `/inbox` and `/my-food` routes were removed; see
+`PLAN.md`. Where the product is headed — and what is deliberately *not* built
+yet — is in `PRODUCT.md` → "Strategy".
 
 To confirm the profile actually persists: set some chips, press **Save
 profile**, reload the page — the choices come back. Then look at

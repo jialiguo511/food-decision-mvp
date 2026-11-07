@@ -2,30 +2,35 @@
 
 import { useState, useTransition } from "react";
 import Card from "@/components/ui/Card";
-import Slider from "@/components/ui/Slider";
-import TagInput from "@/components/ui/TagInput";
-import { MultiChipGroup, SingleChipGroup } from "@/components/ui/ChipGroup";
+import OptionalChoice from "@/components/ui/OptionalChoice";
+import { MultiChipGroup } from "@/components/ui/ChipGroup";
 import {
-  BUDGET_PER_MEAL,
+  COMMON_ALLERGIES,
   COMMON_DISLIKES,
   COOK_MINUTES,
   CUISINES,
-  EQUIPMENT,
+  EXTRAS_BUDGET_PRESETS,
   FRIDGE_SIZES,
   GOALS,
-  PROTEIN_TARGET,
 } from "@/lib/options";
-import type { FridgeSize, Goal, ProfileInput } from "@/lib/types";
+import type { FridgeSize, Goal, ProfileFormValues } from "@/lib/types";
 import { saveProfile } from "./actions";
-import CalorieTargetField from "./CalorieTargetField";
+import DietaryPicker from "./DietaryPicker";
+import EquipmentPicker from "./EquipmentPicker";
+import FoodTermsCard from "./FoodTermsCard";
+import HealthPrioritiesCard from "./HealthPrioritiesCard";
+import NutritionSection from "./NutritionSection";
+import ProfileSection from "./ProfileSection";
 
-export default function ProfileForm({ initial }: { initial: ProfileInput }) {
-  const [values, setValues] = useState<ProfileInput>(initial);
+/** `staples` is Kitchen staples, which saves itself as you edit it (unlike the
+ *  rest, which waits for "Save profile"), so it arrives as a slot. */
+export default function ProfileForm({ initial, staples }: { initial: ProfileFormValues; staples: React.ReactNode }) {
+  const [values, setValues] = useState<ProfileFormValues>(initial);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<null | { ok: boolean; message: string }>(null);
 
   // One helper instead of a dozen onChange handlers.
-  function set<K extends keyof ProfileInput>(key: K, value: ProfileInput[K]) {
+  function set<K extends keyof ProfileFormValues>(key: K, value: ProfileFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
     setStatus(null);
   }
@@ -41,106 +46,89 @@ export default function ProfileForm({ initial }: { initial: ProfileInput }) {
     });
   }
 
+  // A nudge only — we never move a dislike into Allergies ourselves. Before
+  // Profile v2 "Foods to avoid" was a hard list, so some users may have put an
+  // allergen there.
+  const allergenLikeDislikes = values.dislikes.filter((d) =>
+    COMMON_ALLERGIES.some((a) => a.toLowerCase() === d.toLowerCase()),
+  );
+
   return (
-    <div className="space-y-4">
-      <Card title="What are you going for?">
-        <SingleChipGroup
-          options={GOALS}
-          value={values.goal}
-          onChange={(value) => set("goal", value as Goal)}
+    <div className="space-y-8">
+      <ProfileSection title="Food preferences" caption="Always used in your suggestions">
+        <FoodTermsCard
+          title="Allergies"
+          hint="Never suggested. We can't verify ingredients, so always check labels yourself."
+          common={COMMON_ALLERGIES}
+          values={values.allergies}
+          placeholder="Another allergy…"
+          onChange={(next) => set("allergies", next)}
         />
-      </Card>
 
-      <Card title="Daily targets" hint="Rough numbers are fine — these are estimates.">
-        <div className="space-y-5">
-          <Slider
-            label="Protein target"
-            value={values.protein_target_g}
-            min={PROTEIN_TARGET.min}
-            max={PROTEIN_TARGET.max}
-            step={PROTEIN_TARGET.step}
-            format={(v) => `${v}g / day`}
-            onChange={(value) => set("protein_target_g", value)}
-          />
-          <CalorieTargetField
-            value={values.daily_calorie_target_kcal}
-            onChange={(value) => set("daily_calorie_target_kcal", value)}
-          />
-          <Slider
-            label="Normal budget per meal"
-            value={values.budget_per_meal_usd}
-            min={BUDGET_PER_MEAL.min}
-            max={BUDGET_PER_MEAL.max}
-            step={BUDGET_PER_MEAL.step}
-            format={(v) => `$${v}`}
-            onChange={(value) => set("budget_per_meal_usd", value)}
-          />
-        </div>
-      </Card>
+        <Card title="Dietary preferences" hint="Treated like allergies: we won't suggest anything that breaks them. We can't verify sourcing, so always check yourself.">
+          <DietaryPicker patterns={values.dietary_patterns} other={values.dietary_other} set={set} />
+        </Card>
 
-      <Card title="Cuisines you actually like" hint="Pick as many as you want.">
-        <MultiChipGroup
-          options={CUISINES}
-          values={values.cuisines}
-          onChange={(next) => set("cuisines", next)}
+        <FoodTermsCard
+          title="Foods I don't eat"
+          hint="A preference, not a safety rule — we'll steer away from these."
+          common={COMMON_DISLIKES}
+          values={values.dislikes}
+          placeholder="Something else…"
+          notice={allergenLikeDislikes.length > 0 ? `${allergenLikeDislikes.join(", ")} is listed here as a dislike. If it's an allergy, add it under Allergies — dislikes are only a preference.` : null}
+          onChange={(next) => set("dislikes", next)}
         />
-      </Card>
 
-      <Card title="Foods to avoid" hint="We will never suggest these.">
-        <MultiChipGroup
-          options={COMMON_DISLIKES}
-          values={values.dislikes.filter((d) =>
-            (COMMON_DISLIKES as readonly string[]).includes(d),
-          )}
-          onChange={(picked) => {
-            const custom = values.dislikes.filter(
-              (d) => !(COMMON_DISLIKES as readonly string[]).includes(d),
-            );
-            set("dislikes", [...picked, ...custom]);
-          }}
-        />
-        <div className="mt-3">
-          <TagInput
-            placeholder="Something else…"
-            values={values.dislikes.filter(
-              (d) => !(COMMON_DISLIKES as readonly string[]).includes(d),
-            )}
-            onChange={(custom) => {
-              const picked = values.dislikes.filter((d) =>
-                (COMMON_DISLIKES as readonly string[]).includes(d),
-              );
-              set("dislikes", [...picked, ...custom]);
-            }}
+        <Card title="Cuisines I like" hint="Pick as many as you want.">
+          <MultiChipGroup options={CUISINES} values={values.cuisines} onChange={(next) => set("cuisines", next)} />
+        </Card>
+
+        <HealthPrioritiesCard values={values} set={set} />
+      </ProfileSection>
+
+      <ProfileSection title="My goals" caption="Helps shape suggestions, and any calorie or protein estimates">
+        <Card>
+          <OptionalChoice options={GOALS} value={values.goal} onChange={(value) => set("goal", value as Goal | null)} />
+        </Card>
+      </ProfileSection>
+
+      <NutritionSection values={values} set={set} />
+
+      <ProfileSection title="Kitchen basics" caption="Used when you make something">
+        {staples}
+
+        <Card
+          title="What I can cook with"
+          hint="We only suggest meals you can actually make. Until you answer, we assume no appliance at all."
+        >
+          <EquipmentPicker values={values.equipment ?? []} onChange={(next) => set("equipment", next.length > 0 ? next : null)} />
+          {values.equipment === null && <p className="mt-2 text-xs text-muted">Not set</p>}
+        </Card>
+
+        <Card title="Fridge size">
+          <OptionalChoice options={FRIDGE_SIZES} value={values.fridge_size} onChange={(value) => set("fridge_size", value as FridgeSize | null)} />
+        </Card>
+
+        <Card title="Usual time to cook" hint="Your starting point when you cook — you can change it any time.">
+          <OptionalChoice
+            options={COOK_MINUTES.map((m) => ({ value: String(m), label: `${m} min` }))}
+            value={values.default_cook_minutes === null ? null : String(values.default_cook_minutes)}
+            onChange={(value) => set("default_cook_minutes", value === null ? null : Number(value))}
           />
-        </div>
-      </Card>
+        </Card>
 
-      <Card title="Your kitchen" hint="We only suggest meals you can actually make.">
-        <MultiChipGroup
-          options={EQUIPMENT}
-          values={values.equipment}
-          onChange={(next) => set("equipment", next)}
-        />
-        <div className="mt-5">
-          <p className="mb-2 text-sm">Fridge size</p>
-          <SingleChipGroup
-            options={FRIDGE_SIZES}
-            value={values.fridge_size}
-            onChange={(value) => set("fridge_size", value as FridgeSize)}
+        <Card title="Usual budget" hint="The most you'd spend on missing ingredients for one meal. Your starting point when you cook — you can change it any time.">
+          <OptionalChoice
+            options={budgetOptions(values.budget_per_meal_usd)}
+            value={values.budget_per_meal_usd === null ? null : String(values.budget_per_meal_usd)}
+            onChange={(value) => set("budget_per_meal_usd", value === null ? null : Number(value))}
           />
-        </div>
-      </Card>
+        </Card>
+      </ProfileSection>
 
-      <Card title="Usual time to cook" hint="You can override this any day on Today.">
-        <SingleChipGroup
-          options={COOK_MINUTES.map((m) => ({ value: String(m), label: `${m} min` }))}
-          value={String(values.default_cook_minutes)}
-          onChange={(value) => set("default_cook_minutes", Number(value))}
-        />
-      </Card>
-
-      {/* Sticky save bar so the button is always reachable on a phone. */}
-      <div className="sticky bottom-24 pt-2">
+      {/* Normal document flow, never sticky/fixed: a floating bar sat on top of
+          the cards below it (same rule as Home's buttons). */}
+      <div className="pt-2">
         <button
           type="button"
           onClick={submit}
@@ -162,4 +150,12 @@ export default function ProfileForm({ initial }: { initial: ProfileInput }) {
       </div>
     </div>
   );
+}
+
+/** The preset budgets, plus the stored value when it isn't one of them (e.g. a
+ *  number set before these presets existed), so it still shows as selected. */
+function budgetOptions(current: number | null) {
+  const values = new Set<number>(EXTRAS_BUDGET_PRESETS);
+  if (current !== null) values.add(current);
+  return [...values].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `$${n}` }));
 }

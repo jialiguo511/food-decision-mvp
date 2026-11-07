@@ -7,8 +7,8 @@ import SignOutButton from "@/components/SignOutButton";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { DEFAULT_PROFILE } from "@/lib/options";
-import type { ProfileInput } from "@/lib/types";
+import { toProfileFormValues } from "@/lib/profile";
+import AccountDataSection from "./AccountDataSection";
 import KitchenStaplesCard from "./KitchenStaplesCard";
 import ProfileForm from "./ProfileForm";
 
@@ -26,26 +26,10 @@ export default async function ProfilePage() {
     .eq("id", user.id)
     .maybeSingle();
 
-  // Merge whatever is stored over the defaults, so a brand-new user still
-  // gets a fully filled-in form.
-  const initial: ProfileInput = {
-    ...DEFAULT_PROFILE,
-    ...(data
-      ? {
-          display_name: data.display_name ?? null,
-          goal: data.goal,
-          protein_target_g: Number(data.protein_target_g),
-          daily_calorie_target_kcal:
-            data.daily_calorie_target_kcal == null ? null : Number(data.daily_calorie_target_kcal),
-          budget_per_meal_usd: Number(data.budget_per_meal_usd),
-          fridge_size: data.fridge_size,
-          default_cook_minutes: Number(data.default_cook_minutes),
-          cuisines: toStringArray(data.cuisines),
-          dislikes: toStringArray(data.dislikes),
-          equipment: toStringArray(data.equipment),
-        }
-      : {}),
-  };
+  // Raw stored values (manual targets stay null when unset, so the form can
+  // show the calculated suggestion). A brand-new user — or an old row with no
+  // Profile v2 columns — still gets a fully filled-in, valid form.
+  const initial = toProfileFormValues(data);
 
   const { data: staplesRows } = await supabase
     .from("kitchen_staples")
@@ -57,19 +41,11 @@ export default async function ProfilePage() {
   return (
     <AppShell
       title="My Food Profile"
-      subtitle="Set this once. Every suggestion respects it."
+      subtitle="What we always avoid, plus a few things that help us fit you."
       action={<SignOutButton />}
     >
-      <div className="space-y-4">
-        <ProfileForm initial={initial} />
-        <KitchenStaplesCard initial={kitchenStaples} />
-      </div>
+      <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} />
+      <AccountDataSection />
     </AppShell>
   );
-}
-
-/** JSONB comes back as unknown-shaped JSON; make sure it's string[]. */
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string");
 }

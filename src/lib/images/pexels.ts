@@ -35,10 +35,10 @@ type PexelsSearchResponse = {
 // Module-scoped so every createPexelsProvider() call (the route re-resolves
 // the provider per request — see index.ts) shares one cache for the life of
 // the server process. Keyed on the normalized query only, not the API key:
-// this product only ever configures one key at a time. Caches a "no result"
-// (null) for the same 24h TTL as a hit — simplest for MVP, at the cost of a
-// transient failure or a genuinely absent photo both being retried only once
-// a day; acceptable since this is decorative, not core-loop.
+// this product only ever configures one key at a time. A hit AND a definitive
+// "nothing relevant" (null) are cached for 24h. A transient failure (timeout,
+// rate limit, network error) is NOT cached — it used to be, which turned one
+// bad minute into a day of missing photos for that dish.
 const cache = new TtlCache<ImageResult | null>(ONE_DAY_MS);
 
 export function createPexelsProvider(apiKey: string): ImageProvider {
@@ -51,13 +51,17 @@ export function createPexelsProvider(apiKey: string): ImageProvider {
       if (cached !== undefined) return cached;
 
       const result = await fetchFromPexels(apiKey, normalized);
+      if (result === FAILED) return null;
       cache.set(normalized, result);
       return result;
     },
   };
 }
 
-async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResult | null> {
+/** A lookup that didn't complete — as opposed to one that did and found nothing. */
+const FAILED = Symbol("failed");
+
+async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResult | null | typeof FAILED> {
   const url = new URL(PEXELS_SEARCH_URL);
   url.searchParams.set("query", query);
   url.searchParams.set("orientation", "landscape");
@@ -73,7 +77,7 @@ async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResu
     });
     if (!response.ok) {
       console.warn("[images] Pexels request failed", { status: response.status });
-      return null;
+      return FAILED;
     }
 
     const data = (await response.json()) as PexelsSearchResponse;
@@ -81,7 +85,12 @@ async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResu
     // top hit — see relevance.ts. Null here means nothing in the candidate
     // pool reached the relevance bar: a fallback, not a wrong photo.
     const photo = selectRelevantPhoto(query, data.photos ?? [], (candidate) => candidate.alt ?? "");
-    if (!photo) return null;
+    if (!photo) {
+      // Worth knowing when images look sparse: was the pool empty, or did the
+      // relevance bar discard everything? (The alt text is Pexels' own.)
+      console.info("[images] no relevant photo", { query, candidates: (data.photos ?? []).length });
+      return null;
+    }
 
     return {
       url: photo.src.landscape ?? photo.src.large,
@@ -91,7 +100,7 @@ async function fetchFromPexels(apiKey: string, query: string): Promise<ImageResu
     };
   } catch (error) {
     console.warn("[images] Pexels request errored", error);
-    return null;
+    return FAILED;
   } finally {
     clearTimeout(timeout);
   }

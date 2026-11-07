@@ -4,7 +4,7 @@
 // same lists. Keeping one source of truth is what stops the model from being
 // asked about an "air fryer" the UI never offered.
 
-import type { CookShopping, CravingType, DecisionMode, Effort, FridgeSize, Goal, Hunger, MealBudget, OrderCravingCategory, OrderMethod, TravelWillingness } from "./types";
+import type { ActivityLevel, CookShopping, DietaryPattern, CravingType, DecisionMode, Effort, FridgeSize, Goal, HealthCondition, Hunger, NutritionPriority, MealBudget, OrderCravingCategory, OrderMethod, PlaceFeedbackReason, Sex, TravelWillingness } from "./types";
 
 export const GOALS: { value: Goal; label: string; hint: string }[] = [
   { value: "fat_loss", label: "Fat loss", hint: "Lower calories, high protein" },
@@ -47,17 +47,62 @@ export const EQUIPMENT = [
   "No cooking at all",
 ] as const;
 
-/** Starting points so the user can tap a chip instead of typing. */
+/** Starting points for the allergy chips — the common U.S. allergens, not a
+ *  food taxonomy. Anything else is typed. Allergies are a safety constraint;
+ *  see COMMON_DISLIKES for the separate, soft list. */
+export const COMMON_ALLERGIES = [
+  "Peanuts",
+  "Tree nuts",
+  "Shellfish",
+  "Fish",
+  "Dairy",
+  "Eggs",
+  "Soy",
+  "Wheat / gluten",
+  "Sesame",
+] as const;
+
+/** Starting points so the user can tap a chip instead of typing. A dislike is
+ *  a preference, not a safety rule ("Shellfish" lives in COMMON_ALLERGIES). */
 export const COMMON_DISLIKES = [
   "Cilantro",
   "Mushrooms",
   "Olives",
   "Blue cheese",
-  "Shellfish",
   "Very spicy",
   "Raw fish",
   "Liver / organ meat",
 ] as const;
+
+/** "Anything you're trying to limit?" — the only nutrition priorities the
+ *  product supports. Helper text is deliberately plain and non-alarming. */
+export const NUTRITION_PRIORITIES: { value: NutritionPriority; label: string; hint: string }[] = [
+  { value: "lower_sodium", label: "Sodium", hint: "Useful if you're watching blood pressure or heart health." },
+  { value: "limit_added_sugar", label: "Added sugar", hint: "Useful if you're watching blood sugar." },
+  { value: "lower_saturated_fat", label: "Saturated fat", hint: "Useful if you're watching cholesterol or heart health." },
+];
+
+/** Optional context only. Each can suggest a priority (see
+ *  nutritionPriorities.ts); none of them drives the recommender by itself. */
+export const HEALTH_CONDITIONS: { value: HealthCondition; label: string }[] = [
+  { value: "high_blood_pressure", label: "High blood pressure" },
+  { value: "prediabetes_or_diabetes", label: "Prediabetes or diabetes" },
+  { value: "high_cholesterol", label: "High cholesterol" },
+];
+
+/** "Sex used for the calculation" — see types.ts → Sex. */
+export const SEXES: { value: Sex; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+];
+
+/** Deliberately four coarse levels. Multipliers live in nutrition.ts. */
+export const ACTIVITY_LEVELS: { value: ActivityLevel; label: string; hint: string }[] = [
+  { value: "sedentary", label: "Sedentary", hint: "Desk job, little exercise" },
+  { value: "lightly_active", label: "Lightly active", hint: "Light exercise 1–3 days/week" },
+  { value: "moderately_active", label: "Moderately active", hint: "Exercise 3–5 days/week" },
+  { value: "very_active", label: "Very active", hint: "Hard exercise 6–7 days/week" },
+];
 
 export const PROTEIN_TARGET = { min: 60, max: 220, step: 5 };
 /** Accepted range for the optional daily calorie target. Matches the database
@@ -69,20 +114,36 @@ export const CALORIE_TARGET = { min: 1000, max: 5000 };
 export const BUDGET_PER_MEAL = { min: 0, max: 40, step: 1 };
 export const COOK_MINUTES = [10, 20, 30, 45, 60] as const;
 
-/** Used when a user has no profile row yet. Every field has a real default
- *  so someone can land on Today and press the button immediately. */
-export const DEFAULT_PROFILE = {
-  display_name: null,
+/**
+ * SYSTEM FALLBACKS — internal only. Used when a request needs a number the user
+ * has never given (the server resolving a stored session that predates a
+ * field, the recommender needing a goal). They are never shown as a choice,
+ * never labelled "usual", and never written to the Profile or to a session
+ * context: a fallback that reached any of those would read back later as
+ * something the user told us. See lib/profileProvenance.ts.
+ */
+export const SYSTEM_FALLBACKS = {
+  /** "Eat better" — no strict numbers; the neutral reading of "no goal". */
   goal: "general_health" as Goal,
-  protein_target_g: 120,
-  daily_calorie_target_kcal: null as number | null,
-  budget_per_meal_usd: 12,
-  fridge_size: "standard" as FridgeSize,
-  default_cook_minutes: 30,
-  cuisines: [] as string[],
-  dislikes: [] as string[],
-  equipment: ["Stovetop", "Microwave"] as string[],
+  /** A modest ceiling on extra spend, for a request that arrives with none. */
+  extras_budget_usd: 12,
 };
+
+/** Presets for "how much for extras" / the usual budget — what the user can tap
+ *  before any usual exists. Deliberately not preselected anywhere. */
+export const EXTRAS_BUDGET_PRESETS = [5, 10, 15, 25] as const;
+
+export const DIETARY_PATTERNS: { value: DietaryPattern; label: string }[] = [
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "vegan", label: "Vegan" },
+  { value: "pescatarian", label: "Pescatarian" },
+  { value: "halal", label: "Halal" },
+  { value: "kosher", label: "Kosher" },
+];
+
+/** Protein target used when the user has set none AND there is not enough body
+ *  information to suggest one — the long-standing default. */
+export const DEFAULT_PROTEIN_TARGET_G = 120;
 
 // ---------------------------------------------------------------------------
 // Today — the dynamic half of the context. Same rule as above: the chips the
@@ -105,10 +166,10 @@ export const EFFORT_LEVELS: { value: Effort; label: string; hint: string }[] = [
  *  budget slider on purpose — see types.ts → CookShopping. */
 export const COOK_SHOPPING_MODES: { value: CookShopping; label: string; hint: string }[] = [
   { value: "inventory_only", label: "Use what I have", hint: "No shopping tonight" },
-  { value: "can_buy", label: "I can buy a few things", hint: "Set a budget below" },
+  { value: "can_buy", label: "I can buy a few things", hint: "A quick stop for a few extras" },
 ];
 
-/** Craving presets. The user can also type their own — see TodayForm. */
+/** Craving presets. The user can also type their own — see flow/cookQuestions.tsx. */
 export const COMMON_CRAVINGS = [
   "Something warm",
   "Something fresh",
@@ -146,10 +207,10 @@ export const ORDER_CRAVINGS: { value: OrderCravingCategory; label: string }[] = 
   { value: "no_preference", label: "No strong preference" },
 ];
 
-export const ORDER_METHODS: { value: OrderMethod; label: string }[] = [
-  { value: "delivery", label: "Delivery" },
-  { value: "pickup", label: "Pickup / takeout" },
-  { value: "eat_nearby", label: "Eat nearby" },
+export const ORDER_METHODS: { value: OrderMethod; label: string; hint: string }[] = [
+  { value: "delivery", label: "Delivery", hint: "Brought to your door" },
+  { value: "pickup", label: "Pickup / takeout", hint: "Grab it and go" },
+  { value: "eat_nearby", label: "Eat nearby", hint: "Sit down somewhere close" },
 ];
 
 /** Approximate total food budget for one eat-out meal. Separate from the Cook
@@ -163,7 +224,7 @@ export const MEAL_BUDGETS: { value: MealBudget; label: string }[] = [
 
 export const DEFAULT_MEAL_BUDGET: MealBudget = "no_preference";
 
-/** "How far would you go?" — asked only for Eat nearby. The radius each choice
+/** "How far would you go?" — asked for Eat nearby and Pickup. The radius each choice
  *  maps to lives in places/config.ts, not here. */
 export const TRAVEL_OPTIONS: { value: TravelWillingness; label: string; hint?: string }[] = [
   { value: "walkable", label: "Walkable", hint: "A short walk" },
@@ -248,6 +309,18 @@ export const NEARBY_OUTCOMES: { value: string; label: string }[] = [
   { value: "ordered_it", label: "I went there" },
   { value: "ordered_similar", label: "I went somewhere similar" },
   { value: "didnt_order", label: "Didn't end up going" },
+];
+
+/** "Not for me" on a nearby place card. Each reason maps to exactly one action
+ *  (places/feedback.ts → actionForReason) — the user never chooses "hide" vs
+ *  "show less" themselves. Fixed reasons only: no free text, so nothing the
+ *  user writes about a business is ever stored or shown as if it were fact. */
+export const PLACE_FEEDBACK_REASONS: { value: PlaceFeedbackReason; label: string }[] = [
+  { value: "closed", label: "Closed" },
+  { value: "dont_like", label: "Don't like this place" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "bad_experience", label: "Bad experience" },
+  { value: "other", label: "Other" },
 ];
 
 /** Optional follow-up reason when the trip didn't happen. */

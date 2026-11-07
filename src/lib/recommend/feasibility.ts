@@ -21,6 +21,8 @@ export type FeasibilityPrefs = { meal_budget: MealBudget; travel: TravelWillingn
 export type Feasibility = {
   open: number;
   budget: number;
+  /** Zero, or negative when this user marked the place "not for me" softly. */
+  feedback: number;
   /** Zero or negative: how much the distance costs this user. */
   distance: number;
   score: number;
@@ -41,10 +43,11 @@ export function assessFeasibility(candidate: PlaceCandidate, prefs: FeasibilityP
   const open = candidate.open_now === true ? FEASIBILITY.open_now : 0;
   const budget = budgetScore(prefs.meal_budget, candidate.price_level);
   const distance = -distancePenalty(candidate.distance_m, prefs.travel);
-  const score = open + budget + distance;
+  const feedback = candidate.user_downranked ? FEASIBILITY.user_downrank : 0;
+  const score = open + budget + distance + feedback;
   const tier: FeasibilityTier =
     score >= FEASIBILITY.strong_at ? "strong" : score <= FEASIBILITY.weak_at ? "weak" : "ok";
-  return { open, budget, distance, score, tier };
+  return { open, budget, feedback, distance, score, tier };
 }
 
 export type Assessed = { candidate: PlaceCandidate; feasibility: Feasibility };

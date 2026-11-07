@@ -5,64 +5,52 @@
 // is no REST endpoint to write and no fetch() on the client.
 
 import { revalidatePath } from "next/cache";
-import { CALORIE_TARGET } from "@/lib/options";
+import { EQUIPMENT } from "@/lib/options";
+import { patchProfile, writeProfile } from "@/lib/profileStore";
 import { createClient } from "@/lib/supabase/server";
-import type { ProfileInput } from "@/lib/types";
+import type { ProfileFormValues } from "@/lib/types";
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
-export async function saveProfile(input: ProfileInput): Promise<SaveResult> {
-  // Unlike the sliders, this is typed, so an out-of-range value is rejected
-  // rather than clamped — silently saving a different number would mislead.
-  const calories = input.daily_calorie_target_kcal;
-  if (
-    calories !== null &&
-    (!Number.isInteger(calories) || calories < CALORIE_TARGET.min || calories > CALORIE_TARGET.max)
-  ) {
-    return {
-      ok: false,
-      error: `Daily calorie target should be between ${CALORIE_TARGET.min.toLocaleString("en-US")} and ${CALORIE_TARGET.max.toLocaleString("en-US")} kcal, or left blank.`,
-    };
-  }
-
+export async function saveProfile(input: ProfileFormValues): Promise<SaveResult> {
+  // Typed numbers are rejected when out of range rather than clamped, and the
+  // allergy/dislike lists are normalized and kept disjoint — see
+  // lib/profile.ts → validateProfileForm. Only what the user set is stored as
+  // theirs — see lib/profileProvenance.ts.
   const supabase = await createClient();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) return { ok: false, error: "You are signed out. Please sign in again." };
 
-  // Clamp to sane ranges. Never trust numbers that came from a browser.
-  const row = {
-    id: user.id,
-    display_name: input.display_name?.trim() || null,
-    goal: input.goal,
-    protein_target_g: clamp(input.protein_target_g, 40, 300),
-    daily_calorie_target_kcal: calories,
-    // 0 is a valid budget — "no additional spending by default" — not an
-    // error to clamp away.
-    budget_per_meal_usd: clamp(input.budget_per_meal_usd, 0, 100),
-    fridge_size: input.fridge_size,
-    default_cook_minutes: clamp(input.default_cook_minutes, 5, 180),
-    cuisines: dedupe(input.cuisines),
-    dislikes: dedupe(input.dislikes),
-    equipment: dedupe(input.equipment),
-  };
-
-  // upsert = insert if this is their first save, update otherwise.
-  // This is why we don't need a database trigger to create profile rows.
-  const { error } = await supabase.from("profiles").upsert(row);
-
-  if (error) return { ok: false, error: error.message };
-
-  revalidatePath("/profile");
-  return { ok: true };
+  const result = await writeProfile(supabase, user.id, input);
+  if (result.ok) revalidatePath("/profile");
+  return result;
 }
 
-function clamp(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.round(value)));
+/**
+ * "What can you cook with?" — saved the first time someone cooks, editable in
+ * Me. Only the equipment changes; everything else stays as it was (including
+ * staying unset). Unknown items are dropped; an empty list is rejected rather
+ * than stored as "no appliances", which is a different answer
+ * ("No cooking at all").
+ */
+export async function saveEquipment(items: string[]): Promise<SaveResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "You are signed out. Please sign in again." };
+
+  const equipment = Array.isArray(items) ? items.filter((item): item is string => typeof item === "string" && (EQUIPMENT as readonly string[]).includes(item)) : [];
+  if (equipment.length === 0) return { ok: false, error: "Pick at least one." };
+
+  const result = await patchProfile(supabase, user.id, { equipment });
+  if (result.ok) {
+    revalidatePath("/profile");
+    revalidatePath("/today");
+  }
+  return result;
 }
 
 function dedupe(values: string[]): string[] {

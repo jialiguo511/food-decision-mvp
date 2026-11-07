@@ -4,8 +4,10 @@
 // go through here, each with its own schema and constraint check.
 
 import { z } from "zod";
+import { findAllergenMentions } from "../foodTerms";
 import type { PlaceCandidate } from "../places/candidates";
 import { ingredientsOutsideInventory } from "./inventory";
+import { findDietaryViolations, findNoCookViolations, findUnownedApplianceMentions, recipeText } from "./textChecks";
 import type {
   ActiveConstraints,
   CookRecommendation,
@@ -29,7 +31,7 @@ const ROLES: readonly RecommendationRole[] = ["best_match", "lowest_effort", "al
  *  "image_query" — the schema key immediately after `steps` for a Cook
  *  recommendation — occasionally leaks in as a spurious extra entry in the
  *  `steps` array itself on generation, rendering as a bogus final numbered
- *  step ("6. image_query"; the number comes from RecommendationResults'
+ *  step ("6. image_query"; the number comes from RecipeCard's
  *  plain `<ol>`, not the model). Nothing in this codebase ever writes that
  *  string into `steps` — see prompt.ts's reinforced instruction, which
  *  addresses the cause, and this as the safety net for when it still slips
@@ -51,6 +53,10 @@ const cookRecommendationFields = z.object({
   estimated_extra_cost_usd: z.number().nonnegative(),
   estimated_calories: z.number().int().nonnegative(),
   estimated_protein_g: z.number().int().nonnegative(),
+  // One short caution tied to the user's confirmed nutrition priorities. Same
+  // `.default(null)` reasoning as `modification`: required in the JSON schema
+  // (null when there's nothing to flag) and lets older sessions still restore.
+  watch: z.string().min(1).nullable().default(null),
   ingredients_on_hand: z.array(z.string()),
   ingredients_needed: z.array(z.string()),
   equipment: z.array(z.string()).describe("Only items listed in hard_constraints.equipment."),
@@ -84,6 +90,10 @@ const orderRecommendationFields = z.object({
   // while still giving `modification: string | null` here, matching
   // OrderRecommendation, with no undefined to normalize afterward.
   modification: z.string().min(1).nullable().default(null),
+  // One short caution tied to the user's confirmed nutrition priorities. Same
+  // `.default(null)` reasoning as `modification`: required in the JSON schema
+  // (null when there's nothing to flag) and lets older sessions still restore.
+  watch: z.string().min(1).nullable().default(null),
   estimated_calories: z.number().int().nonnegative(),
   estimated_protein_g: z.number().int().nonnegative(),
 });
@@ -97,6 +107,10 @@ const storeSnackRecommendationFields = z.object({
   what_to_look_for: z.string().min(1),
   // Same `.default(null)` reasoning as order's `modification` above.
   backup: z.string().min(1).nullable().default(null),
+  // One short caution tied to the user's confirmed nutrition priorities. Same
+  // `.default(null)` reasoning as `modification`: required in the JSON schema
+  // (null when there's nothing to flag) and lets older sessions still restore.
+  watch: z.string().min(1).nullable().default(null),
   estimated_calories: z.number().int().nonnegative(),
   estimated_protein_g: z.number().int().nonnegative(),
 });
@@ -123,13 +137,32 @@ const nearbyRecommendationFields = z.object({
   title: z.string().min(1),
   place_id: z.string().min(1),
   reason: z.string().min(1),
-  look_for: z.string().min(1),
+  look_for: z.string().min(1).nullable(),
   category: z.string().min(1).nullable(),
   address: z.string().min(1).nullable(),
   distance_m: z.number().int().nonnegative().nullable(),
   open_now: z.literal(true).nullable(),
   price_level: z.enum(["free", "inexpensive", "moderate", "expensive", "very_expensive"]).nullable(),
   maps_url: z.string().url().refine((url) => url.startsWith("https://"), "must be an https URL"),
+  // Added after the first nearby sessions were saved: absent there, so it
+  // defaults to null rather than making old sessions unreadable. http(s) only,
+  // since it is read back from the database and rendered as a link.
+  website_url: z
+    .string()
+    .url()
+    .refine((url) => /^https?:\/\//.test(url), "must be an http(s) URL")
+    .nullable()
+    .default(null),
+  // See NearbyRecommendation.enriched. Optional: absent on every earlier row.
+  enriched: z.boolean().optional(),
+  // Added later still; optional for the same reason. The name is later used in a
+  // request path, so it must have exactly the provider's shape.
+  photo_name: z
+    .string()
+    .regex(/^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/)
+    .nullable()
+    .optional(),
+  photo_author: z.string().min(1).max(60).nullable().optional(),
 });
 
 /**
@@ -183,16 +216,14 @@ export function buildOutputSchema(mode: DecisionMode, options: { allowFewer?: bo
  *  than rendered — the same "fail visibly" principle parseRecommendations
  *  applies to a fresh model response. A discriminated union so cook and order
  *  rows both validate through one schema. */
-export const storedRecommendationsSchema = z
-  .array(
-    z.discriminatedUnion("decision_mode", [
-      cookRecommendationFields.extend({ decision_mode: z.literal("cook"), role: z.enum(ROLES) }),
-      orderRecommendationFields.extend({ decision_mode: z.literal("order"), role: z.enum(ROLES) }),
-      storeSnackRecommendationFields.extend({ decision_mode: z.literal("store_snack"), role: z.enum(ROLES) }),
-      nearbyRecommendationFields.extend({ decision_mode: z.literal("nearby"), role: z.enum(ROLES) }),
-    ]),
-  )
-  .max(3);
+export const storedRecommendationSchema = z.discriminatedUnion("decision_mode", [
+  cookRecommendationFields.extend({ decision_mode: z.literal("cook"), role: z.enum(ROLES) }),
+  orderRecommendationFields.extend({ decision_mode: z.literal("order"), role: z.enum(ROLES) }),
+  storeSnackRecommendationFields.extend({ decision_mode: z.literal("store_snack"), role: z.enum(ROLES) }),
+  nearbyRecommendationFields.extend({ decision_mode: z.literal("nearby"), role: z.enum(ROLES) }),
+]);
+
+export const storedRecommendationsSchema = z.array(storedRecommendationSchema).max(3);
 
 export type ParseResult =
   | { ok: true; recommendations: RecommendSuccess["recommendations"]; insufficientInventory: boolean }
@@ -273,26 +304,51 @@ export function parseRecommendations(
   return { ok: true, recommendations, insufficientInventory };
 }
 
+/** The words that name the food itself — what an allergen turning up in would
+ *  be a violation — not the prose around it ("reason", "watch"). */
+function foodTextOf(r: Recommendation): string {
+  switch (r.decision_mode) {
+    case "cook":
+      return recipeText(r);
+    case "order":
+      return [r.title, ...r.search_terms, r.order_notes, r.modification ?? ""].join("\n");
+    case "store_snack":
+      return [r.title, r.what_to_look_for, r.backup ?? ""].join("\n");
+    default:
+      return "";
+  }
+}
+
+/** The second safety layer behind the prompt's allergy rule, for every mode
+ *  that generates food: an allergy the user listed may not appear by name in
+ *  what is recommended. Literal only (foodTerms.findAllergenMentions: no aliases,
+ *  no hidden ingredients), so it catches a slip, never proves a dish safe. */
+function findAllergenViolations(recommendations: readonly Recommendation[], allergies: readonly string[]): string[] {
+  if (allergies.length === 0) return [];
+  return recommendations.flatMap((r) =>
+    findAllergenMentions(foodTextOf(r), allergies).map((allergy) => `${r.role}: names ${allergy}, which the user is allergic to.`),
+  );
+}
+
 export function findConstraintViolations(
   recommendations: readonly Recommendation[],
   constraints: ActiveConstraints,
   onHand: readonly string[] = [],
 ): string[] {
-  if (
-    constraints.decision_mode === "order" ||
-    constraints.decision_mode === "store_snack" ||
-    constraints.decision_mode === "nearby"
-  ) {
-    // No time/budget/equipment to check — there is no menu-price, grocery-
-    // price, or real-world availability data behind this product. `avoid` is
-    // free-text (dislikes read against a generated title/reason), the same as
-    // every other soft-preference-shaped free text the prompt is trusted
-    // with, and there is deliberately no server-side content validator for
-    // it — the same reasoning CLAUDE.md gives for protein and calories.
-    return [];
+  if (constraints.decision_mode === "nearby") return []; // checked against its candidates instead — parseNearbyRecommendations
+
+  const allergens = findAllergenViolations(recommendations, constraints.allergies);
+  if (constraints.decision_mode === "order" || constraints.decision_mode === "store_snack") {
+    // Allergies are the one hard constraint checked in code for these modes.
+    // There is no time/budget/equipment to check — no menu-price, grocery-price
+    // or real-world availability data sits behind this product — and `avoid`
+    // (dislikes) is soft free text the prompt is trusted with, with deliberately
+    // no content validator, the same reasoning CLAUDE.md gives for protein and
+    // calories.
+    return allergens;
   }
 
-  return findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints, onHand);
+  return [...findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints, onHand), ...allergens];
 }
 
 function findCookConstraintViolations(
@@ -338,6 +394,25 @@ function findCookConstraintViolations(
     const unowned = r.equipment.filter((item) => !constraints.equipment.includes(item));
     if (unowned.length > 0) {
       problems.push(`${r.role}: uses equipment the user doesn't have (${unowned.join(", ")}).`);
+    }
+    // The recipe's own words, not just its equipment field: a step like "heat
+    // it in the microwave" leans on an appliance the field never listed.
+    const text = recipeText(r);
+    const mentioned = findUnownedApplianceMentions(text, constraints.equipment);
+    if (mentioned.length > 0) {
+      problems.push(`${r.role}: mentions ${mentioned.join(", ")}, which the user hasn't said they have.`);
+    }
+    // "No cooking at all" in Make something: assembled from ready-to-eat things.
+    // Heat, or a bought hot meal, is Get food — rejected here, not left to the model.
+    if (constraints.no_cooking) {
+      const heat = findNoCookViolations(r);
+      if (heat.length > 0) {
+        problems.push(`${r.role}: isn't a no-cooking meal — it needs ${heat.join("; ")}.`);
+      }
+    }
+    const dietary = findDietaryViolations(text, constraints.dietary);
+    if (dietary.length > 0) {
+      problems.push(`${r.role}: conflicts with the user's dietary pattern — ${dietary.join("; ")}.`);
     }
     return problems;
   });
@@ -398,9 +473,20 @@ export function findFabricatedMenuClaims(text: string): string[] {
  *  - repeats a place already picked in another slot,
  *  - returns fewer than expectedNearbyCount(candidates) picks (e.g. two picks
  *    from ten candidates), or
- *  - states a price, calorie/macro figure, or quoted dish name.
+ *  - states a price, calorie/macro figure, or quoted dish name, or
+ *  - has a `reason` that names one of the user's allergens.
+ *
+ * A `look_for` that names one of the user's allergens is withheld (set to
+ * null), not rejected and not rewritten: the place is real and valid, only the
+ * food guidance is unsafe to show. This is a second layer behind the prompt's
+ * allergy rule, matching the allergen's own name only (see findAllergenMentions)
+ * — it cannot make any place or dish "safe".
  */
-export function parseNearbyRecommendations(text: string, candidates: readonly PlaceCandidate[]): ParseResult {
+export function parseNearbyRecommendations(
+  text: string,
+  candidates: readonly PlaceCandidate[],
+  allergies: readonly string[] = [],
+): ParseResult {
   let json: unknown;
   try {
     json = JSON.parse(text);
@@ -432,6 +518,11 @@ export function parseNearbyRecommendations(text: string, candidates: readonly Pl
     for (const what of new Set([...findFabricatedMenuClaims(pick.reason), ...findFabricatedMenuClaims(pick.look_for)])) {
       problems.push(`${role}: text states ${what}, which the places data can't support.`);
     }
+    // The reason is shown on every card, so it can't be withheld the way
+    // look_for is; an allergen in it rejects the set like any other violation.
+    if (findAllergenMentions(pick.reason, allergies).length > 0) {
+      problems.push(`${role}: reason names one of the user's allergens.`);
+    }
   }
   const expected = expectedNearbyCount(candidates.length);
   if (picks.length !== expected) {
@@ -447,13 +538,14 @@ export function parseNearbyRecommendations(text: string, candidates: readonly Pl
       title: place.name,
       place_id: place.id,
       reason: pick.reason.trim(),
-      look_for: pick.look_for.trim(),
+      look_for: findAllergenMentions(pick.look_for, allergies).length > 0 ? null : pick.look_for.trim(),
       category: place.category,
       address: place.address,
       distance_m: place.distance_m,
       open_now: place.open_now === true ? true : null,
       price_level: place.price_level,
       maps_url: place.maps_url,
+      website_url: place.website_url,
     };
   });
 

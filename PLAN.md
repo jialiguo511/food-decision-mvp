@@ -31,6 +31,118 @@ different ways of solving one problem, not separate products. Nearby
 restaurant/café discovery was promoted to NEXT; remaining-nutrition context
 moved to LATER; hard dietary constraints added to NOW as a foundation item.
 
+Strategy reassessment, 2026-10-05 (documentation only, no code): the product is
+now framed as a **wedge** (fast next-meal decision support) plus a
+**long-term hypothesis** (a personalized decision system that gets better with
+each decision) — see `PRODUCT.md` → "Strategy — the wedge and the long-term
+product". The four stages below are the sequencing frame for that. **They
+promote nothing.**
+
+---
+
+## Strategic stages — sequencing, not authorization
+
+Added 2026-10-05. NOW / NEXT / LATER below remains the only thing that
+authorizes work. This section says *why those items are in that order* and what
+question each stage must answer before the next is worth starting. Do not read a
+stage's scope list as "build this" — an idea named here but not in NOW or NEXT
+is still a LATER idea.
+
+(Naming: these are the **strategic stages**. They are unrelated to the
+**proof steps** in `PRODUCT.md`, and to the dated "Stage 1 navigation/IA
+refactor" below, an older use of the word.)
+
+| stage | question it answers | lives in this file as |
+|---|---|---|
+| **1 — Reliable decision MVP** | Can users repeatedly get a useful answer to "what should I eat right now?" **in seconds**? | NOW, plus the NEXT items already built for reliability |
+| **2 — Feedback + memory** | Can the product learn from low-friction signals without asking for logging? | NOW's feedback items, plus NEXT |
+| **3 — Personal decision model** | Does it become meaningfully different for two people asking the same question? | LATER |
+| **4 — Broader food intelligence** | Do richer data sources and proactive help add value on top of a working loop? | LATER / NOT NOW |
+
+### Stage 1 — Reliable decision MVP *(current)*
+
+Make the existing experience actually work well. Scope — all of it is existing
+NOW/NEXT work; nothing new is promoted here:
+
+- Cook / Eat out / Snack as three **interaction modes** over one decision
+  system (`PRODUCT.md` → "Modes are interaction modes")
+- strong constraint compliance — allergies, foods avoided, dietary pattern
+  (hard vs. soft per `PRODUCT.md`)
+- kitchen constraints — equipment never assumed, Kitchen staples, today's food
+- distance (travel willingness) and budget (the two kinds, never merged)
+- nutrition goals influencing recommendations
+- Save
+- recommendation **latency**, **quality**, and **mobile reliability**
+- clear retry / change-answer behavior (Edit, Back, "Show me 3 more")
+
+**No numeric latency or quality target is set yet.** Choose one from real
+founder-use timing data (`src/lib/timing.ts`) rather than inventing it.
+
+**Exit signal:** proof steps 1–2 in `PRODUCT.md` — the founder uses it
+repeatedly for at least 7 days, and 5–15 target users use it. Without that,
+Stages 2–4 are building on an unproven wedge.
+
+### Stage 2 — Feedback + memory
+
+Low-friction behavioral learning. Scope:
+
+- ate this · not interested · too expensive · too much effort · not available
+- favorite / save
+- restaurant and meal preference learning
+- recent-meal memory and lightweight history
+
+**Constraint:** no heavy manual logging. Every signal is one optional tap and
+never blocks the user. Reasons must separate *context* (effort, price, time,
+not hungry) from *taste*, because the learning rules depend on it
+(`PERSONALIZATION.md` → Signal strength).
+
+**Gate:** reading inferred memory back into recommendations ships together with
+a way to see and reset it (`PERSONALIZATION.md`, principle 7).
+
+**Built ahead of the gate, at the founder's explicit request** (so the order is
+not misread as clean): behavioral hints v0, last-used chip defaults, Saved, and
+place "Not for me" feedback. Behavioral hints v0 is the one that *reads*
+history back — and it still lacks the see-and-reset surface. That is a known
+open gap, not a finished Stage 2 item.
+
+**Exit signal:** feedback is given at a meaningful rate without prompting
+fatigue, and input per decision falls for returning users while picks stay
+accepted (proof step 5). Neither is measured yet.
+
+### Stage 3 — Personal decision model
+
+Use accumulated behavior and context to rank recommendations *for this user*.
+Two people asking the same question should get meaningfully different answers.
+
+> **Flag — non-goal conflict, resolved conservatively.** "Model of the user"
+> here means a **rules-based, inspectable ranking over the user's own history**
+> (the conceptual shape in `PRODUCT.md` → "Future ranking engine"). It does
+> **not** mean a trained recommendation model or a vector database — both are
+> current non-goals (`PRODUCT.md`, `CLAUDE.md`). Changing that requires editing
+> `PRODUCT.md` first, with evidence in `LEARNINGS.md`.
+
+Includes inferred routines (always confirmed with one tap, never applied
+silently) and `historical_acceptance` in ranking. Hard constraints never move.
+**Gate:** Stage 2 exists and has produced enough real history, plus evidence
+that history improves acceptance (proof step 6). Not scheduled.
+
+### Stage 4 — Broader food intelligence
+
+Possibilities only; **no commitments**, each needs its own promotion:
+
+- richer restaurant integrations (menu data — see the location roadmap below)
+- grocery intelligence
+- health integrations — Apple Health and wearables are **current non-goals**
+- adaptive nutrition targets — must not become tracking
+- proactive suggestions — would be the product's first push-style behavior;
+  check it against "minimize time spent deciding" before promoting
+- **automatic pantry understanding** — *flag:* this contradicts the current
+  rule that there is no persisted inventory ("Kitchen staples vs. today's food",
+  `CLAUDE.md`), which exists because stored food goes stale. It could only be
+  considered by first revisiting that rule in `PRODUCT.md`, with evidence.
+- longer-horizon planning — *flag:* only in the **flexible provisioning** form
+  (Stock up). Fixed meal schedules remain excluded by product identity.
+
 ---
 
 ## Done — verified 2026-09-11
@@ -89,6 +201,207 @@ require explicit approval before starting — see NOW below.
 
 ---
 
+## Done — UX V2 interaction redesign, 2026-09-30
+
+Founder-requested pause on feature work to redesign the interaction layer
+only. **No changes** to `/api/recommend`, prompts, validators, the places
+provider, Saved/feedback logic, personalization rules, session restore (6h),
+or the schema (setup uses the existing `profiles.prefs` column).
+
+- [x] Home is one decision at a time: a typed screen reducer
+      (`src/app/today/flow/homeReducer.ts`) — setup → start → "use my usual" →
+      one question per screen → results. `useRecommend` is unchanged.
+- [x] Start: "What should I eat?" → Make something / Get food / Just a snack.
+      Returning users get **"Use my usual"** (last settings for their last
+      mode, from `rememberedDefaults`) — one tap to three ideas.
+      *Hypothesis*, not validated: most returning decisions reuse last settings.
+- [x] Question order — Cook: hunger → time & effort → shopping → budget (if
+      buying; today's foods one tap away) or today's foods (if "Use what I
+      have") → craving. Eat out: method → hunger → craving → budget → how far
+      (Pickup / Eat nearby only). Pickup and Eat nearby search real places;
+      Delivery gets food ideas by type (also offered as a fallback).
+- [x] Results: one card at a time (scroll-snap carousel, arrows, dots,
+      "1 of 3"). **Swipe is browsing only** — it records nothing. Compact
+      cards with progressive disclosure ("View recipe", "More"); explicit
+      Save / Not for me / Choose this unchanged; "None of these? Show me 3
+      more" under the cards; a clear "this is your pick" state.
+- [x] First-run setup (goal → allergies → dislikes → limits → about you →
+      summary), every screen skippable, saved through the same
+      `validateProfileForm` + `profiles` upsert as Me, offered once. See
+      `PERSONALIZATION.md` → "What personalization must not become" for how
+      this is bounded.
+- [x] Human-readable loading, error and empty states; raw server/model
+      errors are logged, never shown. SVG nav icons; consistent button,
+      chip and card sizes; no floating buttons.
+
+Not done, on purpose: Plan and Groceries functionality, any history-synced
+browser Back for Home's steps, a native wrapper/PWA install flow.
+
+---
+
+## Done — UX V3 pass (home, setup, loading, Me), 2026-10-01
+
+Founder-requested interaction pass; UI and state flow only. **No changes** to
+`/api/recommend`, prompts, validators, places, Saved/feedback, remembered-default
+rules, session restore (6h) or the schema (the one new flag, the nutrition
+step's dismissal, lives in the existing `profiles.prefs` JSON).
+
+- [x] Home leads with the three kinds of help — Make something / Get food /
+      Grab a snack — equal weight. Memory is one quiet "Last time … Use again"
+      line under them, not a hero card.
+- [x] "Same as usual?" is gone. A mode the user has used opens on its own
+      screen: last answers as one line, **Edit**, one CTA. A mode they haven't
+      goes straight to question 1. CTAs name the action: *Show me meals* /
+      *Find food nearby* / *Find something to order* / *Find me a snack*.
+- [x] First-run setup is two skippable screens (allergies, then foods you
+      don't eat) — no goal, no body details, no summary screen.
+- [x] The optional nutrition step (goal, then age/sex/height/weight/activity)
+      is offered once, as a quiet card under the first results — only to users
+      whose Profile cannot yet estimate energy and who set no calorie target.
+      Pre-filled from what is stored; "Not now" writes only a dismissal.
+- [x] Me is grouped by what the answer does: Food preferences (always used) ·
+      My goals · Nutrition targets (optional, collapsed) · Kitchen basics.
+- [x] Loading is a short list of what's being taken into account plus three
+      slim placeholders — no oversized fake card, no horizontal overflow.
+- [x] Mode memory is live: a mode used since the page loaded is offered back
+      without a reload (the server-read `remembered` map was stale until then).
+
+Not done, on purpose: a Profile field for dietary restrictions (vegetarian,
+halal, …) — still the open item under *Hard dietary constraints* below; a
+schema change; any history-synced browser Back for Home's steps.
+
+---
+
+## Done — usability + correctness pass, 2026-10-01 (after UX V3)
+
+Founder-tested as a brand-new user; no visual redesign. One root cause behind
+most of it: **a system fallback was indistinguishable from something the user
+said** (invented "My usual — $12", "30 min", a microwave they never mentioned).
+
+- [x] **Provenance.** Five Profile fields had `NOT NULL DEFAULT` columns, and
+      every save wrote the whole form back. A stored value now counts as the
+      user's only if it is listed in `profiles.prefs.explicit_fields`
+      (`src/lib/profileProvenance.ts`); otherwise it reads as *Not set*. Three
+      origins, never confused: **explicit** (Me) · **remembered** (a real earlier
+      session) · **fallback** (`SYSTEM_FALLBACKS`, internal, never shown, never
+      stored). No schema change.
+- [x] Me shows *Not set* for goal, equipment, fridge, usual time and usual budget
+      until chosen; clearing one returns to no default.
+- [x] **Cook asks "What can you cook with?" the first time** (not in global
+      setup). Until answered, the recommender assumes **no appliance**
+      (`equipment_known: false`, treated as no-cook), and generated steps are
+      checked for appliances the user doesn't own (`lib/recommend/textChecks.ts`).
+- [x] **Cook memory.** Time, effort, shopping mode ("Use what I have" stays
+      strict — its foods are asked again) and the budget carry over from a real
+      earlier request; craving and tonight's foods never do. An explicit Profile
+      value beats a remembered one. "My usual" is only said of a Profile value,
+      "Last time" of a remembered one; a new user just picks.
+- [x] **Dietary pattern** (vegetarian / vegan / pescatarian / halal / kosher /
+      other) — stored in `profiles.prefs.dietary`, collected in first-run setup
+      and Me, and a **hard constraint in all four modes** (prompt for every
+      mode, plus a literal check on Cook recipe text). Not a guarantee.
+- [x] **Save**: root cause was environmental — `saved_recipes`, `saved_places` and
+      `place_feedback` do not exist in the live database (migrations never run).
+      Code was correct; failures now log the DB code and the fix.
+- [x] **Request survives navigation**: the recommendation request/session lives
+      in `src/app/today/recommendStore.ts`, outside React. Leaving Home mid-request
+      and returning shows the loading state, then its cards — never the older page;
+      no second request.
+- [x] **Auto-advance is one rule** (`steps.ts → autoAdvances`): single choice, nothing
+      else on the screen, not the last question. A late auto-advance can no longer
+      fire after Back or Continue.
+- [x] **Images**: no `PEXELS_API_KEY` in `.env.local` meant every card showed the
+      empty 16:9 box. The no-photo state is now a short, deliberate band;
+      transient provider failures are no longer cached as "no image" for 24h.
+
+- [x] **Account & data** (bottom of Me): **Reset my data** (wipes every row the user
+      owns, keeps the login — the result is exactly a brand-new account) and
+      **Delete my account** (wipes the same, then removes the auth user server-side
+      with `SUPABASE_SERVICE_ROLE_KEY`, then signs out). One shared list of
+      user-owned tables (`src/lib/accountData.ts`), guarded by a test that reads
+      `schema.sql`. Reset needs no admin key; delete refuses cleanly without it.
+
+- [x] **2026-10-02 blockers pass** (founder's explicit promotion of AI recipe
+      images and restaurant photos into NOW; nothing else was promoted):
+      - Save: failures are diagnosable (structured server log, dev-only on-screen
+        line, `/api/dev/saved-check`), per-card parsing, an optional idempotent
+        `2026-10-02_saved_repair.sql`, and tests against real Postgres (PGlite).
+      - Nutrition: one `calculateNutritionTargets`; cards on screen are re-scored
+        and re-ordered (no model) when targets change; Me shows the daily range.
+      - Question flow: one rule by input kind, last pure single choice sends.
+      - Latency: stage timing everywhere; parallel reads; Get food (nearby) shows
+        code-picked places immediately and the model only words them afterwards.
+      - Images: Cook recipes without a relevant photo get one generated image,
+        cached and shared (`recipe_images` + Storage); restaurants show their
+        real Google photo or a placeholder, never a generated image.
+      Cost notes: gpt-image-2 low/1536×1024 ≈ $0.005 an image, once per distinct
+      dish; Google Place Photos are billed per photo fetched (lazy, ≤3 per
+      nearby search). Founder-approved model change for Cook is still open.
+
+Not done, on purpose: a schema change beyond the two above; non-Cook modes
+asking equipment; remembering craving/tonight's foods; a server-side dietary
+check beyond the literal Cook word list.
+
+
+---
+
+## Done — Stage 1 reliability pass, 2026-10-05
+
+Founder-requested audit of the existing "what should I eat right now?" flow
+against the updated docs, then only the highest-priority fixes. No new features,
+no schema change, no new tables, no analytics. Evidence for the model choice:
+`bench-results/recommend-2026-10-05*.md` (7 cases × 2 runs per config; real
+prompt, parsing and validators).
+
+- [x] **Latency.** The default recommender was Opus 5 at high effort: median
+      25 s per Cook request (16–30 s), one model call and nothing else on the
+      critical path (profile/staples/hints already ran together; images load
+      afterwards). It is now **Sonnet 5.5, adaptive thinking, low effort**:
+      median 8 s (7–9 s), ~$0.021 instead of ~$0.072 a request, every benchmark
+      answer valid with no hard-constraint hits. Haiku 4.5 was no faster in
+      practice and clearly less useful (14–18 g protein where the others give
+      30–55 g). Still overridable per environment (`RECOMMEND_MODEL` /
+      `RECOMMEND_EFFORT` / `RECOMMEND_THINKING`). The model call's timeout drops
+      from 90 s to 45 s, so a hung call fails in under two minutes, not three.
+      Closes the "Founder-approved model change for Cook is still open" note above.
+- [x] **A rejected answer no longer reaches the user as an error.** A faster
+      model now and then names an appliance the user doesn't own or breaks the
+      JSON, and the whole set used to be thrown away ("The recommendations broke
+      a hard constraint"). One automatic retry now happens in the same request,
+      with the validator's finding fed back — only for malformed output or a
+      constraint violation, only if the first try was under 25 s, never after the
+      user moved on, and a second failure still fails visibly (the retry is not
+      a bypass). This reverses the earlier "no repair loop" rule, deliberately
+      and boundedly; the test that pinned it was rewritten, not deleted.
+- [x] **Allergens are checked in code for Cook, Get food and Snack**, not only
+      by the prompt (the same literal matcher Nearby already used; no aliases, so
+      a catch for a slip, never a guarantee). A hit rejects the set and triggers
+      the retry above.
+- [x] **No more dead button while a request is running.** Every final "Show me
+      meals / Find…" button, "Use again" and a mode's own CTA was disabled while
+      any request was in flight — so Change → edit an answer → press the button
+      during the wait was a greyed-out control with no explanation. The request
+      store already makes a repeat submit one request and a different one
+      supersede (and abort) the old, so the screens no longer add a silent rule
+      of their own.
+- [x] **Home opens faster.** Its seven Supabase reads ran one after another on
+      every visit; the independent ones (profile, latest session, Kitchen staples,
+      recent settings) now run together, then the three that depend on the
+      restored session.
+
+Verified as already correct, so left alone: the nutrition chain (height / weight
+/ goal → calculated targets → model guidance and card re-scoring), "No cooking
+at all" (prompt, code check, profile, unknown equipment = no appliance), travel
+distance (search radius and feasibility), image loading (after the cards, never
+blocking), Save, session restore (6 h), and the request store's double-tap /
+supersede / navigate-away behaviour.
+
+Not done, on purpose: no recipe photos without `PEXELS_API_KEY`; a doubled auth round-trip per request; no
+numeric latency target or in-app measure of it; the see-and-reset gap for
+behavioral hints; alias-aware allergen matching.
+
+---
+
 ## NOW — the Core-loop MVP
 
 Everything required before the product hypothesis can be tested at all. See
@@ -133,7 +446,7 @@ Context → Recommendation → Selection → Actual eating → Feedback
       to decisions, not execution artifacts, and that truth beats three — is
       defined in `PRODUCT.md` → "Exactly 3." "Use what I have" returning 0–3 is
       an instance of it (see Kitchen staples above).
-- [ ] **Hard dietary constraints (foundation)** — added 2026-09-29. A small
+- [~] **Hard dietary constraints (foundation)** — **partly done 2026-09-30 (Profile v2):** Allergies field + hard constraint in all four modes, dislikes soft everywhere. **Still open:** dietary restrictions (vegetarian/halal/…), and an alias-aware allergen check (a literal one exists in code for every mode since 2026-10-05). Original scope (added 2026-09-29): a small
       prerequisite, not a feature: proper support for allergies, dietary
       restrictions, and other safety-related food exclusions, kept distinct
       from *disliked foods* (which are soft preferences). Hard constraints must
@@ -181,7 +494,7 @@ Context → Recommendation → Selection → Actual eating → Feedback
       location, pricing, or product-database integration: those remain out of
       scope per `CLAUDE.md`'s non-goals and `PRODUCT.md`'s "Grocery
       intelligence" future direction.
-- [ ] **Founder self-use for at least 7 days** — Stage 1 in `PRODUCT.md`. A
+- [ ] **Founder self-use for at least 7 days** — proof step 1 in `PRODUCT.md`. A
       real roadmap item, not an afterthought. Shipping the rest without it
       proves nothing.
 
@@ -212,6 +525,33 @@ contents into NOW.
   dislike, explicit constraints are never overridden. No ML model, no vector
   store. Learned/inferred memory must ship together with a way to see and
   reset it.
+- **Lightweight behavioral hints (preference learning v0)** — built
+  2026-09-30 at the founder's explicit request (promoting the minimal slice of
+  "basic preference learning" above while NOW is unfinished); unvalidated. A
+  per-request, unstored summary of recent *chosen* meals is passed to the
+  recommender as its lowest-priority context: recent dish titles for variety,
+  plus a tentative "often picks the easiest option" (cook/order) or "often
+  chooses <category>" (Eat nearby) lean, each needing enough history across
+  separate days, scoped per mode. No schema change, no UI. **Known gap:** the
+  "see and reset inferred memory" requirement (PERSONALIZATION.md principle 7)
+  is not met — deferred at the founder's request. See PERSONALIZATION.md.
+- **Profile v2 — explicit nutrition personalization** — built 2026-09-30 at the
+  founder's explicit request, unvalidated; needs the `schema.sql` migration
+  (ALTERs) run **before** deploying. Allergies and dislikes as separate lists;
+  optional age/sex/height/weight/activity inputs (metric storage, US-unit
+  form); Mifflin–St Jeor maintenance estimate, a modest goal-based calorie
+  suggestion and a g/kg protein suggestion, shown as estimates with manual
+  overrides; fed into the recommender as the existing soft guidance. Not meal
+  logging, not weight history. Details: `PERSONALIZATION.md`.
+- **Health & nutrition priorities** — built 2026-09-30 at the founder's
+  explicit request, unvalidated; needs the two-column `schema.sql` ALTER run
+  before deploy. Optional, separate lists: three health conditions (context
+  only, never sent to the recommender) and three user-confirmed nutrition
+  priorities (lower sodium / limit added sugar / lower saturated fat) that
+  reach all four recommendation modes as strong — not hard — guidance. A
+  condition only *suggests* a priority; the user confirms. Cook/Order/Snack
+  cards gain an optional one-line "Watch" caution. No nutrient numbers, no
+  dashboard, no other conditions. See `PERSONALIZATION.md`.
 - **Routine defaults (v0, user-set)** — added 2026-09-29. Pre-selected
   defaults on Home for weekday lunch, weekday dinner, and weekend (mode lean,
   time, effort, budget feel), set explicitly by the user — e.g. "make this my
@@ -265,6 +605,27 @@ contents into NOW.
   part of this slice", personalization of nearby ranking, routing/walking
   times, a radius setting. Setup: `README.md` → "Nearby places (Google Places
   API)".
+  **Addition, 2026-09-30 (at the founder's explicit request): "Not for me"
+  place feedback.** Explicit, per-user, per-place memory in a new
+  `place_feedback` table (provider place id, reason, derived action). Hard
+  reasons (closed, don't like, bad experience) exclude the place for that user
+  until undone; soft ones (too expensive, other) only lower its feasibility
+  score. Personal opinion only — never shown to others or treated as fact
+  about the place; a skipped card or "Show me 3 more" records nothing. Built:
+  the card control with inline Undo. Not built: a list to review/reset
+  exclusions later, decay of soft feedback, any sharing across users.
+- **Saved (recipes + places)** — promoted at the founder's explicit request,
+  2026-09-30 (it was listed above as Extended MVP "Saved recipes" / "Favorites"
+  and had not been promoted). New Saved tab (`/saved`, Recipes | Places);
+  a bookmark on Cook recipe cards and nearby place cards; `saved_recipes`
+  (canonical recommendation, keyed by a content hash) and `saved_places`
+  (keyed by provider place id) tables. A saved recipe is shown unchanged with a
+  warning if the *current* Profile now conflicts (literal allergy match; light
+  note for dislikes); saved place guidance is withheld if it now names an
+  allergen. A hard "not for me" removes the place from Saved. **Saved is
+  interest only and is not used by ranking** (distinct from Picked / Ate /
+  Loved). Not built: folders, tags, search, re-checking a place's current
+  business status, nutrition-priority re-checks, using Saved in ranking.
 - **Nutrition baseline** — estimated daily energy range + protein target/range
   (replaces the old "Suggest for me" item). **Requires Profile inputs the
   product does not collect today** — age, height, weight, the physiological
@@ -295,6 +656,36 @@ contents into NOW.
   the other two) only ships once a real provider is chosen and can return
   useful images. Choosing that provider (stock/search, curated library, AI
   generation) is a separate decision, not yet made.
+- **Natural-language entry ("What's going on?")** — promoted 2026-10-21 at the
+  founder's explicit request, from `LEARNINGS.md` → "Post-CrossFit dinner that
+  never got decided". **Not built.** A hypothesis: a tired user will say their
+  situation in one sentence when they would not answer a sequence of
+  questions.
+  - Home gets one text/voice box above the existing mode choices. The server
+    extracts the sentence into the **existing structured context** (mode,
+    hunger, time, today's food, budget) plus one new per-request field,
+    **training load** (none / light / hard).
+  - At most one follow-up question, only when a field the decision needs is
+    missing; otherwise straight to the three cards.
+  - Reuses the existing pipeline unchanged: the same hard-constraint checks,
+    output validation and exactly-3 contract. Extraction never invents today's
+    food, never writes to the Profile, and is not stored beyond the decision
+    session's context.
+  - Not open-ended chat (`PRODUCT.md` guardrail 4): one input becomes a
+    structured request; the model's reply is still the cards, never prose.
+  - The current question flow stays as the structured fallback.
+  - **Training load names its behavior change** (`PRODUCT.md` principle 9): a
+    hard day sizes carbohydrate up and protein toward the upper end of the
+    range; it is soft guidance and reorders nothing in the priority order.
+  - **Success:** the founder decides with it ≥5 meals/week for 3 weeks,
+    decision under 1 minute, more than 60 % of picks actually eaten.
+    **Fails** if it is not opened more often than the current flow. Measured
+    against the one-week Claude Project baseline in the same `LEARNINGS.md`
+    entry, which runs first.
+  - Not included: saving today's food between meals (open conflict in that
+    `LEARNINGS.md` entry — the current rule stands until `PRODUCT.md`
+    decides), free-form chat, wearables, inferring training load from
+    history.
 
 ---
 
@@ -327,6 +718,9 @@ Parked. These correspond to `PRODUCT.md` → Possible future directions.
   favorite?"), and any learning beyond the NEXT basics (recent meals,
   basic preference learning). Requires those basics to exist and show value
   first. See `PERSONALIZATION.md`.
+- **Personal decision model** (Stage 3) and **broader food intelligence**
+  (Stage 4) — added 2026-10-05 as parked pointers to "Strategic stages" above.
+  Stage 3 is rules-based, not a trained model. Neither is scheduled.
 - Native mobile app
 - Household mode
 - Subscriptions

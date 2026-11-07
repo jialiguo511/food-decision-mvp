@@ -1,8 +1,9 @@
 import BottomNav from "./BottomNav";
 
 /**
- * The frame every signed-in page sits in: a narrow mobile-first column,
- * a plain title header, and the bottom tab bar.
+ * The frame every signed-in page sits in: a narrow mobile-first column, an
+ * optional title header, and the bottom tab bar. Home passes no title — each
+ * of its screens has its own heading.
  */
 export default function AppShell({
   title,
@@ -10,25 +11,30 @@ export default function AppShell({
   action,
   children,
 }: {
-  title: string;
+  title?: string;
   subtitle?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col">
-      <header className="px-5 pt-8 pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-            {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
+      {title ? (
+        <header className="px-5 pt-[max(2rem,env(safe-area-inset-top))] pb-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{title}</h1>
+              {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
+            </div>
+            {action}
           </div>
-          {action}
-        </div>
-      </header>
+        </header>
+      ) : (
+        <div className="pt-[max(1.5rem,env(safe-area-inset-top))]" />
+      )}
 
-      {/* pb-24 keeps content clear of the fixed nav */}
-      <main className="flex-1 px-5 pb-28">{children}</main>
+      {/* Bottom padding = nav height + safe area, so the last card and its
+          buttons always scroll fully clear of the fixed nav. */}
+      <main className="flex-1 px-5 pb-[calc(6rem+env(safe-area-inset-bottom))]">{children}</main>
 
       <BottomNav />
     </div>

@@ -2,8 +2,10 @@
 
 The canonical product document for this repository. It describes the problem
 and the strategy, not the implementation. For how to build, see `CLAUDE.md`.
-For what to build next, see `PLAN.md`. For how the product remembers and
-learns about a user, see `PERSONALIZATION.md`.
+For what to build next, see `PLAN.md` (including its four strategic stages).
+For how the product remembers and learns about a user, see
+`PERSONALIZATION.md`. For what the product is today versus where it is
+headed, see "Strategy — the wedge and the long-term product" below.
 
 ---
 
@@ -36,6 +38,152 @@ Food Decision exists to reduce that cognitive load. The question it answers is:
 > follow through on while still moving toward my health goals?**
 
 This is not a generic recipe app, and not primarily a calorie tracker.
+
+---
+
+## Strategy — the wedge and the long-term product
+
+*Added 2026-10-05. Strategy and direction only — nothing in this section
+authorizes building anything. What is built and scheduled lives in `PLAN.md`.
+Everything described here as long-term is a **current hypothesis or a possible
+future idea**, not validated behavior; the "Status" columns below say which.*
+
+### Wedge versus long-term product
+
+| | what it is | status |
+|---|---|---|
+| **Wedge** | **Fast next-meal decision support** — "help me decide what to eat right now" under the constraints the person actually has. | Built. This is what the first users test. |
+| **Long-term product** | **A personalized food decision system that learns how one specific person actually eats** and gets progressively better at answering: *given who I am, what I have, where I am, what I have eaten, what I want, and what constraints I have right now, what is the best realistic thing for me to eat next?* | Hypothesis. Only the explicit layer and one minimal behavioral slice exist. |
+
+The wedge is real value. The decision recurs several times a day and is made
+under pressure: hungry, short on time, maybe unwilling to cook, maybe with
+ingredients on hand or willing to buy a few things, maybe wanting delivery,
+pickup or something nearby — with a budget, nutrition goals, allergies and foods
+to avoid, and a mood (tired, craving something, just finished exercising).
+
+But the product must **not be defined** as:
+
+> user answers a few questions → an LLM generates 3 meal recommendations
+
+That is easy to reproduce and weak as a standalone product. The wedge is how the
+product earns its first uses; the long-term product is what makes the *tenth*
+use better than the first. The order matters: the wedge has to be reliably
+good before any long-term layer is worth building (`PLAN.md` → Stage 1), and the
+long-term layer is only worth building if the wedge is used repeatedly.
+
+The product **reduces repeated food decision-making.** It does not become
+another calorie-tracking app (see guardrails). Its core behavior is
+**decision → action**, not *record → analyze → dashboard*.
+
+### The compounding loop (hypothesis)
+
+```
+context → recommendation → choice → feedback
+        → better model of the user → better future recommendation
+```
+
+Each meal decision should leave behind something that makes the next one faster
+or better. This feedback loop is a **potential source of defensibility**: a
+competitor can copy a prompt, but not a person's accumulated, structured
+history. That is a hypothesis, not a finding — nothing yet shows that behavior
+can improve recommendations enough to matter, or that users stay long enough to
+build up history.
+
+The loop is a *direction*, not a description of today's product. The
+signals it may eventually learn from are listed under "What the loop may
+learn from"; what each one is *allowed to mean* is defined in
+`PERSONALIZATION.md`. The loop never breaks these rules: it asks for no heavy
+manual logging, it keeps hard constraints out of reach of inference, it is
+rules-based (no trained recommendation model, no vector database — current
+non-goals), and it never turns the core loop into a tracking system.
+
+### Why not just ask ChatGPT?
+
+Not because our prompts are better — a general assistant can match them, and
+the answer must not depend on that.
+
+The difference should come from **persistent structured context and decision
+history**. With a general chatbot the user explains the situation again every
+time. This product should already know it:
+
+| a chatbot has to be told again… | what this product holds | status (2026-10-05) |
+|---|---|---|
+| "I don't have an oven" | kitchen equipment, never assumed | **Built** (asked the first time they cook; editable in Me) |
+| allergies, foods I avoid, dietary pattern | hard constraints and soft dislikes, kept separate | **Built** |
+| my goal and protein / energy guidance | nutrition targets as recommendation context | **Built** |
+| my usual budget; how much I'll spend on a meal | explicit Profile budget, plus the last-used answers | **Built** |
+| what's in my kitchen | **Kitchen staples only** (condiments and seasonings). *Today's food is deliberately not remembered — it is asked fresh each time* ("Kitchen staples vs. today's food", `CLAUDE.md`) | Staples **built**; no persisted inventory, by design |
+| what's nearby and how far I'll go | real nearby places and a travel-willingness answer | **Built** |
+| what I ate recently | recent choices, read back as a weak variety hint | **Minimal** (v0) |
+| places I saved | Saved recipes and places | **Built**; not read by any ranking |
+| what I keep rejecting | repeated rejections and their reasons | **Partial** (place "Not for me"); no general learning |
+| my usual weekday constraints; "high protein after training" | routine defaults, later inferred routines | **Not built** (user-set routines NEXT; inferred routines LATER) |
+
+Be honest about the present: **today the gap against a well-prompted chatbot is
+small.** The product's current edge is convenience and grounding — fewer taps,
+structured output, real nearby places, constraint checks — not a deep model of
+the user. The differentiation above is the thing being built toward, and it
+must be earned and measured, not asserted.
+
+**Principle:** *the more you use it, the less you should have to explain
+yourself.* The product should require less input over time, not more. If a
+feature adds questions without ever removing one, it works against the strategy.
+
+### Three kinds of context, combined on every decision
+
+| layer | how often it changes | examples |
+|---|---|---|
+| **Stable context** | rarely | allergies · dietary restrictions · kitchen equipment · health / nutrition goals · usual budget range |
+| **Learned preferences** | inferred over repeated use | cuisines · foods · restaurants · effort tolerance · price sensitivity · preferred meal size · common routines |
+| **Momentary context** | every meal | hunger · time available · cook / order / snack · ingredients on hand · willingness to shop · craving · location and travel willingness |
+
+The recommendation engine combines all three. Precedence is unchanged: stable
+*hard* constraints sit outside the ordering and always win (see "Hard
+constraints vs. soft preferences"); momentary context outranks learned
+preference; learned preference is a soft, last-priority nudge. Today stable and
+momentary context are built and learned preferences are minimal.
+`PERSONALIZATION.md` maps these three layers onto the memory kinds it already
+defines and lists which stored fields change a recommendation today.
+
+### What the loop may learn from
+
+A possible list, not a build list. None of these is authorized beyond what
+`PLAN.md` has promoted, and **shown, opened, or not-picked never counts as a
+dislike** (`PERSONALIZATION.md`, principle 2):
+
+- **Behavior:** options shown · opened · saved · accepted (picked) · rejected ·
+  repeated choices · what was actually eaten · substitutions
+- **Reasons, as one-tap feedback:** not in the mood · too expensive · too far ·
+  too much effort · not available · already ate this recently
+- **Patterns, only after repetition across days:** preferred restaurants and
+  cuisines · typical weekday behavior · typical post-workout behavior ·
+  time-of-day and budget patterns
+
+Kitchen constraints and nutrition goals are *stable context* the user states,
+not something to infer from this list.
+
+### Modes are interaction modes, not separate products
+
+Cook, Eat out / order, and Grab a snack stay as the MVP's three entry choices
+because they map to three immediate things the user can *do* — make food, get
+food, grab something small — and each needs different follow-up questions and a
+different shape of output. They are **interaction modes over one decision
+system**: one Profile, one context model, one feedback loop, one learning layer.
+(Learned patterns are scoped per mode until shown to generalize — a
+`PERSONALIZATION.md` rule — which is a learning rule, not a separate product.)
+
+The long-term direction is that the user states a situation and the product
+works out the solution space. Example, **direction not built**:
+
+> "I just finished CrossFit, I have 20 minutes, I'm very hungry, and I don't
+> want to cook."
+
+The product should answer within the right space — ready-to-eat or nearby food,
+quick, protein-forward — rather than make the user reason through nutrition from
+scratch. Today the user picks a mode first and the follow-up questions narrow
+from there; choosing the mode for them is a possible future capability, and the
+user's own choice always wins. See also "Cook / assemble / buy" under Possible
+future directions.
 
 ---
 
@@ -80,19 +228,49 @@ document first.
   day. (See "Stock up" below.)
 - **A recipe database or discovery feed.** Three choices when deciding, not a
   browsable library. Saved recipes exist to make *future recommendations* better, not
-  to be a collection to manage.
+  to be a collection to manage. (The Saved area is a deliberately small
+  return-to list — see "Top-level product structure"; it is not a browsable
+  library and has no organization features.)
 - **A generic "AI nutrition coach."** No open-ended chat, no unsolicited
   nutrition lectures, no moralizing about food. The model returns structured
   decisions, not advice-giving prose. The Order Food coaching philosophy
-  (harm reduction, craving first) applies to every mode.
+  (harm reduction, craving first) applies to every mode. A one-sentence
+  situation input ("What's going on?" — promoted to NEXT 2026-10-21, not
+  built) is not open-ended chat: it is converted into the same structured
+  request, and the answer is still the cards.
 
 If a proposed feature makes the product feel more like one of these four, that
 is a signal to stop and check it against the core loop, not a reason to
 proceed carefully.
 
+### The same guardrails, spelled out against the strategy
+
+Added 2026-10-05 so the long-term "learns about you" direction cannot be read
+as permission to drift. The product is **not primarily**, at this stage or as
+the strategy unfolds:
+
+- **calorie logging, macro tracking, or a food diary** — guardrail 1
+- **weight logging** — *new.* Body inputs exist only to estimate targets: one
+  current value, edited in Me. No weight history, trend, or chart.
+- **a meal-planning calendar** — guardrail 2
+- **generic recipe discovery** — guardrail 3
+- **a grocery list manager** — *new.* Groceries, if built, holds **one**
+  derived list (an execution artifact; see "Exactly 3"). No list organizing,
+  editing workflows, or sharing.
+- **nutrition education content** — guardrail 4
+- **another chatbot interface** — guardrail 4
+
+Nutrition data supports decisions; it is not the main job. The core behavior is
+**decision → action**, not *record → analyze → dashboard*. The one logging-like
+exception stays the core-loop question "did you actually eat it?".
+
 ---
 
-## Initial user (the wedge)
+## Initial user (the starting segment)
+
+*(Earlier versions called this "the wedge". "Wedge" now means the capability —
+fast next-meal decision support — defined under "Strategy"; this section is
+about **who** to start with.)*
 
 Start narrow. The initial target user is a **busy person living alone** who:
 
@@ -238,7 +416,8 @@ what this mode is.
 
 ## Top-level product structure
 
-The app is organized around four top-level areas, not five:
+The app is organized around five top-level areas (Saved was added
+2026-09-30; the earlier five-screen structure is gone):
 
 - **Home** — "What do you need right now?" Entry intents: **Cook**,
   **Eat out / order** (the umbrella for every non-cooking decision — see "Home
@@ -251,6 +430,17 @@ The app is organized around four top-level areas, not five:
 - **Groceries** — one consolidated list — from a saved recipe's missing
   ingredients or a stock-up basket — distinguishing already-have /
   need-to-buy / optional. Extended MVP or later; not yet built.
+- **Saved** — recipes and places the user explicitly saved to return to.
+  **Saved is explicit interest**, durable and per user; it is *not* "Picked"
+  (chosen for this meal), not "Ate / ordered" (confirmed behavior) and not
+  "Loved" (strong preference, unbuilt), and it **does not yet change any
+  recommendation ranking** — it may become a positive signal later, separately
+  promoted. A saved recipe is kept exactly as generated and re-checked against
+  the *current* Profile when shown (an allergy match is warned about, never
+  hidden or silently rewritten). A saved place is keyed by its provider place
+  id; a hard "not for me" removes it from Saved (soft downranking does not).
+  It is a small return-to list, not a recipe library to manage: no folders,
+  tags or search.
 - **Me** — the persistent Food Profile, and eventually the rest of the
   long-term information described under Core-loop MVP and Extended MVP below
   (equipment, fridge size, foods at home).
@@ -280,6 +470,8 @@ and is not authorized by this document.
 | **Approximate recent-intake context** | "Remaining daily nutrition" | LATER only. Never "calories/macros remaining today." |
 | **Meal context** — breakfast / lunch / dinner / snack, or the current eating situation | "Food occasion" | Avoid framing it as a fixed per-meal calorie allocation. |
 | **Eat out** (umbrella) | "Order Food" / "I want to order food" — the built category mode | UI label stays; it is now one capability inside Eat out. |
+| **Kitchen staples** (persistent condiments/seasonings) + **today's food** (entered fresh each time) | "Pantry" | "Pantry" is retired: it blurred persistent seasonings with perishable food and went stale. Do not reintroduce it, in code or docs, to mean stored food. See `CLAUDE.md` → "Kitchen staples vs. today's food." |
+| **Interaction modes** (Cook / Eat out / Grab a snack) | "Decision modes", "action domains" (when used loosely) | Modes are how the user *enters* a decision; **action domains** (Cook / Eat out / Stock up) are the kinds of solution. Neither is a separate product. |
 | **Saved recipes** now; a more neutral future term such as **saved ideas** if the feature broadens beyond recipes | **"Recipe Inbox"** | Legacy: "Inbox" was removed from nav; the `recipes` table keeps the name. Flagged, not renamed. |
 | **Option images** if extended beyond Cook | **"Recipe visualization"** | Accurate today (Cook-only dish photos). If images are ever added to nearby places or store items, the word "recipe" no longer fits. Flagged, not renamed. |
 
@@ -322,6 +514,23 @@ See `PERSONALIZATION.md`.
 **7. Low friction first.**
 Prefer chips, buttons, defaults, and one-tap interactions. Avoid making the
 user write long prompts.
+
+**8. The more you use it, the less you should have to explain yourself.**
+The product should ask for less input over time, not more. Memory is used to
+pre-fill, never to silently assume: a remembered answer is shown and editable in
+one tap (`PERSONALIZATION.md`), and it never makes the *next* question a longer
+one. The goal is to **minimize time spent deciding what to eat**, not to
+maximize time in the app — see "Success measures."
+
+**9. Stored context must change a recommendation.**
+Persistent information — allergies, foods avoided, equipment, nutrition goals,
+budget, saved places — must eventually affect ranking or filtering. A Profile
+field that no recommendation reads is a form to fill, not personalization, and
+it costs the user effort for nothing. Before adding a field, name the behavior
+it changes; if a stored field stops changing anything, wire it in or remove it.
+(A field kept deliberately as context only must say so — e.g. optional health
+conditions, which only *suggest* a nutrition priority.) `PERSONALIZATION.md`
+lists what each field changes today.
 
 ### Decision priority order
 
@@ -372,10 +581,13 @@ Rules that follow:
   a restaurant, or an item, and never calls an option "safe" or
   "allergen-free." Respecting a constraint means never *knowingly*
   recommending something that violates it.
-- **Status:** the Profile today holds *disliked foods* but no dedicated
-  allergy or dietary-restriction field, and today's prompt treats dislikes as
-  hard exclusions. Proper hard-constraint support is a small NOW foundation
-  item in `PLAN.md`, and a prerequisite for richer Eat out personalization.
+- **Status (2026-09-30):** the Profile now has a dedicated **Allergies** list,
+  separate from *disliked foods*, and allergies are a hard constraint in every
+  recommendation mode; dislikes are soft in every mode. **Dietary restrictions**
+  (vegetarian, vegan, halal, kosher, …) still have no Profile field, and the
+  allergy rule is enforced in the prompt and, since 2026-10-05, by a literal
+  allergen-name check in code on every mode's cards (no aliases, so it catches a
+  slip and never proves a dish safe).
   How hard constraints interact with learning is in `PERSONALIZATION.md`.
 
 ### Exactly 3 — decisions, not execution artifacts
@@ -629,10 +841,14 @@ it never asserts that a venue or item is safe.
 **What it can say about a place:** name, category, distance, open/closed, price
 level, a link to the place's own website where available, and a provider
 rating as one light ranking input — plus a *suggestion* of what kind of thing
-to look for on their menu ("look for a grilled or bowl-style option"). That
-suggestion is guidance, never a claim that a particular item exists. Review
-content and review features are out of scope. The product answers "where," not
-"what to order there."
+to look for on their menu ("look for a grilled chicken rice bowl, sauce on the
+side" — a generic dish plus one simple tweak, shaped by craving, hunger, budget,
+and nutrition priorities). That suggestion is guidance, never a claim that a
+particular item exists, and the card labels it as such. Review content and
+review features are out of scope. The product answers "where" first; "what to
+order there" stays restaurant-level guidance until a real menu source exists —
+Google Places has no menu, menu-URL, or ordering data, so naming real items
+(curated chain menus, PLAN.md → V2) is not built.
 
 **Not part of this slice** (canonical list; other documents refer here):
 
@@ -754,12 +970,22 @@ users yet.
 
 ## What we need to prove, in order
 
-| Stage | Question |
+These are **proof steps** (called "Stages" in earlier versions; renamed
+2026-10-05 so they are not confused with the four strategic stages in
+`PLAN.md`).
+
+| Proof step | Question |
 |---|---|
 | 1 | Will the founder personally use this repeatedly instead of deciding meals manually? |
 | 2 | Will 5–15 target users use it? |
 | 3 | Will any of them return without being reminded? |
 | 4 | Does recommendation → actual eating happen repeatedly? |
+| 5 | *(Strategic hypothesis, added 2026-10-05.)* Does the product need **less input** from a returning user over time, with picks staying accepted — i.e. is the compounding loop real? |
+| 6 | *(Strategic hypothesis, added 2026-10-05.)* For the same stated context, does a user **with history** get a different and better-accepted set than a brand-new user? |
+
+Steps 5 and 6 are what separate the long-term product from the wedge. They
+cannot be answered until steps 1–4 produce repeat usage and recorded
+feedback, and nothing has been observed for either yet.
 
 **Strong signal:** a user feels meaningfully worse going back to deciding
 meals without the product.
@@ -774,6 +1000,27 @@ User has a food decision → opens the product
 
 Every major feature should improve some part of this loop. A feature that does
 not is, at best, a distraction.
+
+## Success measures
+
+The goal is **not** to maximize time spent in the app; it is to **minimize time
+spent deciding what to eat.** Session duration, screens viewed, and
+"engagement" are not success measures here — a faster decision is a better one.
+
+The outcome is the north-star behavior above (the recommendation is actually
+eaten). These are the leading indicators around it:
+
+| measure | what it tells us |
+|---|---|
+| **Decision completed** | The user reached a pick instead of abandoning or deciding elsewhere. |
+| **Recommendation accepted** | They chose one of the options. A high "none of these — show me 3 more" rate is a quality signal about the *set*, never a verdict on any individual food. |
+| **Time to decision** | Open → pick. Should shrink as memory builds. |
+| **Input per decision** | Answers and taps needed per decision, per returning user. Should fall over time while acceptance holds (proof step 5). |
+| **Repeat usage at meal-decision moments** | The user comes back around the times they actually decide what to eat, unprompted (proof step 3). |
+
+**Status:** none of these is instrumented as a metric today. The loop's
+records (a chosen pick, "did you eat it?") exist; "Basic product analytics" is a
+NEXT item in `PLAN.md`. Do not report any of them as measured until it is.
 
 ---
 

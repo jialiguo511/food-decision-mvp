@@ -26,6 +26,34 @@ Today → enter current context → "Find my meal"
 If a change does not make this loop more likely to complete, it is out of
 scope for now.
 
+### Strategic direction, for implementers
+
+Defined in `PRODUCT.md` → "Strategy — the wedge and the long-term product"; not
+restated here. What it means when writing code:
+
+- **The wedge is built; the long-term product is a hypothesis.** The wedge is
+  fast next-meal decision support. The long-term idea — a system that learns how
+  one person eats, so each decision improves the next — is *not* built beyond the
+  explicit layer and a minimal behavioral slice. Never write UI, prompts, types,
+  or docs that speak of it as if it exists.
+- **Every feature should either use stored context or leave a usable signal** —
+  or reduce what the user has to answer. A feature that only adds questions works
+  against the strategy ("the more you use it, the less you should have to explain
+  yourself").
+- **A new Profile field or stored signal must name the recommendation behavior it
+  changes** (`PRODUCT.md` principle 9). `PERSONALIZATION.md` lists what each
+  field does today.
+- **Success is time-to-decision, not time-in-app.** Do not add engagement
+  mechanics, streaks, or anything that rewards staying in the app.
+- **Cook / Eat out / Snack are interaction modes over one decision system**, not
+  separate products. Learning stays scoped per mode until shown to generalize.
+- **Say "Kitchen staples" and "today's food", never "pantry".** There is no
+  persisted inventory; see "Kitchen staples vs. today's food."
+- **"Personal model" means rules, not a trained model.** No recommendation ML or
+  vector database without first changing `PRODUCT.md`.
+- **The four strategic stages in `PLAN.md` promote nothing.** NOW / NEXT / LATER
+  still decides what may be built.
+
 ## Product decision rules
 
 ### Document authority
@@ -198,6 +226,34 @@ Consequences for "Use what I have" (`shopping: "inventory_only"`):
   fewest additional items) — never an invented recipe just because it happens
   to pass the ingredient check.
 
+## Preferences have provenance — never invent one
+
+A value is **the user's** only if they set it. Three origins, never confused:
+
+- **explicit** — set in Me (recorded in `profiles.prefs.explicit_fields`; see
+  `src/lib/profileProvenance.ts`);
+- **remembered** — chosen in a real earlier session (`rememberedDefaults`);
+- **fallback** — a number the system needed (`SYSTEM_FALLBACKS`): internal only,
+  **never shown as a choice, never labelled "usual", never stored** in the
+  Profile or in a session context.
+
+Say "My usual" only of an explicit value and "Last time" only of a remembered
+one; a user with neither just picks. Unknown equipment means **no appliance
+assumed**, never "stovetop + microwave". Do not write a whole form back to the
+Profile — write only what the user set (`src/lib/profileStore.ts` is the one
+write path). The database's `NOT NULL DEFAULT` columns prove nothing on their own.
+
+## A user's data has one definition
+
+Every table keyed to a user is listed once in `src/lib/accountData.ts`
+(`USER_TABLES`); **Reset my data** and **Delete my account** both clear exactly
+that list, so a reset account equals a new one (no rows, no profile row). **When
+you add a table keyed to `auth.users`, add it there** — a test reads the SQL and
+fails otherwise. Keep client state out of localStorage/sessionStorage: reset
+relies on a full page load to drop everything in memory. The service-role key
+(`SUPABASE_SERVICE_ROLE_KEY`, server-only, `src/lib/supabase/admin.ts`) is used
+for account deletion and nothing else.
+
 ## Minimum decisions, progressive disclosure
 
 **The user should make the minimum number of decisions possible.** The
@@ -224,15 +280,16 @@ refactor).
 
 ## The top-level information architecture (navigation, not scope)
 
-The app has **four** top-level navigation areas. As before, they are **UI
+The app has **five** top-level navigation areas. As before, they are **UI
 containers, not a list of MVP capabilities** — product capabilities cut
 across them, and a container existing does not put its contents in scope.
 
 | screen | internal route | what it is |
 |---|---|---|
-| **Home** | `/today` (route name kept for now — see below) | "What do you need right now?" Entry intents: Cook, **Eat out / order** (the umbrella for all non-cooking decisions — nearby discovery becomes a capability *inside* it, not a new Home intent), and Plan ahead (the future Stock up domain; unbuilt). Dynamic context capture, the "Find my meal" action, and the resulting three recommendation cards all happen inline within this flow — there is no separate "Results" screen. |
+| **Home** | `/today` (route name kept for now — see below) | "What should I eat?" Three equal entry choices: **Make something** (Cook), **Get food** (Eat out — the umbrella for all non-cooking decisions; nearby discovery is a capability *inside* it, not a new Home intent), and **Grab a snack**. Plan ahead (the future Stock up domain) is unbuilt. It is one decision per screen — first-run setup (allergies, foods you don't eat), a quiet "Last time … Use again" shortcut, a mode's own screen (last answers + Edit + one CTA) for a mode already used, one question at a time, then the three cards one at a time — driven by the screen reducer in `src/app/today/flow/homeReducer.ts`. Memory is a shortcut, never the headline and never an extra confirmation screen. All of it stays inside Home — there is no separate "Results" route. |
 | **Plan** | `/plan` | Container for short-horizon flexible provisioning (not fixed meal planning) and saved recipes. Label under review — see `PRODUCT.md` → Terminology. Deliberately an empty placeholder until its contents are promoted into `PLAN.md`. |
 | **Groceries** | `/groceries` | Container for one consolidated grocery list derived from saved recipes' missing ingredients or a stock-up basket. Deliberately an empty placeholder until its contents are promoted into `PLAN.md`. |
+| **Saved** | `/saved` | Recipes (Cook recommendations) and places (nearby recommendations) the user explicitly saved to come back to, in two sections. **Saved = interest only** — not picked, not ate, not loved — durable, per user, and **not read by any ranking**. Added 2026-09-30 at the founder's explicit request; see `PRODUCT.md` → "Saved". |
 | **Me** | `/profile` (route name kept for now — see below) | The Food Profile — persistent preferences. Unchanged. |
 
 **Route names are internal and independent of nav labels.** `/today` is
@@ -241,7 +298,7 @@ kept as-is to avoid churn while the UX is still stabilizing, and may be
 renamed later. Do not infer product meaning from a route's URL segment — the
 table above and the visible nav label are the source of truth.
 
-Do not add a fifth area. Do not add features to these areas without being
+Do not add a sixth area. Do not add features to these areas without being
 asked.
 
 Two things follow, same as before:
@@ -326,17 +383,43 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
   server-only. Request only the fields the decision needs; make usage and cost
   observable; do not depend on costly optional metadata. Nearby-places
   provider for v1: Google Places API (New), in `src/lib/places/` behind the
-  `PlacesProvider` interface; key `GOOGLE_PLACES_API_KEY` is server-only. Two
-  rules specific to it: the model may only choose places from the request's
-  retrieved candidates, referenced by `place_id` and validated server-side
-  (`parseNearbyRecommendations`) — it never supplies a place name, distance,
-  price, or link; and Places is not a menu database, so nearby output states
-  no exact menu items, prices, calories, or macros. It returns exactly three
-  places when three or more real candidates remain (enforced in
-  `parseNearbyRecommendations`, not just the prompt), otherwise all of them,
-  and treats disliked foods as a soft ranking signal — it has no hard
-  constraints until the dedicated allergy/dietary-restriction field exists. User coordinates are used
-  for the one request and never stored or logged.
+  `PlacesProvider` interface; key `GOOGLE_PLACES_API_KEY` is server-only. Rules
+  specific to it: **code picks the places, the model only words them.** The
+  three places come from the retrieved candidates by deterministic rules
+  (`src/lib/recommend/nearbyPicks.ts`: open now, distance vs. how far the user
+  would go, price level vs. meal budget, their own "not for me" feedback, a soft
+  craving fit) after hard constraints have removed places that centre on an
+  allergen or the dietary pattern (`placeExclusions.ts` — a short literal
+  name/type table; not a safety guarantee). They are stored and shown with a
+  rule-written reason and no model call; a small fast model then writes each
+  card's "why" and "what to look for" afterwards (`/api/recommend/enrich`,
+  `enrich.ts`), validated the same way the one-shot output always was, and can
+  never add, drop or reorder a place. A model failure leaves the rule-written
+  reasons. Places is not a menu database, so nearby output states no exact menu
+  items, prices, calories, or macros. It returns exactly three places when
+  three or more real candidates remain, otherwise all of them, and treats
+  disliked foods as a soft signal. A restaurant card shows the place's own
+  Google photo (fetched lazily, server-side, `/api/place-photo`) or a neutral
+  placeholder — **never a generated image of a real place**. User coordinates
+  are used for the one request and never stored or logged.
+- **Recipe images: photo → cache → generate once.** A Cook card's image comes
+  from a relevant real photo, else a previously generated image (shared cache:
+  `recipe_images` table + `recipe-images` Storage bucket, keyed by a hash of
+  title + main ingredients + cooking method — `src/lib/images/recipeKey.ts`),
+  else one image is generated (`generated.ts`, behind `ImageGenerator`;
+  `OPENAI_API_KEY`) and kept. It always runs AFTER the card's text is on screen,
+  only for a card about to be seen, from the stored recipe (never request
+  text), and any failure leaves the quiet no-photo band.
+- **Measure before optimizing.** Every recommendation request logs a stage
+  timing table (`src/lib/timing.ts`; also a `Server-Timing` header). The user
+  waits only for what the cards need: independent reads run together, the
+  session row is written before the cards show (Save and Choose depend on it),
+  and images, nearby wording and re-scoring happen after.
+- **Saved failures are diagnosable.** Every failed save logs the operation, item
+  type, database code and likely cause (`src/lib/saved/failure.ts`); in
+  development the same line is shown next to the button, and
+  `/api/dev/saved-check` (dev only) runs each layer as the signed-in user.
+  Production shows only the simple message.
 
 ## LLM rules
 
@@ -347,10 +430,18 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
   saved recipes.
 - **Hard constraints are stated explicitly and separately** from soft
   preferences, and are non-negotiable in the prompt. Definition and tiers:
-  `PRODUCT.md` → "Hard constraints vs. soft preferences." *Current
-  implementation gap:* the prompt today treats disliked foods as hard
-  exclusions and has no allergy/dietary-restriction input; the NOW foundation
-  item in `PLAN.md` fixes this — do not paper over it ad hoc.
+  `PRODUCT.md` → "Hard constraints vs. soft preferences." Allergies (Profile
+  v2) and the **dietary pattern** (vegetarian, vegan, pescatarian, halal,
+  kosher, other — stored in `profiles.prefs.dietary`) are hard constraints in
+  every mode; disliked foods are soft everywhere. Allergens also get a literal
+  allergen-name check in code (`findAllergenMentions`; no aliases, not a safety
+  guarantee): on the food fields of every Cook, Get food and Snack card
+  (`output.ts` → `findAllergenViolations`; a hit rejects the set, which gets one
+  automatic retry — see `claude.ts`), and on Nearby's `look_for` (withheld). The
+  dietary pattern gets a literal word check on Cook recipes only (`textChecks.ts`;
+  alcohol, halal sourcing and meat+dairy are prompt-level). *Remaining gap:* both
+  checks are only literal — a hidden ingredient or an alias ("shrimp" for
+  Shellfish) is still the prompt's job. Do not paper over either ad hoc.
 - The optimization target, stated verbatim to the model:
   > "The probability that the user will actually eat this meal tonight while
   > still moving toward their health goal."
@@ -390,6 +481,10 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
   refinement). They size a meal; never phrase output as tracking ("you have X
   left", "you're over", "log this"), and never ask the user to record what they
   ate beyond the core-loop "did you eat it?".
+- **Equipment is a hard constraint, and it is never assumed.** Only what the user
+  said they can cook with (asked the first time they cook, editable in Me)
+  counts; unknown behaves as "no appliance". Steps that name an appliance the
+  user doesn't own are rejected (`textChecks.ts`). **"No cooking at all" (or unknown equipment) means the user assembles ready-to-eat ingredients** — no heat of any kind, and not a bought hot meal (that is Get food, not Make something); `findNoCookViolations` rejects a set that needs heat or is a prepared hot meal.
 - **Recipes must not need a kitchen scale.** Everyday or visual measure first,
   approximate weight second only where it helps the nutrition estimate.
 
@@ -398,10 +493,22 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
 - Mobile-first. Warm, clean, consumer — not a developer dashboard.
 - **Chips, buttons, defaults, one-tap.** The user should almost never type.
   Free text is allowed only where there is no alternative (dislikes, craving).
+  One planned exception: the natural-language entry ("What's going on?",
+  `PLAN.md` NEXT, **not built**) — a single optional sentence or voice input
+  extracted into the existing structured context, beside the chips, never a
+  chat.
 - Every field has a sensible default so the user can hit the button immediately.
 - Show **three** recommendations when the user is deciding (`PRODUCT.md` →
   "Exactly 3"). Never a longer list.
 - Short copy. No jargon. No empty states that just say "No data".
+- **One auto-advance rule** for question screens, by kind of input
+  (`src/app/today/flow/steps.ts → STEP_KINDS / autoAdvances`): a pure single
+  choice moves on by itself after a beat (on the last question that move is
+  sending the request); several controls on a screen, multi-select, typed text,
+  a slider/number, or a choice that reveals more controls wait for an explicit
+  Continue. Every screen keeps its button so a preselected answer can be accepted.
+  New questions are added to that table with their kind, nowhere else. Moves go
+  through one scheduler (`flow/advance.ts`) so a double tap is one navigation.
 
 ## Coding conventions
 

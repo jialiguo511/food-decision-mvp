@@ -16,6 +16,7 @@ function place(id: string, overrides: Partial<NearbyPlace> = {}, dLat = 0.001): 
     open_now: true,
     price_level: null,
     maps_url: `https://www.google.com/maps/search/?api=1&query_place_id=${id}`,
+    website_url: null,
     ...overrides,
   };
 }
@@ -95,5 +96,21 @@ describe("buildCandidates", () => {
 
   it("returns an empty list for no places", () => {
     expect(buildCandidates([], ORIGIN)).toEqual([]);
+  });
+
+  it("drops excluded place ids before de-duplicating, so another branch of the same name can surface", () => {
+    const result = buildCandidates(
+      [place("branch-1", { name: "Chain" }, 0.001), place("branch-2", { name: "Chain" }, 0.002), place("other")],
+      ORIGIN,
+      { excludeIds: new Set(["branch-1"]) },
+    );
+    expect(result.map((p) => p.id).sort()).toEqual(["branch-2", "other"]);
+  });
+
+  it("flags downranked ids without removing them, and leaves everything else unflagged", () => {
+    const result = buildCandidates([place("a"), place("b")], ORIGIN, { downrankIds: new Set(["a"]) });
+    expect(result.find((p) => p.id === "a")?.user_downranked).toBe(true);
+    expect(result.find((p) => p.id === "b")).not.toHaveProperty("user_downranked");
+    expect(buildCandidates([place("a")], ORIGIN)[0]).not.toHaveProperty("user_downranked");
   });
 });

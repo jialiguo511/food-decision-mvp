@@ -8,7 +8,7 @@ import { effectiveTravel, searchRadiusMeters } from "../places/travel";
 import type { MealBudget, OrderContext, PlacePriceLevel, TravelWillingness } from "../types";
 import { contextsEqual } from "./contextEquality";
 import { assessFeasibility, distancePenalty, rankByFeasibility, shortlistCandidates } from "./feasibility";
-import { DEFAULT_PROFILE } from "../options";
+import { DEFAULT_PROFILE } from "@/test/profileInput";
 import { contextSchema, resolveNearbyInput } from "./input";
 import { buildSystemPrompt } from "./prompt";
 import { parseStoredSession } from "./session";
@@ -25,6 +25,7 @@ function place(id: string, o: Partial<PlaceCandidate> = {}): PlaceCandidate {
     open_now: true,
     price_level: null,
     maps_url: `https://www.google.com/maps/search/?api=1&query_place_id=${id}`,
+    website_url: null,
     distance_m: 300,
     ...o,
   };
@@ -56,11 +57,17 @@ describe("travel willingness → search radius", () => {
     expect(def).toBeLessThan(TRAVEL_SEARCH.worth_a_trip.radius_m);
   });
 
-  it("delivery and pickup ignore any stored travel choice", () => {
-    const def = TRAVEL_SEARCH.no_preference.radius_m;
-    for (const method of ["delivery", "pickup"] as const) {
-      expect(effectiveTravel(order(method, "worth_a_trip"))).toBe("no_preference");
-      expect(searchRadiusMeters(order(method, "worth_a_trip"))).toBe(def);
+  it("delivery ignores any stored travel choice", () => {
+    expect(effectiveTravel(order("delivery", "worth_a_trip"))).toBe("no_preference");
+    expect(searchRadiusMeters(order("delivery", "worth_a_trip"))).toBe(TRAVEL_SEARCH.no_preference.radius_m);
+  });
+
+  it("pickup and Eat nearby both use the selected travel choice's radius", () => {
+    for (const method of ["eat_nearby", "pickup"] as const) {
+      for (const t of ["walkable", "nearby", "worth_a_trip", "no_preference"] as const) {
+        expect(effectiveTravel(order(method, t))).toBe(t);
+        expect(searchRadiusMeters(order(method, t))).toBe(TRAVEL_SEARCH[t].radius_m);
+      }
     }
   });
 });
@@ -230,9 +237,11 @@ describe("context changes make Nearby results stale (contextsEqual)", () => {
     expect(contextsEqual({ ...base, ...change }, base)).toBe(false);
   });
 
-  it("a hidden travel value doesn't count as a change when the method isn't Eat nearby", () => {
+  it("a hidden travel value doesn't count as a change for delivery, but does for pickup", () => {
+    const delivery = { ...base, method: "delivery" as const };
+    expect(contextsEqual({ ...delivery, travel_willingness: "walkable" }, delivery)).toBe(true);
     const pickup = { ...base, method: "pickup" as const };
-    expect(contextsEqual({ ...pickup, travel_willingness: "walkable" }, pickup)).toBe(true);
+    expect(contextsEqual({ ...pickup, travel_willingness: "walkable" }, pickup)).toBe(false);
   });
 });
 
@@ -269,7 +278,7 @@ describe("what the model is told", () => {
     nearby: true,
   };
 
-  it("passes travel willingness (only for Eat nearby) and a feasibility tier per candidate", () => {
+  it("passes travel willingness (not for delivery) and a feasibility tier per candidate", () => {
     const input = resolveNearbyInput(DEFAULT_PROFILE, context, [
       place("a", { price_level: "inexpensive" }),
       place("b", { price_level: "very_expensive" }),
@@ -277,6 +286,9 @@ describe("what the model is told", () => {
     expect(input.soft_preferences.travel_willingness).toBe("worth_a_trip");
     expect(input.candidates.map((c) => c.feasibility)).toEqual(["strong", "weak"]);
     expect(resolveNearbyInput(DEFAULT_PROFILE, { ...context, method: "pickup" }, [place("a")]).soft_preferences.travel_willingness).toBe(
+      "worth_a_trip",
+    );
+    expect(resolveNearbyInput(DEFAULT_PROFILE, { ...context, method: "delivery" }, [place("a")]).soft_preferences.travel_willingness).toBe(
       "no_preference",
     );
   });
@@ -288,5 +300,29 @@ describe("what the model is told", () => {
     expect(prompt).toContain("do NOT prefer one merely because it is farther either");
     expect(prompt).toContain('Treat "weak" as a real mismatch');
     expect(prompt).toContain("never use one for lowest_effort");
+  });
+});
+
+describe("user feedback: soft downrank", () => {
+  it("lowers a place's score and drops it to 'weak', but only for places the user marked", () => {
+    const plain = place("a");
+    const marked = place("a", { user_downranked: true });
+    expect(score(marked, prefs("no_preference"))).toBeLessThan(score(plain, prefs("no_preference")));
+    expect(assessFeasibility(marked, prefs("no_preference")).tier).toBe("weak");
+    // No feedback → exactly the score it always was.
+    expect(assessFeasibility(plain, prefs("no_preference")).feedback).toBe(0);
+  });
+
+  it("ranks the marked place below an otherwise identical one, even when it is nearer", () => {
+    const ranked = rankByFeasibility([place("near", { user_downranked: true, distance_m: 100 }), place("far", { distance_m: 900 })], prefs("no_preference"));
+    expect(ranked.map((a) => a.candidate.id)).toEqual(["far", "near"]);
+  });
+
+  it("never removes it: with few places it still makes the shortlist, and it is held back only while enough others exist", () => {
+    const few = [place("a", { user_downranked: true }), place("b"), place("c")];
+    expect(shortlistCandidates(few, prefs("no_preference")).map((c) => c.id)).toContain("a");
+
+    const many = [place("a", { user_downranked: true }), ...Array.from({ length: SHORTLIST.min_non_weak }, (_, i) => place(`p${i}`))];
+    expect(shortlistCandidates(many, prefs("no_preference")).map((c) => c.id)).not.toContain("a");
   });
 });

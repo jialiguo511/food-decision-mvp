@@ -31,7 +31,7 @@ export default function KitchenStaplesCard({ initial }: { initial: string[] }) {
   return (
     <Card
       title="Kitchen staples"
-      hint="Things you usually keep around — salt, oil, soy sauce, spices. Not food itself; add what you actually have on Today."
+      hint="Salt, oil, soy sauce, spices — what you always have. Saved as you add them. Add the food you have each time on Home."
     >
       <TagInput placeholder="Add a staple you usually have…" values={items} onChange={handleChange} />
       {pending && <p className="mt-2 text-xs text-muted">Saving…</p>}

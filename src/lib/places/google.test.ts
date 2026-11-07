@@ -16,6 +16,7 @@ const FULL = {
   businessStatus: "OPERATIONAL",
   currentOpeningHours: { openNow: true },
   priceLevel: "PRICE_LEVEL_MODERATE",
+  websiteUri: "https://med-grill.example/",
 };
 
 describe("normalizeGooglePlace", () => {
@@ -31,7 +32,19 @@ describe("normalizeGooglePlace", () => {
       open_now: true,
       price_level: "moderate",
       maps_url: "https://maps.google.com/?cid=123",
+      website_url: "https://med-grill.example/",
+      photo_name: null,
+      photo_author: null,
     });
+  });
+
+  it("keeps the first photo's reference and credit — only a reference of the provider's exact shape", () => {
+    const photos = [{ name: "places/ChIJabc/photos/AUc7_x-Y", authorAttributions: [{ displayName: "Sam Lee" }] }, { name: "places/ChIJabc/photos/second" }];
+    expect(normalizeGooglePlace({ ...FULL, photos })).toMatchObject({ photo_name: "places/ChIJabc/photos/AUc7_x-Y", photo_author: "Sam Lee" });
+    // A malformed reference (it becomes part of a request path) is "no photo".
+    expect(normalizeGooglePlace({ ...FULL, photos: [{ name: "https://evil.example/x" }] })).toMatchObject({ photo_name: null, photo_author: null });
+    expect(normalizeGooglePlace({ ...FULL, photos: [{ name: "places/a/photos/b/../../c" }] })?.photo_name).toBeNull();
+    expect(normalizeGooglePlace({ ...FULL, photos: [] })?.photo_name).toBeNull();
   });
 
   it("degrades missing optional fields to null instead of guessing", () => {
@@ -69,6 +82,16 @@ describe("normalizeGooglePlace", () => {
     expect(place?.category).toBe("Mediterranean restaurant");
   });
 
+  it("keeps a place's own website only when it is http(s); otherwise there is no website", () => {
+    expect(normalizeGooglePlace(FULL)?.website_url).toBe("https://med-grill.example/");
+    expect(normalizeGooglePlace({ ...FULL, websiteUri: "http://old-school.example/menu" })?.website_url).toBe(
+      "http://old-school.example/menu",
+    );
+    for (const websiteUri of [undefined, null, 42, "", "javascript:alert(1)", "not a url", "ftp://x.example", "https://x.example/" + "a".repeat(600)]) {
+      expect(normalizeGooglePlace({ ...FULL, websiteUri })?.website_url).toBeNull();
+    }
+  });
+
   it("builds an id-based Maps link when Google's is missing or not https", () => {
     for (const googleMapsUri of [undefined, "javascript:alert(1)", "http://insecure.example", "not a url"]) {
       const url = new URL(normalizeGooglePlace({ ...FULL, googleMapsUri })!.maps_url);
@@ -101,11 +124,15 @@ describe("Google Places field mask", () => {
   it("is explicit and excludes expensive/unneeded data", () => {
     const fields = PLACES_FIELD_MASK.split(",");
     expect(PLACES_FIELD_MASK).not.toContain("*");
-    for (const banned of ["reviews", "photos", "editorialSummary", "generativeSummary", "rating", "websiteUri"]) {
+    for (const banned of ["reviews", "editorialSummary", "generativeSummary", "rating", "servesVegetarianFood", "menu"]) {
       expect(fields.some((f) => f.includes(banned))).toBe(false);
     }
     expect(fields).toContain("places.id");
+    // The website rides in the Enterprise tier the mask is already billed at.
+    expect(fields).toContain("places.websiteUri");
     expect(fields.every((f) => f.startsWith("places."))).toBe(true);
+    // Photos are asked for by decision, and only as a reference (name + author) — never a URL or the image.
+    expect(fields.filter((f) => f.includes("photos"))).toEqual(["places.photos.name", "places.photos.authorAttributions.displayName"]);
   });
 });
 

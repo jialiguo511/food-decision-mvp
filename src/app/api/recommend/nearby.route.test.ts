@@ -6,16 +6,42 @@ const insert = vi.fn();
 const searchNearby = vi.fn<PlacesProvider["searchNearby"]>();
 const generate = vi.fn();
 let placesConfigured = true;
+let currentUser = "user-1";
+type FeedbackRow = { user_id: string; provider: string; place_id: string; action: string };
+let feedbackRows: FeedbackRow[] = [];
+let savedPlaceIds: string[] = [];
+let profileRow: Record<string, unknown> = { dislikes: ["Pork"] };
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
+    auth: { getUser: async () => ({ data: { user: { id: currentUser } } }) },
     from: (table: string) => {
+      if (table === "saved_places") {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          in: async (_column: string, ids: string[]) => ({ data: savedPlaceIds.filter((id) => ids.includes(id)).map((place_id) => ({ place_id })), error: null }),
+        };
+        return query;
+      }
+      if (table === "place_feedback") {
+        // Honors the user_id / provider filters the route asks for, like RLS + the query would.
+        const filters: Record<string, string> = {};
+        const query = {
+          select: () => query,
+          eq: (column: string, value: string) => ((filters[column] = value), query),
+          limit: async () => ({
+            data: feedbackRows.filter((row) => Object.entries(filters).every(([k, v]) => row[k as keyof FeedbackRow] === v)),
+            error: null,
+          }),
+        };
+        return query;
+      }
       if (table === "decision_sessions") {
         return { insert: (row: unknown) => (insert(row), { select: () => ({ single: async () => ({ data: { id: "session-1" }, error: null }) }) }) };
       }
       // profiles / kitchen_staples
-      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { dislikes: ["Pork"] }, error: null }), then: undefined }) }) };
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profileRow, error: null }), then: undefined }) }) };
     },
   }),
 }));
@@ -50,6 +76,7 @@ function place(id: string, overrides: Partial<NearbyPlace> = {}): NearbyPlace {
     open_now: true,
     price_level: null,
     maps_url: `https://www.google.com/maps/search/?api=1&query_place_id=${id}`,
+    website_url: null,
     ...overrides,
   };
 }
@@ -61,6 +88,10 @@ function request(body: unknown) {
 beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic");
   placesConfigured = true;
+  currentUser = "user-1";
+  feedbackRows = [];
+  savedPlaceIds = [];
+  profileRow = { dislikes: ["Pork"] };
   insert.mockClear();
   searchNearby.mockReset();
   generate.mockReset();
@@ -99,125 +130,138 @@ describe("POST /api/recommend — nearby", () => {
     expect(res.status).toBe(502);
     expect(body.error.code).toBe("places_unavailable");
     expect(JSON.stringify(body)).not.toMatch(/403|PERMISSION_DENIED|API key/);
-    expect(generate).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
   });
 
-  it("returns an honest empty result — without asking the model — when nothing real is nearby", async () => {
+  it("returns an honest empty result when nothing real is nearby — and asks for no wording", async () => {
     searchNearby.mockResolvedValue([place("closed", { operational: false }), place("bar", { primary_type: "bar" })]);
     const res = await request({ context: CONTEXT, location: LOCATION });
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.recommendations).toEqual([]);
-    expect(generate).not.toHaveBeenCalled();
+    expect(body.enrichment_pending).toBeUndefined();
     expect(insert).toHaveBeenCalledTimes(1);
   });
 
-  it("searches with rounded coordinates, hands the model only filtered candidates, and stores no coordinates", async () => {
-    searchNearby.mockResolvedValue([place("a"), place("b"), place("closed", { open_now: false })]);
-    generate.mockResolvedValue({
-      ok: true,
-      recommendations: [{ decision_mode: "nearby", role: "best_match", title: "Place a", place_id: "a" }],
-      insufficientInventory: false,
-      model: "test-model",
+  describe("the places are picked by code — no model on the critical path", () => {
+    it("returns three real places with rule-written reasons, never calling the model", async () => {
+      searchNearby.mockResolvedValue([place("a"), place("b"), place("c"), place("d")]);
+      const res = await request({ context: CONTEXT, location: LOCATION });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(generate).not.toHaveBeenCalled();
+      expect(body.model).toBe("rules");
+      expect(body.recommendations).toHaveLength(3);
+      expect(body.recommendations.map((r: { role: string }) => r.role)).toEqual(["best_match", "lowest_effort", "alternative"]);
+      expect(new Set(body.recommendations.map((r: { place_id: string }) => r.place_id)).size).toBe(3);
+      for (const r of body.recommendations) {
+        expect(r).toMatchObject({ decision_mode: "nearby", enriched: false, look_for: null });
+        expect(r.reason.length).toBeGreaterThan(0);
+      }
+      // The wording is a follow-up, flagged so the client asks for it once.
+      expect(body.enrichment_pending).toBe(true);
     });
 
+    it("is deterministic: the same search gives the same three, in the same order", async () => {
+      searchNearby.mockResolvedValue([place("a"), place("b"), place("c"), place("d"), place("e")]);
+      const first = (await (await request({ context: CONTEXT, location: LOCATION })).json()).recommendations;
+      const second = (await (await request({ context: CONTEXT, location: LOCATION })).json()).recommendations;
+      expect(second).toEqual(first);
+    });
+
+    it("fewer than three real places: returns exactly those, never padded", async () => {
+      searchNearby.mockResolvedValue([place("a"), place("b")]);
+      const body = await (await request({ context: CONTEXT, location: LOCATION })).json();
+      expect(body.recommendations).toHaveLength(2);
+    });
+
+    it("reports where the time went, with no model stage (Server-Timing)", async () => {
+      searchNearby.mockResolvedValue([place("a"), place("b"), place("c")]);
+      const res = await request({ context: CONTEXT, location: LOCATION });
+      const timing = res.headers.get("Server-Timing") ?? "";
+      for (const stage of ["auth", "profile", "places", "persist", "total"]) expect(timing).toContain(`${stage};dur=`);
+      expect(timing).not.toContain("model;");
+    });
+
+    it("keeps a place's photo reference (and nothing else of the provider's) on the card", async () => {
+      searchNearby.mockResolvedValue([place("a", { photo_name: "places/a/photos/p1", photo_author: "Sam" }), place("b"), place("c")]);
+      const body = await (await request({ context: CONTEXT, location: LOCATION })).json();
+      const withPhoto = body.recommendations.find((r: { place_id: string }) => r.place_id === "a");
+      expect(withPhoto).toMatchObject({ photo_name: "places/a/photos/p1", photo_author: "Sam" });
+    });
+  });
+
+  it("searches with rounded coordinates and stores no coordinates", async () => {
+    searchNearby.mockResolvedValue([place("a"), place("b")]);
     const res = await request({ context: CONTEXT, location: LOCATION });
     expect(res.status).toBe(200);
-
-    // One request from the client = exactly one Places search and one model call.
+    // One request from the client = exactly one Places search.
     expect(searchNearby).toHaveBeenCalledTimes(1);
-    expect(generate).toHaveBeenCalledTimes(1);
-    const searched = searchNearby.mock.calls[0][0];
-    expect(searched.location).toEqual({ latitude: 37.7812, longitude: -122.4112 });
-
-    const candidates = generate.mock.calls[0][2] as { id: string }[];
-    expect(candidates.map((c) => c.id).sort()).toEqual(["a", "b"]);
-
-    // Dislikes reach the model as a soft preference; no hard constraint is invented.
-    const modelInput = generate.mock.calls[0][1];
-    expect(modelInput.hard_constraints).toEqual({ decision_mode: "nearby" });
-    expect(modelInput.soft_preferences.disliked_foods).toEqual(["Pork"]);
-
+    expect(searchNearby.mock.calls[0][0].location).toEqual({ latitude: 37.7812, longitude: -122.4112 });
     const stored = JSON.stringify(insert.mock.calls[0][0]);
     expect(stored).not.toMatch(/37\.78|122\.41|latitude|longitude/);
     expect(insert.mock.calls[0][0].context.nearby).toBe(true);
   });
 
-  it("surfaces a rejected model output (e.g. an invented place) as an error, and stores nothing", async () => {
-    searchNearby.mockResolvedValue([place("a")]);
-    generate.mockResolvedValue({
-      ok: false,
-      code: "malformed_output",
-      message: "The model returned something we couldn't use.",
-      details: ["best_match: place_id is not one of this request's candidates."],
-    });
-    const res = await request({ context: CONTEXT, location: LOCATION });
-    expect(res.status).toBe(502);
-    expect((await res.json()).error.code).toBe("malformed_output");
-    expect(insert).not.toHaveBeenCalled();
-  });
-
   it("excludes previously shown places on 'Show me 3 more'", async () => {
-    searchNearby.mockResolvedValue([place("a"), place("b")]);
-    generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
-    const previous = [
-      {
-        decision_mode: "nearby",
-        role: "best_match",
-        title: "Place a",
-        place_id: "a",
-        reason: "r",
-        look_for: "l",
-        category: null,
-        address: null,
-        distance_m: 100,
-        open_now: null,
-        price_level: null,
-        maps_url: "https://www.google.com/maps/search/?api=1&query_place_id=a",
-      },
-    ];
-    await request({ context: CONTEXT, location: LOCATION, previous_recommendations: previous });
-    const candidates = generate.mock.calls[0][2] as { id: string }[];
-    expect(candidates.map((c) => c.id)).toEqual(["b"]);
+    searchNearby.mockResolvedValue([place("a"), place("b"), place("c"), place("d")]);
+    const previous = ["a", "b"].map((id) => ({
+      decision_mode: "nearby", role: "best_match", title: `Place ${id}`, place_id: id, reason: "r", look_for: "l",
+      category: null, address: null, distance_m: 100, open_now: null, price_level: null,
+      maps_url: `https://www.google.com/maps/search/?api=1&query_place_id=${id}`,
+    }));
+    const body = await (await request({ context: CONTEXT, location: LOCATION, previous_recommendations: previous })).json();
+    expect(body.recommendations.map((r: { place_id: string }) => r.place_id).sort()).toEqual(["c", "d"]);
   });
 
-  it("gives the model the meal budget and each candidate's budget fit — unknown price stays a candidate", async () => {
+  describe("hard constraints decide who is eligible", () => {
+    const ids = (body: { recommendations: { place_id: string }[] }) => body.recommendations.map((r) => r.place_id);
+
+    it("a place that centres on the user's allergen is never picked", async () => {
+      profileRow = { allergies: ["Fish"] };
+      searchNearby.mockResolvedValue([
+        place("sushi", { name: "Sushi Zen", category: "Sushi restaurant", primary_type: "sushi_restaurant" }),
+        place("a"), place("b"), place("c"),
+      ]);
+      expect(ids(await (await request({ context: CONTEXT, location: LOCATION })).json())).not.toContain("sushi");
+    });
+
+    it("a vegetarian is never sent to a steakhouse", async () => {
+      profileRow = { prefs: { dietary: { patterns: ["vegetarian"], other: null } } };
+      searchNearby.mockResolvedValue([
+        place("steak", { name: "Prime Steakhouse", category: "Steak house", primary_type: "steak_house" }),
+        place("a"), place("b"), place("c"),
+      ]);
+      expect(ids(await (await request({ context: CONTEXT, location: LOCATION })).json())).not.toContain("steak");
+    });
+
+    it("dislikes stay soft — they never remove a place", async () => {
+      profileRow = { dislikes: ["Pork"] };
+      searchNearby.mockResolvedValue([place("bbq", { name: "Pork BBQ", category: "Barbecue restaurant" }), place("a"), place("b")]);
+      expect(ids(await (await request({ context: CONTEXT, location: LOCATION })).json())).toContain("bbq");
+    });
+  });
+
+  it("a tight budget prefers a clearly cheap place; an unknown price stays eligible", async () => {
     searchNearby.mockResolvedValue([
-      place("cheap", { price_level: "inexpensive" }),
       place("fancy", { price_level: "very_expensive" }),
+      place("cheap", { price_level: "inexpensive" }),
       place("unpriced", { price_level: null }),
+      place("also-fancy", { price_level: "very_expensive" }),
     ]);
-    generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
-
-    const res = await request({ context: { ...CONTEXT, meal_budget: "under_15" }, location: LOCATION });
-    expect(res.status).toBe(200);
-
-    const modelInput = generate.mock.calls[0][1];
-    expect(modelInput.soft_preferences.meal_budget).toBe("under_15");
-    // The Cook-style profile budget is no longer what nearby ranks against.
-    expect(modelInput.soft_preferences).not.toHaveProperty("budget_per_meal_usd");
-    const fits = Object.fromEntries(
-      (modelInput.candidates as { place_id: string; budget_fit: string | null }[]).map((c) => [c.place_id, c.budget_fit]),
-    );
-    expect(fits).toEqual({ cheap: "likely_fit", fancy: "unlikely_fit", unpriced: null });
-    // Budget ranks; it never removes a place.
-    expect((generate.mock.calls[0][2] as { id: string }[]).map((c) => c.id).sort()).toEqual(["cheap", "fancy", "unpriced"]);
-    // ...and it is saved with the session, so it survives leaving Home.
+    const body = await (await request({ context: { ...CONTEXT, meal_budget: "under_15" }, location: LOCATION })).json();
+    expect(body.recommendations[0].place_id).toBe("cheap");
+    expect(body.recommendations.map((r: { place_id: string }) => r.place_id)).toContain("unpriced");
+    // ...and the choice is saved with the session, so it survives leaving Home.
     expect(insert.mock.calls[0][0].context.meal_budget).toBe("under_15");
   });
 
   it("treats a request without meal_budget as 'no strong preference' — no 400 for a stale page", async () => {
     searchNearby.mockResolvedValue([place("a", { price_level: "expensive" }), place("b")]);
-    generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
     const { meal_budget: _omit, ...withoutBudget } = CONTEXT;
     void _omit;
-
     const res = await request({ context: withoutBudget, location: LOCATION });
     expect(res.status).toBe(200);
-    const modelInput = generate.mock.calls[0][1];
-    expect(modelInput.soft_preferences.meal_budget).toBe("no_preference");
-    expect((modelInput.candidates as { budget_fit: string | null }[]).map((c) => c.budget_fit)).toEqual([null, null]);
     expect(insert.mock.calls[0][0].context.meal_budget).toBe("no_preference");
   });
 
@@ -256,18 +300,23 @@ describe("POST /api/recommend — nearby", () => {
       expect(await radiusFor(oldContext)).toBe(def);
     });
 
-    it("pickup never reads the travel choice, even if a stale one is sent", async () => {
-      expect(await radiusFor({ ...CONTEXT, method: "pickup", travel_willingness: "worth_a_trip" })).toBe(
-        TRAVEL_SEARCH.no_preference.radius_m,
-      );
+    it("pickup uses the selected radius, like Eat nearby", async () => {
+      for (const t of ["walkable", "nearby", "worth_a_trip", "no_preference"] as const) {
+        expect(await radiusFor({ ...CONTEXT, method: "pickup", travel_willingness: t })).toBe(TRAVEL_SEARCH[t].radius_m);
+      }
     });
 
-    it("is saved with the session and passed to the model", async () => {
-      searchNearby.mockResolvedValue([place("a"), place("b")]);
-      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
-      await request({ context: { ...CONTEXT, travel_willingness: "walkable" }, location: LOCATION });
+    it("delivery never reads the travel choice, even if a stale one is sent", async () => {
+      expect(await radiusFor({ ...CONTEXT, method: "delivery", travel_willingness: "worth_a_trip" })).toBe(TRAVEL_SEARCH.no_preference.radius_m);
+    });
+
+    it("is saved with the session, and a nearer place wins when the user wants to stay close", async () => {
+      const near = place("near", { location: { latitude: 37.7813, longitude: -122.4112 } });
+      const far = place("far", { location: { latitude: 37.79, longitude: -122.4112 } });
+      searchNearby.mockResolvedValue([far, near, place("x"), place("y")]);
+      const body = await (await request({ context: { ...CONTEXT, travel_willingness: "walkable" }, location: LOCATION })).json();
       expect(insert.mock.calls[0][0].context.travel_willingness).toBe("walkable");
-      expect(generate.mock.calls[0][1].soft_preferences.travel_willingness).toBe("walkable");
+      expect(body.recommendations[0].place_id).not.toBe("far");
     });
 
     it("rejects an explicitly invalid value", async () => {
@@ -278,17 +327,14 @@ describe("POST /api/recommend — nearby", () => {
   });
 
   describe("cost control", () => {
-    it("Home's chips make no request; each explicit update is exactly one Places search", async () => {
+    it("each explicit update is exactly one Places search and no model call", async () => {
       searchNearby.mockResolvedValue([place("a")]);
-      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
-
-      // Changing chips is client-side state only (see OrderForm.test.ts): nothing reaches the route.
       expect(searchNearby).not.toHaveBeenCalled();
-
       await request({ context: { ...CONTEXT, meal_budget: "under_15" }, location: LOCATION });
       expect(searchNearby).toHaveBeenCalledTimes(1);
       await request({ context: { ...CONTEXT, meal_budget: "25_to_40", travel_willingness: "nearby" }, location: LOCATION });
       expect(searchNearby).toHaveBeenCalledTimes(2);
+      expect(generate).not.toHaveBeenCalled();
     });
 
     it("a failed search is not retried automatically", async () => {
@@ -297,33 +343,84 @@ describe("POST /api/recommend — nearby", () => {
       expect(searchNearby).toHaveBeenCalledTimes(1);
     });
   });
+});
 
-  describe("feasibility shortlist", () => {
-    it("hands the model a diverse, feasibility-ordered shortlist with tiers — not every candidate", async () => {
-      const found = Array.from({ length: 20 }, (_, i) =>
-        place(`p${i}`, {
-          primary_type: `type_${i % 6}`,
-          category: `Type ${i % 6}`,
-          price_level: i < 4 ? "very_expensive" : i < 12 ? "inexpensive" : null,
-          location: { latitude: 37.782 + i * 0.0004, longitude: -122.411 },
-        }),
-      );
-      searchNearby.mockResolvedValue(found);
-      generate.mockResolvedValue({ ok: true, recommendations: [], insufficientInventory: false, model: "m" });
+describe("POST /api/recommend — nearby: per-user place feedback", () => {
+  const feedback = (place_id: string, action: "exclude" | "downrank", user_id = "user-1"): FeedbackRow => ({
+    user_id,
+    provider: "google_places",
+    place_id,
+    action,
+  });
+  const picked = async () =>
+    ((await (await request({ context: CONTEXT, location: LOCATION })).json()).recommendations as { place_id: string }[]).map((r) => r.place_id);
 
-      await request({ context: { ...CONTEXT, meal_budget: "under_15", travel_willingness: "nearby" }, location: LOCATION });
+  beforeEach(() => {
+    searchNearby.mockResolvedValue([place("a"), place("b"), place("c"), place("d")]);
+  });
 
-      const shortlist = generate.mock.calls[0][2] as { id: string }[];
-      const modelInput = generate.mock.calls[0][1] as { candidates: { place_id: string; feasibility: string; budget_fit: string | null }[] };
-      expect(shortlist.length).toBeGreaterThan(3);
-      expect(shortlist.length).toBeLessThanOrEqual(10);
-      // The model sees exactly the shortlist, in the same order, each with a tier.
-      expect(modelInput.candidates.map((c) => c.place_id)).toEqual(shortlist.map((c) => c.id));
-      expect(modelInput.candidates.every((c) => ["strong", "ok", "weak"].includes(c.feasibility))).toBe(true);
-      // Obviously over-budget places are held back while plenty of better ones exist...
-      expect(modelInput.candidates.filter((c) => c.budget_fit === "unlikely_fit")).toHaveLength(0);
-      // ...but unknown-price places stay eligible.
-      expect(modelInput.candidates.some((c) => c.budget_fit === null)).toBe(true);
-    });
+  it("a fresh user (no feedback) is unaffected", async () => {
+    expect((await picked()).sort()).toHaveLength(3);
+  });
+
+  it("a hard-excluded place is never picked, on a fresh search or \"Show me 3 more\"", async () => {
+    feedbackRows = [feedback("b", "exclude")];
+    expect(await picked()).not.toContain("b");
+    const more = await request({ context: CONTEXT, location: LOCATION, previous_recommendations: [] });
+    expect(JSON.stringify(await more.json())).not.toContain('"place_id":"b"');
+  });
+
+  it("the exclusion is keyed by place id, not name: a same-named place with another id still appears", async () => {
+    searchNearby.mockResolvedValue([place("a", { name: "Chain" }), place("a2", { name: "Chain" }), place("c")]);
+    feedbackRows = [feedback("a", "exclude")];
+    expect((await picked()).sort()).toEqual(["a2", "c"]);
+  });
+
+  it("a closed/exclude report is specific to the user who made it", async () => {
+    feedbackRows = [feedback("b", "exclude", "user-2")];
+    expect(await picked()).toContain("b"); // user-1
+    currentUser = "user-2";
+    expect(await picked()).not.toContain("b");
+  });
+
+  it("another provider's ids never collide with Google place ids", async () => {
+    feedbackRows = [{ ...feedback("b", "exclude"), provider: "other_provider" }];
+    expect(await picked()).toContain("b");
+  });
+
+  it("a soft-downranked place stays eligible but is not the best match", async () => {
+    searchNearby.mockResolvedValue([place("a"), place("b")]);
+    feedbackRows = [feedback("a", "downrank")]; // a is also the nearest
+    const ids = await picked();
+    expect(ids).toContain("a");
+    expect(ids[0]).toBe("b");
+  });
+
+  it("never writes feedback as a side effect of reading it", async () => {
+    feedbackRows = [feedback("b", "exclude")];
+    await request({ context: { ...CONTEXT, travel_willingness: "walkable" }, location: LOCATION });
+    expect(feedbackRows).toHaveLength(1);
+  });
+
+  it("a failed feedback read degrades to no feedback instead of failing the request", async () => {
+    feedbackRows = null as never; // makes the fake throw
+    const res = await request({ context: CONTEXT, location: LOCATION });
+    expect(res.status).toBe(200);
+    expect(await picked()).toContain("b");
+  });
+});
+
+describe("POST /api/recommend — nearby: saved state comes back with the set", () => {
+  it("marks places already in the user's Saved, read once for the whole set", async () => {
+    searchNearby.mockResolvedValue([place("a"), place("b"), place("c")]);
+    savedPlaceIds = ["b", "not-in-this-set"];
+    const body = await (await request({ context: CONTEXT, location: LOCATION })).json();
+    expect(body.saved).toEqual({ recipeIndexes: [], placeIds: ["b"] });
+  });
+
+  it("a fresh user gets an empty saved state", async () => {
+    searchNearby.mockResolvedValue([place("a")]);
+    const body = await (await request({ context: CONTEXT, location: LOCATION })).json();
+    expect(body.saved).toEqual({ recipeIndexes: [], placeIds: [] });
   });
 });

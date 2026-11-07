@@ -5,31 +5,85 @@ export type FridgeSize = "mini" | "standard" | "large";
 export type Hunger = "light" | "normal" | "very_hungry";
 export type Effort = "minimal" | "some" | "happy_to_cook";
 
-/** A row in public.profiles. */
+/** "Sex used for the calculation" — the Mifflin–St Jeor equation has one
+ *  constant per value. Used for nothing else. */
+export type Sex = "male" | "female";
+export type ActivityLevel = "sedentary" | "lightly_active" | "moderately_active" | "very_active";
+
+/** Optional context the user chose to share. It never drives the recommender
+ *  directly — a condition can only SUGGEST a NutritionPriority, which the user
+ *  then confirms (see nutritionPriorities.ts). Deliberately three common ones;
+ *  complex medical nutrition needs are not supported. */
+export type HealthCondition = "high_blood_pressure" | "prediabetes_or_diabetes" | "high_cholesterol";
+
+/** What the user has confirmed they want to limit. This — not a condition — is
+ *  what the recommender reads: strong guidance, not a hard constraint. */
+export type NutritionPriority = "lower_sodium" | "limit_added_sugar" | "lower_saturated_fat";
+
+/** A dietary pattern the user follows — a HARD constraint in every mode (see
+ *  PRODUCT.md → hard constraints). Stored in profiles.prefs, not a column. */
+export type DietaryPattern = "vegetarian" | "vegan" | "pescatarian" | "halal" | "kosher";
+
+/** A profiles row, as the app reads it. A field that has a column default in
+ *  the database (goal, budget, cook minutes, fridge, equipment) is `null` here
+ *  unless the USER set it — the stored column value alone proves nothing,
+ *  because the database fills it in on its own. See lib/profileProvenance.ts. */
 export type Profile = {
   id: string;
   display_name: string | null;
-  goal: Goal;
-  protein_target_g: number;
-  /** Optional, entered manually. null = no target; recommendations fall back
-   *  to qualitative energy guidance. */
+  /** null = the user hasn't chosen a goal. Read as "Eat better" internally. */
+  goal: Goal | null;
+  /** Manual protein target; null = use the suggestion (or the default). */
+  protein_target_g: number | null;
+  /** Manual calorie target; null = use the suggestion (none for "Eat better"). */
   daily_calorie_target_kcal: number | null;
-  budget_per_meal_usd: number;
-  fridge_size: FridgeSize;
-  default_cook_minutes: number;
+  /** The most the user usually spends on missing ingredients; null = not set. */
+  budget_per_meal_usd: number | null;
+  fridge_size: FridgeSize | null;
+  /** null = not set. */
+  default_cook_minutes: number | null;
   cuisines: string[];
+  /** Soft preference — a very strong ranking penalty, never a safety rule. */
   dislikes: string[];
-  equipment: string[];
+  /** Safety constraint — a hard, non-negotiable exclusion in every mode. Kept
+   *  strictly separate from dislikes. Only ever entered by the user. */
+  allergies: string[];
+  /** Optional context. Kept separate from nutrition_priorities on purpose. */
+  health_conditions: HealthCondition[];
+  /** Confirmed by the user; the only one of the two the recommender sees. */
+  nutrition_priorities: NutritionPriority[];
+  /** What the user can cook with. null = never told us — NOT "none": the
+   *  recommender assumes no appliance at all until they answer. */
+  equipment: string[] | null;
+  /** Hard constraint. Empty = no dietary pattern stated. */
+  dietary_patterns: DietaryPattern[];
+  /** Free-text "Other" pattern, in the user's words. */
+  dietary_other: string | null;
+  /** Explicit, optional body inputs for the energy/protein estimates. Stored
+   *  in metric only. All null until the user enters them. */
+  sex: Sex | null;
+  age_years: number | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+  activity_level: ActivityLevel | null;
   prefs: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };
 
-/** What the profile form sends back. No id — that comes from the session. */
+/** What the Profile form edits and saves: the stored fields, raw. Nullable
+ *  targets mean "use the calculated suggestion" — a suggestion is never
+ *  written here, so it can never overwrite a manual value. No id — that comes
+ *  from the session. */
+export type ProfileFormValues = Omit<Profile, "id" | "created_at" | "updated_at" | "prefs">;
+
+/** What the recommender sees: ProfileFormValues with the targets RESOLVED
+ *  (manual value, else calculated suggestion, else today's default) and no
+ *  body inputs — it needs the targets, not the measurements. */
 export type ProfileInput = Omit<
-  Profile,
-  "id" | "created_at" | "updated_at" | "prefs"
->;
+  ProfileFormValues,
+  "protein_target_g" | "sex" | "age_years" | "height_cm" | "weight_kg" | "activity_level" | "health_conditions" | "goal"
+> & { protein_target_g: number; goal: Goal };
 
 /**
  * The first-level choice on Today: cook something, decide what to order, or
@@ -56,8 +110,10 @@ export type MealContext = {
   craving: string | null;
   ingredients_on_hand: string[];
   /** Maximum additional spend, never money the meal is expected to use.
-   *  null means "use the budget from my profile". Ignored (forced to 0) when
-   *  shopping is "inventory_only". */
+   *  The app always sends the number the user chose (their usual, last time's,
+   *  or a pick). null only appears on sessions saved before that, and on the
+   *  server means "the profile budget if the user set one, else the system
+   *  fallback". Ignored (forced to 0) when shopping is "inventory_only". */
   budget_override_usd: number | null;
   /** Set only by the "Show me what to buy" fallback after a thin or empty
    *  "Use what I have" result. Means: shopping is allowed, and the goal is the
@@ -65,6 +121,20 @@ export type MealContext = {
    *  has into a good meal — not a generic grocery run. Absent/false otherwise.
    *  Ignored when shopping is "inventory_only". */
   minimize_purchases?: boolean;
+};
+
+/**
+ * The Cook answers as the form holds them. The three "stable" answers — time,
+ * effort, shopping — and the budget are `null` until the user has answered or a
+ * REAL earlier answer (their Profile, or a past session) fills them in. A
+ * MealContext (what is sent and stored) can only be built from a form whose
+ * answers are all there — see lib/recommend/cookForm.ts — so a system fallback
+ * can never be sent, stored, or later remembered as the user's choice.
+ */
+export type CookForm = Omit<MealContext, "cook_minutes" | "effort" | "shopping"> & {
+  cook_minutes: number | null;
+  effort: Effort | null;
+  shopping: CookShopping | null;
 };
 
 export type OrderMethod = "delivery" | "pickup" | "eat_nearby";
@@ -106,8 +176,8 @@ export type OrderContext = {
    *  data here can prove a meal fits, so it only ever ranks. */
   meal_budget: MealBudget;
   /** How far the user would go — only meaningful when `method` is
-   *  "eat_nearby" and only ever read by the nearby flow (search radius and
-   *  distance fit). Anything else is treated as "no_preference". Absent on
+   *  "eat_nearby" or "pickup" and only ever read by the nearby flow (search
+   *  radius and distance fit). Delivery is treated as "no_preference". Absent on
    *  sessions saved before it existed; that also means "no_preference". */
   travel_willingness: TravelWillingness;
   /** True when this request asked for real nearby places ("Find food near
@@ -156,6 +226,12 @@ export type CookRecommendation = {
   estimated_extra_cost_usd: number;
   estimated_calories: number;
   estimated_protein_g: number;
+  /** One short, practical caution tied to the user's confirmed nutrition
+   *  priorities (e.g. "the sauce can be salty — keep it on the side"). Null
+   *  when they have none set or there is nothing specific to flag; also null on
+   *  sessions saved before this field existed. Never an amount or a medical
+   *  claim. */
+  watch: string | null;
   ingredients_on_hand: string[];
   ingredients_needed: string[];
   equipment: string[];
@@ -194,6 +270,12 @@ export type OrderRecommendation = {
    *  a list of prohibitions. See PRODUCT.md → "Order Food" coaching
    *  philosophy: this is harm reduction, not diet enforcement. */
   modification: string | null;
+  /** One short, practical caution tied to the user's confirmed nutrition
+   *  priorities (e.g. "the sauce can be salty — keep it on the side"). Null
+   *  when they have none set or there is nothing specific to flag; also null on
+   *  sessions saved before this field existed. Never an amount or a medical
+   *  claim. */
+  watch: string | null;
   estimated_calories: number;
   estimated_protein_g: number;
 };
@@ -215,6 +297,12 @@ export type StoreSnackRecommendation = {
   /** Optional second option if the first isn't found. Null when there's no
    *  natural substitute worth naming. */
   backup: string | null;
+  /** One short, practical caution tied to the user's confirmed nutrition
+   *  priorities (e.g. "the sauce can be salty — keep it on the side"). Null
+   *  when they have none set or there is nothing specific to flag; also null on
+   *  sessions saved before this field existed. Never an amount or a medical
+   *  claim. */
+  watch: string | null;
   estimated_calories: number;
   estimated_protein_g: number;
 };
@@ -223,6 +311,13 @@ export type StoreSnackRecommendation = {
  *  the provider actually returned one — never inferred. */
 export type PlacePriceLevel = "free" | "inexpensive" | "moderate" | "expensive" | "very_expensive";
 
+/** Personal feedback about one real place (a user's own opinion, stored per
+ *  user — never a public or verified fact about the place). "exclude" = never
+ *  recommend it to this user again until they undo it; "downrank" = rank it
+ *  lower but keep it eligible. The action is derived from the reason. */
+export type PlaceFeedbackReason = "closed" | "dont_like" | "too_expensive" | "bad_experience" | "other";
+export type PlaceFeedbackAction = "exclude" | "downrank";
+
 /** One of up to three recommendations for "Find food near me": a real place
  *  from that request's provider results, never a model invention. The model
  *  supplies only `place_id`, `reason`, and `look_for`; every other field is
@@ -230,8 +325,9 @@ export type PlacePriceLevel = "free" | "inexpensive" | "moderate" | "expensive" 
  *  UI never renders a place name the model made up.
  *
  *  Deliberately has no menu-item, price, calorie, or protein fields: a places
- *  provider is not a menu database. `look_for` is a *strategy* ("a grilled
- *  chicken or rice-bowl style option"), never a claim that an item exists.
+ *  provider is not a menu database. `look_for` is a *strategy* — the shape of
+ *  dish to look for plus one simple tweak ("a grilled chicken rice bowl, sauce
+ *  on the side") — never a claim that an item exists or is verified.
  *  `decision_mode: "nearby"` exists only at this level — the session's
  *  context stays `decision_mode: "order"` with `nearby: true`. */
 export type NearbyRecommendation = {
@@ -243,8 +339,10 @@ export type NearbyRecommendation = {
   place_id: string;
   /** One or two user-facing sentences on why this place fits right now. */
   reason: string;
-  /** What kind of food to look for there. Guidance, not a menu claim. */
-  look_for: string;
+  /** What kind of food to look for there. Guidance, not a menu claim. Null
+   *  when the server withheld it because it named one of the user's
+   *  allergens (see output.ts) — the place itself is still valid. */
+  look_for: string | null;
   /** The provider's short type label, e.g. "Mediterranean restaurant". */
   category: string | null;
   address: string | null;
@@ -258,6 +356,17 @@ export type NearbyRecommendation = {
   price_level: PlacePriceLevel | null;
   /** https link that opens this exact place in Google Maps. */
   maps_url: string;
+  /** The place's own website when the provider had one; null otherwise (and
+   *  on sessions saved before this existed). Not a menu or ordering link. */
+  website_url: string | null;
+  /** false while `reason` is the rule-written one and `look_for` hasn't been
+   *  written yet (the model only adds wording after the places are shown).
+   *  Absent = complete: every session saved before this existed. */
+  enriched?: boolean;
+  /** The provider's reference to a photo of THIS place (never a generated one),
+   *  and its credit. Absent / null = none: the card shows a neutral placeholder. */
+  photo_name?: string | null;
+  photo_author?: string | null;
 };
 
 export type Recommendation =
@@ -275,40 +384,55 @@ export type CookConstraints = {
    *  to use. Forced to 0 when no_shopping is true, regardless of any override
    *  or profile default. */
   budget_usd: number;
-  budget_source: "profile" | "override";
+  /** Where the ceiling came from: the user's request ("override"), their saved
+   *  Profile budget ("profile"), or the system's internal fallback ("default")
+   *  — the last is never shown to the user as theirs. */
+  budget_source: "profile" | "override" | "default";
   equipment: string[];
+  /** false = the user has never said what they can cook with. Nothing is
+   *  assumed then: `equipment` is empty and `no_cooking` is true. */
+  equipment_known: boolean;
   no_cooking: boolean;
   /** True when the user chose "Use what I have" — every recommendation must
    *  need zero additional purchases, not merely stay under a low budget. */
   no_shopping: boolean;
-  avoid: string[];
+  /** Safety constraint — see Profile.allergies. */
+  allergies: string[];
+  /** Hard constraint — see Profile.dietary_patterns. */
+  dietary: DietaryConstraint;
 };
+
+/** A dietary pattern, as a hard constraint on every recommendation. `other` is
+ *  the user's own words, passed as a description of a food rule. */
+export type DietaryConstraint = { patterns: DietaryPattern[]; other: string | null };
 
 /** The constraints an order recommendation set was generated under. Ordering
  *  has no real time/budget/equipment limits to enforce — the only hard
- *  constraint is what the user won't eat. */
+ *  constraint is the user's allergies. */
 export type OrderConstraints = {
   decision_mode: "order";
-  avoid: string[];
+  allergies: string[];
+  dietary: DietaryConstraint;
 };
 
 /** The constraints a store-snack recommendation set was generated under. Like
- *  ordering, there is no time/budget/equipment limit to enforce — only what
- *  the user won't eat. */
+ *  ordering, there is no time/budget/equipment limit to enforce — only the
+ *  user's allergies. */
 export type StoreSnackConstraints = {
   decision_mode: "store_snack";
-  avoid: string[];
+  allergies: string[];
+  dietary: DietaryConstraint;
 };
 
 /** The hard constraints a nearby-places recommendation set was generated
- *  under: none carried today. Hard constraints are allergies and dietary
- *  restrictions (PRODUCT.md → "Hard constraints vs. soft preferences"), and
- *  the Profile has no such field yet — that is a separate NOW item in
- *  PLAN.md. Disliked foods are soft preferences, so they are deliberately NOT
- *  here; they travel as `soft_preferences.disliked_foods`. When the dedicated
- *  field exists, it becomes a member of this type. */
+ *  under: the user's allergies. Places data has no menu or allergen content, so
+ *  these can only steer away from places whose type centers on an allergen and
+ *  from dishes to look for — the product never claims a place is safe. Disliked
+ *  foods are soft preferences and travel as `soft_preferences.disliked_foods`. */
 export type NearbyConstraints = {
   decision_mode: "nearby";
+  allergies: string[];
+  dietary: DietaryConstraint;
 };
 
 export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints | NearbyConstraints;
@@ -332,7 +456,21 @@ export type RecommendSuccess = {
   /** The decision_sessions row this set was stored under. Selecting a
    *  recommendation writes chosen_index back onto this same row. */
   session_id: string;
+  /** Which of these cards are already in the user's Saved. Absent = unknown
+   *  (treated as nothing saved). */
+  saved?: SavedState;
+  /** Signature of the nutrition targets these cards were made under (see
+   *  targetsSignature). Lets Home notice that the user's targets changed since,
+   *  and re-score the cards on screen. Absent when nothing personal applied. */
+  targets_sig?: string;
+  /** Nearby only: true while the places are shown with rule-written reasons and
+   *  the model is still to add its wording (POST /api/recommend/enrich). */
+  enrichment_pending?: boolean;
 };
+
+/** What of a set of cards is already in the user's Saved: indexes of Cook
+ *  recipe cards (matched by content), and ids of nearby places. */
+export type SavedState = { recipeIndexes: number[]; placeIds: string[] };
 
 export type RecommendErrorCode =
   | "llm_not_configured"
@@ -386,4 +524,8 @@ export type ActiveSession = {
   context: DecisionContext;
   /** Three, or 0–3 for a strict "Use what I have" request — see RecommendSuccess. */
   recommendations: Recommendation[];
+  /** Which cards are already saved, read once for the whole set. */
+  saved?: SavedState;
+  /** See RecommendSuccess.targets_sig. */
+  targets_sig?: string;
 };
