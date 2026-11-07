@@ -16,7 +16,11 @@
 // SQL editor.
 
 import { readdirSync } from "node:fs";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+// Booting a Postgres and applying the whole schema (twice) takes a few seconds —
+// more when the full suite runs in parallel. A timeout is not a failure of the SQL.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 import { createRealDb, readSql, type RealDb } from "./realDb";
 
 const MIGRATIONS = readdirSync(new URL("../../supabase/migrations", import.meta.url)).filter((f) => f.endsWith(".sql")).sort();
