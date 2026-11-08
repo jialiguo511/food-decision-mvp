@@ -63,12 +63,15 @@ export function LoadingState({
  *  when the last good cards are still on screen underneath. */
 export function ErrorState({
   error,
+  reference,
   compact = false,
   onRetry,
   onIdeasByType,
   onChange,
 }: {
   error: RecommendUiError;
+  /** The request's id — the same one the server logs — so a failure can be looked up. */
+  reference?: string;
   compact?: boolean;
   onRetry: () => void;
   onIdeasByType?: () => void;
@@ -79,6 +82,11 @@ export function ErrorState({
     <section role="alert" className={`rounded-3xl border border-line bg-card ${compact ? "p-4" : "p-5"} animate-fade-in`}>
       <p className="text-base font-semibold">{copy.title}</p>
       <p className="mt-1 text-sm text-muted">{copy.body}</p>
+      {reference && (
+        <p className="mt-2 select-all text-[11px] text-muted/80" data-testid="error-reference">
+          Reference {reference} · {error.code}
+        </p>
+      )}
       <div className="mt-4 space-y-2">
         {copy.retry && <Button onClick={onRetry}>Try again</Button>}
         {copy.byType && onIdeasByType && (

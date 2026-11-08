@@ -459,6 +459,18 @@ deployed; not validated with any user.** Facts, checks and the setup list are in
       user's own session. New `release_user_storage()` (service-role only) releases them just before the
       auth user is removed; reproduced and fixed on real Postgres with Supabase's real owner foreign key.
       Needs `migrations/2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY`.
+      (4) *A failure shown beside results, and a failure message that said nothing.* The request/session state
+      machine was checked with the real components and a 60-sequence randomized test (late answers from
+      abandoned requests included): no path leaves an error next to a NEWER success. What could show an
+      error panel above cards is a failure while an EARLIER set is still held — and that was unlabelled, so it
+      read as this request's result. It is now headed "Your previous recommendations" ("from an earlier request —
+      not the one that just failed"), with its own answers, and without actions that would act on the old answers.
+      The generic "Couldn't find good options … usually works on a second go" covered every non-timeout failure
+      and carried an unverified promise; each code now has its own message, a gateway/HTML reply is "took too
+      long" / "couldn't be read" instead of a JSON parse error, a dropped connection is a connection problem, and
+      every error shows a Reference (request id + code) that matches one `[recommend] failed` log line with the
+      stage timings. The specific first failure on the Preview could not be traced (no deployment logs available).
+      A picture failure is shown on the picture only (tested).
       *Same weakness, not changed (not asked):* Cook / Get food-by-type / Snack "more" still pass only
       the last batch to the model as things to avoid.
 

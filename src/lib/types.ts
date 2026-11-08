@@ -517,10 +517,16 @@ export type LocationErrorCode =
   | "location_unavailable"
   | "location_timeout";
 
-/** What Today's UI shows for a failed request: a server failure or a
- *  browser-side location failure. */
+/** A request that failed before the server's own answer could be read: the
+ *  connection dropped, or what came back wasn't the app's JSON (e.g. a host's
+ *  gateway page). Kept apart from the server's codes so the screen never says
+ *  "the AI failed" about a problem in between. */
+export type TransportErrorCode = "network_error" | "bad_response";
+
+/** What Today's UI shows for a failed request: a server failure, a
+ *  browser-side location failure, or a transport failure. */
 export type RecommendUiError = {
-  code: RecommendErrorCode | LocationErrorCode;
+  code: RecommendErrorCode | LocationErrorCode | TransportErrorCode;
   message: string;
   details?: string[];
 };

@@ -32,9 +32,11 @@ describe("error copy", () => {
     expect(errorCopy("location_denied")).toMatchObject({ title: "We need your location to find nearby food.", byType: true });
   });
 
-  it("anything unknown gets the generic, retryable message — never the raw one", () => {
-    expect(errorCopy("malformed_output")).toMatchObject({ title: "Couldn't find good options this time.", retry: true });
-    expect(errorCopy("upstream_error").title).not.toMatch(/HTTP|error_code|Anthropic/);
+  it("a known failure gets its own message; only a code we have no words for gets the plain generic one — never the raw detail", () => {
+    // These used to ALL read "Couldn't find good options this time", whatever actually went wrong.
+    expect(errorCopy("malformed_output")).toMatchObject({ title: "The answer came back in a form we couldn't use.", retry: true });
+    expect(errorCopy("upstream_error").title).not.toMatch(/HTTP|error_code|Anthropic|good options/);
+    expect(errorCopy("a_code_added_later" as never)).toMatchObject({ title: "Something went wrong.", retry: true });
   });
 
   it("can't-retry cases don't offer Try again", () => {

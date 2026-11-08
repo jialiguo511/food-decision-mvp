@@ -50,6 +50,8 @@ export type Timer = {
   setLabel(label: string): void;
   /** The browser's id for this request, so the logs line up. */
   setRequestId(id: string | null): void;
+  /** The browser's id for this request, if it sent one. */
+  requestId(): string | null;
   /** Logs the table (once). Safe to call on every exit path. */
   report(): void;
 };
@@ -115,6 +117,7 @@ export function createTimer(initialLabel: string, now: () => number = performanc
     setLabel(next) {
       label = next;
     },
+    requestId: () => requestId,
     setRequestId(id) {
       requestId = id;
     },

@@ -16,7 +16,12 @@ export type ErrorCopy = {
 };
 
 const NEARBY = { retry: true, byType: true, change: false };
+const TRY = { retry: true, byType: false, change: false };
+const CHANGE = { retry: false, byType: false, change: true };
 
+// One message per real cause. Never a promise about how often a retry works (we
+// don't know), never "couldn't find good options" for something that wasn't a
+// search for options, and never a rule loosened to make a request succeed.
 const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
   location_denied: {
     title: "We need your location to find nearby food.",
@@ -40,12 +45,72 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
   },
   places_unavailable: {
     title: "Couldn't look up places near you.",
-    body: "Try again in a moment, or get food ideas by type.",
+    body: "The places lookup didn't answer. Try again, or get food ideas by type.",
     ...NEARBY,
   },
   unauthenticated: {
     title: "You're signed out.",
     body: "Sign in again to get recommendations.",
+    retry: false,
+    byType: false,
+    change: false,
+  },
+  rate_limited: { title: "The AI service is busy.", body: "It asked us to slow down. Wait a moment, then try again.", ...TRY },
+  upstream_timeout: {
+    title: "That took too long.",
+    body: "The request timed out before a result came back. You can send it again.",
+    ...TRY,
+  },
+  upstream_error: {
+    title: "The AI service didn't answer properly.",
+    body: "We couldn't get a usable response from the AI service. You can send the request again.",
+    ...TRY,
+  },
+  network_error: {
+    title: "Couldn't reach the server.",
+    body: "Check your connection, then send the request again.",
+    ...TRY,
+  },
+  bad_response: {
+    title: "The server's reply couldn't be read.",
+    body: "Something between you and the app answered with an error page instead of results. You can send the request again.",
+    ...TRY,
+  },
+  malformed_output: {
+    title: "The answer came back in a form we couldn't use.",
+    body: "Every answer is checked before it's shown, and this one didn't pass. Nothing was shown. You can send the request again.",
+    ...TRY,
+  },
+  truncated_output: {
+    title: "The answer was cut off.",
+    body: "The AI ran out of room before finishing, so nothing was shown. You can send the request again.",
+    ...TRY,
+  },
+  constraint_violation: {
+    title: "None of the options passed your rules.",
+    body: "Options that mention something you avoid — allergies, foods, or equipment you don't have — are never shown, and this set had one. We don't loosen those rules to get a result. You can try again, or change your answers.",
+    retry: true,
+    byType: false,
+    change: true,
+  },
+  model_refused: {
+    title: "The AI declined this request.",
+    body: "It chose not to answer this one. Changing your answers may help.",
+    ...CHANGE,
+  },
+  profile_unavailable: {
+    title: "Couldn't load your food profile.",
+    body: "We don't suggest meals without your allergies and equipment, so we stopped. You can send the request again.",
+    ...TRY,
+  },
+  session_save_failed: {
+    title: "The options couldn't be saved.",
+    body: "They were made but not stored, and choosing or saving one depends on that — so none are shown. You can send the request again.",
+    ...TRY,
+  },
+  llm_not_configured: {
+    title: "Suggestions aren't set up on this server.",
+    body: "This is a configuration problem, not something you did.",
     retry: false,
     byType: false,
     change: false,
@@ -63,21 +128,18 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
     ...NEARBY,
     retry: false,
   },
-  usage_unavailable: { title: "Suggestions are paused for a moment.", body: "Please try again shortly.", retry: true, byType: false, change: false },
-  rate_limited: { title: "Lots of requests right now.", body: "Give it a moment, then try again.", retry: true, byType: false, change: false },
-  upstream_timeout: { title: "That took too long.", body: "Try again — it usually works on a second go.", retry: true, byType: false, change: false },
+  usage_unavailable: { title: "Suggestions are paused for a moment.", body: "The daily allowance couldn't be checked, so nothing was started. Please try again shortly.", ...TRY },
   invalid_context: {
     title: "Something about those answers didn't work.",
     body: "Go back and check your answers, then try again.",
-    retry: false,
-    byType: false,
-    change: true,
+    ...CHANGE,
   },
 };
 
+// A code we have no specific words for. Say that plainly — and no more.
 const FALLBACK: ErrorCopy = {
-  title: "Couldn't find good options this time.",
-  body: "Try again — it usually works on a second go.",
+  title: "Something went wrong.",
+  body: "No recommendations were made this time.",
   retry: true,
   byType: false,
   change: true,

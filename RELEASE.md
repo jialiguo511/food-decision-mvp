@@ -149,7 +149,23 @@ Do this on your phone against the preview URL (§3), signed in with your own ema
 14. [ ] To see a limit: set `USAGE_LIMIT_RECOMMEND=2` on the preview, ask three times → the third says you've reached today's limit.
 15. [ ] Nav shows only Home / Saved / Me.
 
-## 8. Known gaps (so nobody is surprised)
+## 8. When a request fails — how to find out why
+
+Every error panel shows a small line: **`Reference 8c763925 · upstream_timeout`** (the request id and the error code; nothing from what you
+typed). To look it up: Vercel → the project → **Logs** (filter the Preview deployment), search the id. Two things share it:
+
+- `[recommend] failed { requestId, code, status, last_stage, stages, total_ms }` — one line per failed request: which code, which HTTP status, the **last stage it reached**
+  (`auth`, `usage`, `preferences`, `prompt`, `model`, `parse`, `session_write`…) and how long every stage took. Names, codes and milliseconds only — no answers, foods, profile, keys or model output.
+- `[Cook timing 8c763925]` — the full stage table for the same request, and `[recommend] model call requestId=… attempt=N` lines (N = 2 means the SDK retried once).
+
+Reading it: `last_stage: model` with ~45 000 ms → the AI call timed out; `code: malformed_output` / `constraint_violation` → the answer failed our checks (the rejected output's finding is the
+line just above, `[recommend] rejected output`); `session_write` → the cards were made but not stored; a browser error of `bad_response` with *no* `[recommend] failed` line at all → the request never reached
+the route's own error handling (the host answered first: a gateway timeout or crash page — check the deployment's function logs for that time).
+
+The first failure reported on the Preview (2026-11-07: *"Couldn't find good options this time"* on the first Generate, fine on the second) could not be traced: the deployment logs were not available to me,
+and that wording was the generic fallback used for **every** non-timeout failure, so it didn't identify the cause. If it happens again, send me the Reference line.
+
+## 9. Known gaps (so nobody is surprised)
 
 - Nothing has been used by anyone yet; "does it help people decide?" is untested (proof steps 1–2, `PRODUCT.md`). The Claude Project
   baseline from `LEARNINGS.md` (2026-10-20) is the number to beat.

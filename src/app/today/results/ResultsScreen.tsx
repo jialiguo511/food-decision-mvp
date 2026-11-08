@@ -117,7 +117,7 @@ export default function ResultsScreen({
         {header}
         <div className="pt-3">
           {request.kind === "error" && (
-            <ErrorState error={request.error} onRetry={onRetry} onIdeasByType={onIdeasByType} onChange={onChange} />
+            <ErrorState error={request.error} reference={request.requestId} onRetry={onRetry} onIdeasByType={onIdeasByType} onChange={onChange} />
           )}
         </div>
       </div>
@@ -129,20 +129,36 @@ export default function ResultsScreen({
   const limited = isInventoryLimited(session);
   const chosenIndex = selection.status === "chosen" ? selection.index : null;
 
+  // A request FAILED while an earlier set is still in the store. Those cards are the
+  // earlier request's — never this one's — so they are labelled as exactly that and
+  // are not dressed in the new request's heading, sentence or answers.
+  const previous = request.kind === "error";
+
   return (
     <div className="space-y-4">
       {header}
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight">
-          {nearby ? "Places near you" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
-        </h2>
-        {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} /> : <p className="mt-1 text-sm text-muted">{contextSummary(session.context).join(" · ")}</p>}
-        <NutritionLine session={session} targets={nutritionTargets} notice={notice} />
-      </div>
-
-      {request.kind === "error" && (
-        <ErrorState compact error={request.error} onRetry={onRetry} onIdeasByType={mode === "order" ? onIdeasByType : undefined} onChange={onChange} />
+      {previous && (
+        <ErrorState compact error={request.error} reference={request.requestId} onRetry={onRetry} onIdeasByType={mode === "order" ? onIdeasByType : undefined} onChange={onChange} />
       )}
+      <div>
+        {previous ? (
+          <>
+            <h2 className="text-2xl font-semibold tracking-tight">Your previous recommendations</h2>
+            <p className="mt-1 text-sm text-muted" data-testid="previous-note">
+              From an earlier request — not the one that just failed.
+            </p>
+            <p className="mt-0.5 text-xs text-muted">Earlier answers: {contextSummary(session.context).join(" · ")}</p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              {nearby ? "Places near you" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
+            </h2>
+            {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} /> : <p className="mt-1 text-sm text-muted">{contextSummary(session.context).join(" · ")}</p>}
+            <NutritionLine session={session} targets={nutritionTargets} notice={notice} />
+          </>
+        )}
+      </div>
 
       {limited && (
         <Notice
@@ -231,7 +247,7 @@ export default function ResultsScreen({
         />
       )}
 
-      {limited ? (
+      {previous ? null : limited ? (
         <Button onClick={onWhatToBuy}>Show me what to buy</Button>
       ) : (
         recs.length > 0 &&
@@ -245,7 +261,7 @@ export default function ResultsScreen({
         )
       )}
 
-      {nutritionNudge && recs.length > 0 && chosenIndex === null && (
+      {!previous && nutritionNudge && recs.length > 0 && chosenIndex === null && (
         <section className="rounded-2xl border border-line bg-card p-4">
           <p className="text-sm font-semibold">Want better portion and protein suggestions?</p>
           <p className="mt-0.5 text-sm text-muted">Add a few details — about 30 seconds.</p>

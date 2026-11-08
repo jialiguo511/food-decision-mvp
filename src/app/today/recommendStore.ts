@@ -291,7 +291,9 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
       body: JSON.stringify({ context, previous_recommendations: previous, location, entry, shown_place_ids: shown }),
       signal: controller.signal,
     });
-    const body: unknown = await response.json();
+    // Not everything that answers is the app: a host's gateway page (a timeout, a
+    // crash) is HTML. Keep the real HTTP status instead of a JSON parse error.
+    const body: unknown = await response.json().catch(() => undefined);
     requestLog("response", { requestId, status: response.status, ms: Date.now() - startedAt, current: isCurrent() });
     if (!isCurrent()) return;
     if (response.ok && isSuccess(body)) {
@@ -325,7 +327,7 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
     } else if (isFailure(body)) {
       fail(requestId, { kind: "error", requestId, error: body.error });
     } else {
-      fail(requestId, { kind: "error", requestId, error: { code: "upstream_error", message: `Unexpected response (HTTP ${response.status}).` } });
+      fail(requestId, { kind: "error", requestId, error: transportError(response.status) });
     }
   } catch (error) {
     // Aborted on purpose (superseded / owner changed): not a failure, not ours.
@@ -334,12 +336,18 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
       fail(requestId, { kind: "error", requestId, error: { code: error.code, message: error.message } });
       return;
     }
-    fail(requestId, {
-      kind: "error",
-      requestId,
-      error: { code: "upstream_error", message: error instanceof Error ? error.message : "Request failed." },
-    });
+    // The request never got an answer (connection dropped, offline, blocked).
+    fail(requestId, { kind: "error", requestId, error: { code: "network_error", message: error instanceof Error ? error.name : "Request failed." } });
   }
+}
+
+/** What a reply that wasn't the app's own JSON means, by its HTTP status. A gateway
+ *  timeout says "took too long" (that is what it is); anything else is "couldn't
+ *  read the reply", with the status kept for whoever looks at the logs. */
+export function transportError(status: number): RecommendUiError {
+  if (status === 504 || status === 408) return { code: "upstream_timeout", message: `The server timed out (HTTP ${status}).` };
+  if (status === 429) return { code: "rate_limited", message: "Too many requests (HTTP 429)." };
+  return { code: "bad_response", message: `The server's reply couldn't be read (HTTP ${status}).` };
 }
 
 function fail(requestId: string, request: Extract<RequestStatus, { kind: "error" }>) {

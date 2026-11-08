@@ -487,5 +487,18 @@ async function handleNearby(args: {
 
 function fail(timer: Timer, code: RecommendErrorCode, message: string, details?: string[]) {
   const body: RecommendFailure = { error: { code, message, ...(details ? { details } : {}) } };
+  // One line per failure, greppable by the id the browser shows next to the error:
+  // which request, which code, which HTTP status, how far it got and how long each
+  // stage took. Names, codes and milliseconds only — no answers, no profile, no keys,
+  // no model output.
+  const stages = timer.stages();
+  console.warn("[recommend] failed", {
+    requestId: timer.requestId() ?? "none",
+    code,
+    status: STATUS[code],
+    last_stage: Object.keys(stages).at(-1) ?? "start",
+    stages,
+    total_ms: timer.elapsed(),
+  });
   return respond(timer, body, STATUS[code]);
 }

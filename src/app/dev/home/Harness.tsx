@@ -49,6 +49,12 @@ const idea = (role: "best_match" | "lowest_effort" | "alternative", title: strin
 const POOL_SIZE = typeof window === "undefined" ? 7 : Number(new URLSearchParams(window.location.search).get("pool") ?? 7);
 const POOL = Array.from({ length: POOL_SIZE }, (_, n) => place({ place_id: `p${n + 1}`, title: `Fixture place ${n + 1}`, role: (["best_match", "lowest_effort", "alternative"] as const)[n % 3], photo_name: null }));
 
+// ?failat=2&code=upstream_timeout — the 2nd recommend request fails with that server
+// code (default upstream_error); add &html=504 to make it a host's HTML gateway page instead.
+const FAIL_AT = typeof window === "undefined" ? 0 : Number(new URLSearchParams(window.location.search).get("failat") ?? 0);
+const FAIL_CODE = typeof window === "undefined" ? "upstream_error" : (new URLSearchParams(window.location.search).get("code") ?? "upstream_error");
+const FAIL_HTML = typeof window === "undefined" ? 0 : Number(new URLSearchParams(window.location.search).get("html") ?? 0);
+
 declare global {
   interface Window {
     __harness?: boolean;
@@ -75,6 +81,11 @@ if (typeof window !== "undefined" && !window.__harness) {
       window.__sent!.push({ url: "recommend", body });
       await new Promise((r) => setTimeout(r, 900));
       const mode = body.context.decision_mode;
+      const nth = window.__sent!.filter((x) => x.url === "recommend").length;
+      if (FAIL_AT > 0 && nth === FAIL_AT) {
+        if (FAIL_HTML) return new Response("<html>An error occurred with your deployment</html>", { status: FAIL_HTML, headers: { "Content-Type": "text/html" } });
+        return Response.json({ error: { code: FAIL_CODE, message: "internal detail" } }, { status: 502 });
+      }
       if (mode === "order" && body.context.nearby === true) {
         const shown = new Set<string>([...(body.shown_place_ids ?? []), ...(body.previous_recommendations ?? []).map((r: { place_id: string }) => r.place_id)]);
         const fresh = POOL.filter((p) => !shown.has(p.place_id)).slice(0, 3).map((p, i) => ({ ...p, role: (["best_match", "lowest_effort", "alternative"] as const)[i] }));
