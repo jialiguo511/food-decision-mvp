@@ -41,6 +41,7 @@ Verified here:
 - The cross-way recommender against the **real model** (`OPEN_CONFIRM=1 npm run check:open`, ~2 cents a case): a mixed
   set of recipe / order / snack in one call, zero recipes when cooking is ruled out, no invented ingredients, places or
   prices, no protein-deficit claim, allergy and vegetarian held on every way.
+- Picture matching on written-out Pexels descriptions (sushi for roll-ups, salad for a wrap, soup for rice, missing description) and idea-card routes (never generated, never for a place); real Pexels results need `PEXELS_API_KEY` and are checked by hand on the Preview.
 - In a real browser at 390 and 320 px: carousel loading (first card without scrolling, next card ahead of the swipe,
   no repeat request going back and forth, stable height across loading / loaded / failed), sentence → straight to cards,
   sentence → short follow-up → cards, sentence that allows several ways → one set mixing Make it / Grab it / Order it (no "what kind of help?"), a failed read keeping the text, step-by-step, Edit, and the

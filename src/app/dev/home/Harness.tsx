@@ -66,6 +66,12 @@ const FAIL_AT = typeof window === "undefined" ? 0 : Number(new URLSearchParams(w
 const FAIL_CODE = typeof window === "undefined" ? "upstream_error" : (new URLSearchParams(window.location.search).get("code") ?? "upstream_error");
 const FAIL_HTML = typeof window === "undefined" ? 0 : Number(new URLSearchParams(window.location.search).get("html") ?? 0);
 
+// Pictures (the real route needs a signed-in user and Pexels): index 0 → a photo (a stand-in image),
+// 1 → "no matching photo", 2 → a failed request that works on "Try again". ?img=none → all none.
+const IMG_MODE = typeof window === "undefined" ? "mixed" : (new URLSearchParams(window.location.search).get("img") ?? "mixed");
+const STAND_IN = (n: number) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="hsl(${n * 70 + 20} 55% 70%)"/><text x="320" y="190" font-size="28" text-anchor="middle" fill="#fff">stand-in photo ${n}</text></svg>`)}`;
+const imageTries: Record<number, number> = {};
+
 declare global {
   interface Window {
     __harness?: boolean;
@@ -87,6 +93,15 @@ if (typeof window !== "undefined" && !window.__harness) {
       const interpretation = fakeRead(body.text);
       if (Object.keys(interpretation).length === 0) return Response.json({ error: "nothing_found" }, { status: 422 });
       return Response.json({ interpretation: { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null, ...interpretation } });
+    }
+    if (url.endsWith("/api/image")) {
+      window.__sent!.push({ url: "image", body });
+      await new Promise((r) => setTimeout(r, 600));
+      const i = Number(body.index);
+      imageTries[i] = (imageTries[i] ?? 0) + 1;
+      if (IMG_MODE === "none" || i === 1) return Response.json({ url: null, reason: "no_image" });
+      if (i === 2 && imageTries[i] === 1) return Response.json({ error: "x" }, { status: 502 });
+      return Response.json({ source: "photo", url: STAND_IN(i), photographerName: "Pat Example", photographerUrl: "https://www.pexels.com/@example", sourceUrl: "https://www.pexels.com/photo/1" });
     }
     if (url.endsWith("/api/recommend")) {
       window.__sent!.push({ url: "recommend", body });

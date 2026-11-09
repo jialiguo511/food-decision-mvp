@@ -28,11 +28,15 @@ vi.mock("@/lib/location", () => ({ LocationError: class extends Error {}, reques
 import HomeFlow from "./HomeFlow";
 import { chooseRecommendation } from "./actions";
 import { resetStore } from "./recommendStore";
+import { resetImageStore } from "./imageStore";
 
 let container: HTMLDivElement;
 let root: Root;
 let recommendBodies: { context: Record<string, unknown> }[];
 let read: Record<string, unknown>;
+let imageCalls: { index: number; session_id: string }[];
+/** What /api/image answers for each card index (default: nothing to show). */
+let imageAnswer: (index: number) => Response;
 
 const EMPTY: Record<string, unknown> = { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null };
 const MIXED = [
@@ -44,6 +48,9 @@ const reply = { recommendations: MIXED, insufficient_inventory: false, nutrition
 
 beforeEach(() => {
   resetStore();
+  resetImageStore();
+  imageCalls = [];
+  imageAnswer = () => Response.json({ url: null, reason: "no_image" });
   recommendBodies = [];
   read = { ...EMPTY };
   vi.stubGlobal(
@@ -54,6 +61,11 @@ beforeEach(() => {
       if (u.endsWith("/api/recommend")) {
         recommendBodies.push(JSON.parse(String(init?.body)));
         return Response.json(reply);
+      }
+      if (u.endsWith("/api/image")) {
+        const body = JSON.parse(String(init?.body));
+        imageCalls.push(body);
+        return imageAnswer(body.index);
       }
       return Response.json({ url: null });
     }),
@@ -200,5 +212,59 @@ describe("allergies not set yet", () => {
     mount("none_known");
     await say("随便吃点", { leave_to_us: true });
     expect(text()).not.toMatch(/allergies yet/i);
+  });
+});
+
+describe("pictures in a mixed set", () => {
+  const photo = (n: number) => Response.json({ source: "photo", url: `https://img/${n}.jpg`, photographerName: "Pat", photographerUrl: "https://p/pat", sourceUrl: "https://p/photo" });
+  const states = () => [...container.querySelectorAll("figure[data-image-state]")].map((f) => f.getAttribute("data-image-state"));
+  const frames = () => [...container.querySelectorAll("figure[data-image-state] > div")].map((d) => /aspect-\S+/.exec(d.className)?.[0]);
+
+  it("every card — recipe, snack, order — asks for its own picture once, and each shows what it got", async () => {
+    imageAnswer = (i) => (i === 0 ? photo(0) : i === 1 ? Response.json({ url: null, reason: "no_image" }) : Response.json({ error: "x" }, { status: 502 }));
+    mount();
+    await say("buy or make", { ways: ["cook", "buy"], leave_to_us: true });
+    await flush();
+    expect(imageCalls.map((c) => c.index).sort()).toEqual([0, 1, 2]); // one request each, never a place lookup
+    expect(imageCalls.every((c) => c.session_id === "session-open")).toBe(true);
+    expect(states()).toEqual(["ready", "none", "failed"]);
+  });
+
+  it("a photo is labelled illustrative and credited; all three frames are the same shape", async () => {
+    imageAnswer = (i) => (i === 2 ? photo(2) : Response.json({ url: null, reason: "no_image" }));
+    mount();
+    await say("buy or make", { ways: ["cook", "buy"], leave_to_us: true });
+    await flush();
+    const captions = [...container.querySelectorAll("figcaption")].map((c) => c.textContent);
+    expect(captions[2]).toMatch(/Illustrative photo/);
+    expect(captions[2]).toMatch(/Photo by Pat on Pexels/);
+    expect(new Set(frames()).size).toBe(1); // same aspect ratio in every state and card type
+    expect(captions[0]).not.toMatch(/Illustrative/); // nothing claimed when there is no photo
+  });
+
+  it("a failed picture can be retried — one more request, for that card only", async () => {
+    imageAnswer = (i) => (i === 2 ? Response.json({ error: "x" }, { status: 502 }) : Response.json({ url: null, reason: "no_image" }));
+    mount();
+    await say("buy or make", { ways: ["cook", "buy"], leave_to_us: true });
+    await flush();
+    imageAnswer = () => photo(2);
+    await click("Try again");
+    await flush();
+    expect(imageCalls.filter((c) => c.index === 2)).toHaveLength(2);
+    expect(imageCalls.filter((c) => c.index !== 2)).toHaveLength(2);
+    expect(states()).toEqual(["none", "none", "ready"]);
+  });
+
+  it("a request for no ready-made picture never delays the cards: they are on screen before any picture answers", async () => {
+    let release: (r: Response) => void = () => {};
+    imageAnswer = () => new Response("");
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => (String(url).endsWith("/api/image") ? new Promise<Response>((r) => (release = r)) : real(url, init))));
+    mount();
+    await say("buy or make", { ways: ["cook", "buy"], leave_to_us: true });
+    expect(text()).toContain("Tuna wrap");
+    expect(text()).toContain("Greek yogurt cup");
+    expect(states()).toContain("loading");
+    release(Response.json({ url: null, reason: "no_image" }));
   });
 });

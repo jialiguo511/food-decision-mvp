@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relevanceScore, selectRelevantPhoto, tokenize } from "./relevance";
+import { formsAgree, relevanceScore, selectRelevantPhoto, tokenize } from "./relevance";
 
 describe("tokenize", () => {
   it("lowercases, splits on non-letters, drops stopwords and trivial plurals", () => {
@@ -64,5 +64,47 @@ describe("selectRelevantPhoto", () => {
 
     const result = selectRelevantPhoto("yogurt peanut butter bowl", candidates, (c) => c.alt);
     expect(result?.id).toBe(2);
+  });
+});
+
+describe("the wrong-dish cases: matching words are not enough", () => {
+  const pick = (query: string, alts: string[]) => selectRelevantPhoto(query, alts, (a) => a);
+
+  it("smoked-salmon cucumber roll-ups is NOT a sushi photo (the reported bug)", () => {
+    const sushi = ["Close-up of salmon nigiri sushi with cucumber slices and chopsticks", "Sushi platter with salmon, cucumber rolls and ginger"];
+    expect(pick("smoked salmon cucumber roll-ups", sushi)).toBeNull();
+    expect(pick("smoked salmon cucumber roll-ups with cream cheese", sushi)).toBeNull();
+  });
+
+  it("…while a photo that really is that food still matches", () => {
+    expect(pick("smoked salmon cucumber roll-ups", ["Cucumber roll-ups filled with smoked salmon and cream cheese", "Sushi with salmon"])).toBe("Cucumber roll-ups filled with smoked salmon and cream cheese");
+  });
+
+  it("a kind of dish the query names must be in the photo", () => {
+    expect(pick("tuna wrap", ["Tuna salad on a plate"])).toBeNull(); // right ingredient, wrong dish
+    expect(pick("tuna wrap", ["A tuna wrap cut in half on a board"])).not.toBeNull();
+  });
+
+  it("a different dish the photo shows is a contradiction, however many words overlap", () => {
+    expect(pick("chicken rice", ["Chicken rice soup in a pot"])).toBeNull();
+    expect(pick("chicken tomato", ["Chicken and tomato pizza"])).toBeNull();
+    expect(pick("chicken pizza", ["Chicken pizza slice"])).not.toBeNull();
+  });
+
+  it("generic words (bowl, salad, toast) showing up incidentally are not a contradiction", () => {
+    expect(pick("salmon avocado", ["Grilled salmon with avocado on toast"])).not.toBeNull();
+  });
+
+  it("synonyms count: a sandwich query accepts a panini photo", () => {
+    expect(formsAgree(tokenize("turkey sandwich"), "Turkey panini with cheese")).toBe(true);
+  });
+
+  it("a photo with no description can never be confirmed, so it is never shown", () => {
+    expect(pick("chicken rice bowl", [""])).toBeNull();
+  });
+
+  it("two words need both (a single shared word is no longer enough)", () => {
+    expect(pick("greek yogurt", ["Bowl of yogurt with honey"])).toBeNull();
+    expect(pick("greek yogurt", ["Greek yogurt with honey"])).not.toBeNull();
   });
 });

@@ -108,4 +108,24 @@ describe("createPexelsProvider", () => {
 
     expect(result).toBeNull();
   });
+
+  it("concurrent lookups of the same phrase share ONE Pexels request", async () => {
+    let release: (v: unknown) => void = () => {};
+    const fetchMock = vi.fn(() => new Promise((resolve) => (release = resolve)));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createPexelsProvider("test-key");
+    const a = provider.resolve("Concurrent Lentil Soup");
+    const b = provider.resolve("concurrent  lentil soup");
+    const c = createPexelsProvider("test-key").resolve("concurrent lentil soup");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    release({ ok: true, json: async () => ({ photos: [{ src: { landscape: "https://x/l.jpg", large: "https://x/L.jpg" }, photographer: "P", photographer_url: "u", url: "p", alt: "Lentil soup in a bowl" }] }) });
+    const results = await Promise.all([a, b, c]);
+    expect(results.every((r) => r?.url === "https://x/l.jpg")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show a sushi photo for a roll-ups query even when Pexels ranks it first", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ photos: [{ src: { landscape: "https://x/sushi.jpg", large: "https://x/s.jpg" }, photographer: "Nadin", photographer_url: "u", url: "p", alt: "Salmon nigiri sushi with cucumber" }] }) }));
+    expect(await createPexelsProvider("test-key").resolve("smoked salmon cucumber roll-ups sushi-check")).toBeNull();
+  });
 });

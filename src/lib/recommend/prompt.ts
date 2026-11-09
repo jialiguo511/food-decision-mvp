@@ -178,7 +178,7 @@ cook:
 - equipment: only items listed in \`cook.equipment\`.
 - Quantities: a practical household or visual measure first ("2 large eggs", "about 1 cup cooked rice"). No kitchen scale.
 - steps: 3–5 short instructions, one sentence each; every entry a real instruction — never a field name or placeholder (such as the literal word "image_query").
-- inventory_note: always null. image_query: a 2–4 word stock-photo search phrase for the dominant visible dish only ("peanut butter toast"); never a sentence, brand, number or health word, and never repeated in another field.
+- inventory_note: always null. image_query: a 2–4 word stock-photo search phrase for the dominant visible dish only ("peanut butter toast"), naming WHAT KIND of dish it is (wrap, roll-up, bowl, salad, toast, omelette…) — never a different dish that merely shares ingredients (not "sushi" for roll-ups); never a sentence, brand, number or health word, and never repeated in another field.
 
 order:
 - search_terms: 2–3 short, broad phrases to type into a delivery or takeout app ("chicken curry", "curry bowl") — never a restaurant name.
@@ -255,7 +255,7 @@ ${watchField(input.nutrition_priorities)}
 - estimated_calories and estimated_protein_g: rough estimates for one serving, shown as approximations.
 - steps: 3–5 short, plain instructions, one sentence each. Every entry must be an actual instruction the user follows — never a field name, placeholder or other non-instruction text (such as the literal word "image_query").
 - inventory_note: ${strict ? "see the strict inventory rules above." : "always null."}
-- image_query: a 2–4 word stock-photo search phrase for the dominant visible dish only: the base dish plus at most one or two defining ingredients, no condiments or minor mix-ins ("peanut butter toast", "chicken rice bowl"). Never a sentence, brand, restaurant, number, or nutrition/health word ("healthy", "high protein"). Metadata only: never repeat it, or the word "image_query", in any other field.
+- image_query: a 2–4 word stock-photo search phrase for the dominant visible dish only: the base dish plus at most one or two defining ingredients, no condiments or minor mix-ins ("peanut butter toast", "chicken rice bowl"). It must name the dish's own kind (wrap, roll-up, bowl, salad, toast, omelette…) and never a different dish that merely shares ingredients (do not write "sushi" for roll-ups). Never a sentence, brand, restaurant, number, or nutrition/health word ("healthy", "high protein"). Metadata only: never repeat it, or the word "image_query", in any other field.
 - insufficient_inventory: ${strict ? "see the strict inventory rules above." : "this field does not exist for this request; omit it."}`;
 }
 

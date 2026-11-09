@@ -43,7 +43,7 @@ async function recommend(label: string, context: OpenContext, profile: ProfileIn
     console.info(`\n[${label}] FAILED ${result.code}: ${result.message}\n  ${(result.details ?? []).join("\n  ")}`);
     throw new Error(`${label}: ${result.code}`);
   }
-  const lines = result.recommendations.map((r) => `  ${r.role.padEnd(13)} ${r.decision_mode.padEnd(11)} ${r.title}  — ${r.reason}`);
+  const lines = result.recommendations.map((r) => `  ${r.role.padEnd(13)} ${r.decision_mode.padEnd(11)} ${r.title}${r.decision_mode === "cook" ? `  [image_query: ${r.image_query}]` : ""}  — ${r.reason}`);
   console.info(`\n[${label}] ${ms} ms, $${result.usage.estimatedCostUsd ?? "?"}\n${lines.join("\n")}`);
   return result.recommendations;
 }

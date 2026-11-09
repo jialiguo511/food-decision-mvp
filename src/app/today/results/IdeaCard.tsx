@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Button from "@/components/ui/Button";
 import type { OrderRecommendation, StoreSnackRecommendation } from "@/lib/types";
+import RecipeImage from "../RecipeImage";
 import type { Selection } from "../useRecommend";
 import ResultCard, { Pills, Reveal } from "./ResultCard";
 
@@ -12,12 +13,14 @@ import ResultCard, { Pills, Reveal } from "./ResultCard";
 export default function IdeaCard({
   r,
   index,
+  sessionId,
   selection,
   onChoose,
   way,
 }: {
   r: OrderRecommendation | StoreSnackRecommendation;
   index: 0 | 1 | 2;
+  sessionId: string;
   selection: Selection;
   onChoose: (index: 0 | 1 | 2) => void;
   /** In a cross-way set: which way of eating this card is ("Order it"). */
@@ -44,6 +47,9 @@ export default function IdeaCard({
       index={index}
       selection={selection}
       onChoose={onChoose}
+      // An illustrative real photo of this kind of food (labelled as such), loaded after the text
+      // like a recipe's; a quiet placeholder of the same size when no matching photo exists.
+      media={<RecipeImage key={`${sessionId}:${index}`} target={{ session_id: sessionId, index }} size="large" slot={index} />}
       after={
         shown.length > 0 && (
           <>

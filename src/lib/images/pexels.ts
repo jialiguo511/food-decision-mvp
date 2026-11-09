@@ -40,6 +40,8 @@ type PexelsSearchResponse = {
 // rate limit, network error) is NOT cached — it used to be, which turned one
 // bad minute into a day of missing photos for that dish.
 const cache = new TtlCache<ImageResult | null>(ONE_DAY_MS);
+// Concurrent lookups of the same phrase (three cards, two browser tabs) share one Pexels request.
+const pending = new Map<string, Promise<ImageResult | null | typeof FAILED>>();
 
 export function createPexelsProvider(apiKey: string): ImageProvider {
   return {
@@ -50,7 +52,12 @@ export function createPexelsProvider(apiKey: string): ImageProvider {
       const cached = cache.get(normalized);
       if (cached !== undefined) return cached;
 
-      const result = await fetchFromPexels(apiKey, normalized);
+      let running = pending.get(normalized);
+      if (!running) {
+        running = fetchFromPexels(apiKey, normalized).finally(() => pending.delete(normalized));
+        pending.set(normalized, running);
+      }
+      const result = await running;
       if (result === FAILED) return null;
       cache.set(normalized, result);
       return result;

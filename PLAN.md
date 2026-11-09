@@ -518,6 +518,22 @@ it); buying suggestions are types of food, not real places (real nearby search i
 mode); existing accounts with an empty allergy list see the "not set" note until they answer;
 "easy options" is the app's reading of "just something" and is shown as assumed.
 
+- [x] **Pictures on every card, and the wrong-photo fix, 2026-11-08** (founder-requested after the
+      Preview showed only the recipe card with a picture, and a sushi photo on "smoked salmon cucumber
+      roll-ups"). *Why only one had a picture:* only recipe cards ever asked for one; order/snack cards
+      never had a picture area, so a mixed set looked uneven. *Why sushi:* the relevance bar was "half the
+      query's words in the photo's description", and sushi shares "salmon" and "cucumber". Now: the bar is
+      60 % and the kind of dish is checked on its own (a kind the query names must be in the photo; a
+      distinct different kind the photo names rejects it; no description → no photo); `image_query` is
+      told to name the dish's kind. "Order it" / "Grab it" show an **illustrative real photo** (labelled)
+      found from the card's title, the same way, through the same route, cache and per-card store (one
+      request each, a failure retryable, none on swipe-back), never generated, no allowance spent; every
+      card has the same frame (matching photo or the quiet placeholder). Restaurant cards are untouched.
+      **Cost:** up to two extra Pexels lookups per order/snack card (24 h cache, in-flight sharing); fewer
+      photos overall is intended. **Not verified for real:** no `PEXELS_API_KEY` here, so how often real
+      Pexels descriptions pass the bar is unmeasured — the matching rules are tested on written-out
+      descriptions only.
+
 ---
 
 ## NOW — the Core-loop MVP

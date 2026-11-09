@@ -450,6 +450,17 @@ Nearby restaurant/café **discovery** is *not* a non-goal (promoted to NEXT
   `OPENAI_API_KEY`) and kept. It always runs AFTER the card's text is on screen,
   only for a card about to be seen, from the stored recipe (never request
   text), and any failure leaves the quiet no-photo band.
+- **Picture matching: no photo beats a wrong one.** A Pexels candidate is used only if
+  its own description (`alt`) covers ≥ 60 % of the query's words AND agrees on the *kind
+  of dish* (`relevance.ts` → `FORMS`: a kind the query names must be in the photo; a
+  distinct different kind the photo names — sushi for roll-ups — rejects it). No
+  description, no photo. Never loosen this to get more pictures.
+- **"Order it" / "Grab it" cards get an *illustrative* real photo only**
+  (`ideaImage.ts`, via `/api/image`): searched from the card's title (then the dish
+  before "with"/"and"), same relevance bar, same cache, same client store (one request
+  per card, no repeat on swipe/return), never generated, no usage spent, no recognition
+  step. Every Pexels photo is captioned "Illustrative photo · Photo by … on Pexels". A
+  real place (`nearby`) never gets one — only its own Google photo or the placeholder.
 - **Measure before optimizing.** Every recommendation request logs a stage
   timing table (`src/lib/timing.ts`; also a `Server-Timing` header). The user
   waits only for what the cards need: independent reads run together, the

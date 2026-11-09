@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { resolveImageProvider } from "@/lib/images";
 import { resolveImageGenerator } from "@/lib/images/generated";
+import { resolveIdeaImage } from "@/lib/images/ideaImage";
 import { createSupabaseImageCache, resolveRecipeImageOutcome } from "@/lib/images/recipeImage";
 import { storedRecommendationSchema } from "@/lib/recommend/output";
 import { recordEvent } from "@/lib/events/record";
@@ -51,7 +52,17 @@ export async function POST(request: Request) {
     card = Array.isArray(data?.recommendations) ? data.recommendations[index] : undefined;
   }
   const parsed = storedRecommendationSchema.safeParse(typeof card === "object" && card !== null && !("decision_mode" in card) ? { ...card, decision_mode: "cook" } : card);
-  if (!parsed.success || parsed.data.decision_mode !== "cook") return NextResponse.json(EMPTY);
+  if (!parsed.success) return NextResponse.json(EMPTY);
+
+  // An "Order it" / "Grab it" card: an illustrative real photo of the kind of food, or nothing.
+  // Never generated (no usage spent, no cache write), never for a place: a nearby card is a
+  // real restaurant and only ever shows that place's own photo (/api/place-photo).
+  if (parsed.data.decision_mode === "order" || parsed.data.decision_mode === "store_snack") {
+    if (typeof saved_id === "string" && saved_id) return NextResponse.json(EMPTY); // Saved holds recipes and places only
+    const photo = await resolveIdeaImage(parsed.data, resolveImageProvider());
+    return NextResponse.json(photo ? { source: "photo", ...photo } : { url: null, reason: "no_image" });
+  }
+  if (parsed.data.decision_mode !== "cook") return NextResponse.json(EMPTY);
 
   const outcome = await resolveRecipeImageOutcome(parsed.data, {
     photos: resolveImageProvider(),

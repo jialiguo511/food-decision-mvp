@@ -9,7 +9,8 @@ export type { RecipeImageTarget };
 export { toResult };
 
 /**
- * Cook-only recommendation image. The card's text is already on screen; this
+ * A recommendation card's picture — a recipe's, or (for "Order it" / "Grab it") an
+ * illustrative photo of the kind of food. Never used for a real place. The card's text is already on screen; this
  * asks /api/image for the picture afterwards — never from /api/recommend — by
  * (session, card), so the server reads the recipe itself. The server tries a
  * relevant real photo, then a previously generated image, then generates one
@@ -91,7 +92,7 @@ export default function RecipeImage({
             "Illustration generated for this recipe"
           ) : (
             <>
-              Photo by{" "}
+              <span className="font-medium">Illustrative photo</span> · Photo by{" "}
               <a href={result.photographerUrl} target="_blank" rel="noopener noreferrer" className="underline">
                 {result.photographerName}
               </a>{" "}

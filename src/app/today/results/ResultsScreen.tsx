@@ -227,7 +227,7 @@ export default function ResultsScreen({
                 />
               );
             }
-            return <IdeaCard key={r.role} r={r} index={index} selection={selection} onChoose={onChoose} way={crossWay ? WAY_LABELS[r.decision_mode] : undefined} />;
+            return <IdeaCard key={r.role} r={r} index={index} sessionId={session.session_id} selection={selection} onChoose={onChoose} way={crossWay ? WAY_LABELS[r.decision_mode] : undefined} />;
           })}
         </Carousel>
       )}
