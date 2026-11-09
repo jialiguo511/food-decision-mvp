@@ -131,7 +131,9 @@ A **budget alert is not a cap.** Treat each vendor's *spend limit / quota* setti
    and the Preview's origin (or a wildcard you're comfortable with). Sign-in builds the link from the page you are on, so each origin must be allowed.
 3. **CAPTCHA (recommended before public sign-up).** Cloudflare Turnstile is free: create a widget, put the **site key** in `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, and put the **secret key** in
    Supabase → *Authentication → Attack Protection → Enable CAPTCHA protection*. Turn on both or neither: enabled in Supabase without the site key breaks sign-in; the site key alone
-   does nothing. <https://supabase.com/docs/guides/auth/auth-captcha>
+   does nothing. **The widget's *Hostname Management* must list every exact host that serves `/login`** — Cloudflare shows a blocked host as "Unable to connect to website" (error `110200`),
+   and each Vercel Preview deployment has its own host (`<project>-<hash>-<team>.vercel.app`); use the stable branch alias or add each host you test on. `NEXT_PUBLIC_*` is read at build time:
+   change the key, then redeploy. The sign-in page now prints Cloudflare's actual error code and a retry; to read it yourself, open DevTools → Console on `/login` and look for `[turnstile] widget <code> <host>`. <https://supabase.com/docs/guides/auth/auth-captcha>
 4. **Vendor spend caps (blocking).** Anthropic: a monthly spend limit. OpenAI: a project budget/limit (only if `OPENAI_API_KEY` is set). Google: restrict the key to Places API (New) and set a quota
    per day plus a budget alert. Do this before the key sees public traffic.
 5. **Vercel:** set §5 variables on Preview and Production; function `maxDuration` is 200 s on `/api/recommend`, 60 s on image/enrich, 30 s on interpret — check your plan allows it.

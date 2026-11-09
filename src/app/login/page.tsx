@@ -47,7 +47,8 @@ function LoginForm() {
     event?.preventDefault();
     if (state === "sending") return;
     if (TURNSTILE_SITE_KEY && !captcha) {
-      setError("One moment — the check below hasn't finished yet.");
+      // The check sits just above the button and shows its own failure and retry if it cannot run.
+      setError("The check above has to pass before we can send the link.");
       setState("error");
       return;
     }
