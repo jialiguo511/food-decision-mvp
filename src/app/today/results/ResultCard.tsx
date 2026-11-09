@@ -16,6 +16,15 @@ const ROLE_LABELS: Record<Recommendation["decision_mode"], Record<Recommendation
   nearby: { best_match: "Best fit", lowest_effort: "Close & easy", alternative: "Something different" },
 };
 
+/** The same roles in one or two words, for the tabs under the carousel. */
+const SHORT_LABELS: Record<Recommendation["decision_mode"], Record<Recommendation["role"], string>> = {
+  cook: { best_match: "Best match", lowest_effort: "Easiest", alternative: "Different" },
+  order: { best_match: "Top pick", lowest_effort: "Easiest", alternative: "Different" },
+  store_snack: { best_match: "Best fit", lowest_effort: "Filling", alternative: "Lighter" },
+  nearby: { best_match: "Best fit", lowest_effort: "Closest", alternative: "Different" },
+};
+export const shortRoleLabel = (r: Pick<Recommendation, "decision_mode" | "role">) => SHORT_LABELS[r.decision_mode][r.role];
+
 /** The frame every result card shares: role, title, a corner action (Save),
  *  the body, then the explicit choice. The chosen card says so plainly. */
 export default function ResultCard({

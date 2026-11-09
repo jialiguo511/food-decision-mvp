@@ -8,9 +8,9 @@ import { RecipeSaveControl } from "../SaveControl";
 import type { Selection } from "../useRecommend";
 import ResultCard, { Pills, Reveal } from "./ResultCard";
 
-/** A Cook recommendation. First level is only what decides it — picture,
- *  time, rough calories and protein, what it costs tonight, why it fits.
- *  "View recipe" reveals the rest. Every number is an estimate. */
+/** A Cook recommendation. First level, in this order: what it is, why it fits (for the first
+ *  card why it wins; for the others what it trades against it), what to buy, and only then the
+ *  estimates (time, calories, protein, cost). "View steps" reveals the recipe. */
 export default function RecipeCard({
   r,
   index,
@@ -44,7 +44,7 @@ export default function RecipeCard({
       after={
         <>
           <Button variant={chosen && !open ? "primary" : "secondary"} className="mt-2" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? "Hide recipe" : "View recipe"}
+            {open ? "Hide steps" : "View steps"}
           </Button>
           <Reveal open={open}>
             <div className="space-y-4 pt-4 text-sm">
@@ -72,15 +72,27 @@ export default function RecipeCard({
         </>
       }
     >
-      <Pills
-        items={[
-          `~${r.estimated_minutes} min`,
-          `~${r.estimated_calories} cal`,
-          `~${r.estimated_protein_g}g protein`,
-          r.estimated_extra_cost_usd > 0 ? `~$${r.estimated_extra_cost_usd} to buy` : "Nothing to buy",
-        ]}
-      />
-      <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-ink/90">{r.reason}</p>
+      <p className="line-clamp-4 text-sm leading-relaxed text-ink/90">{r.reason}</p>
+      <div className="mt-3 rounded-2xl bg-cream px-3.5 py-3 ring-1 ring-line">
+        {r.ingredients_needed.length > 0 ? (
+          <>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">To buy</p>
+            <p className="mt-1 text-sm font-medium">{r.ingredients_needed.join(" · ")}</p>
+          </>
+        ) : (
+          <p className="text-sm font-medium">Nothing to buy — uses what you have.</p>
+        )}
+      </div>
+      <div className="mt-3">
+        <Pills
+          items={[
+            `~${r.estimated_minutes} min`,
+            `~${r.estimated_calories} cal`,
+            `~${r.estimated_protein_g}g protein`,
+            r.estimated_extra_cost_usd > 0 ? `~$${r.estimated_extra_cost_usd} to buy` : null,
+          ]}
+        />
+      </div>
     </ResultCard>
   );
 }

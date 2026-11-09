@@ -67,7 +67,7 @@ export default function Harness() {
   return (
     <main className="mx-auto max-w-md px-5 py-6">
       <h1 className="mb-3 text-xl font-semibold">Carousel harness</h1>
-      <Carousel label="Fixture options">
+      <Carousel label="Fixture options" labels={["Best match", "Easiest", "Different"]}>
         {RECS.map((r, i) => (
           <RecipeCard key={r.role} r={r} index={i as 0 | 1 | 2} sessionId="fixture" saved={false} selection={selection} onChoose={() => {}} />
         ))}

@@ -18,9 +18,10 @@ const MODES: DecisionMode[] = ["cook", "order", "store_snack"];
 /** Starting points for the sentence box — tapping one fills the box so it can
  *  be edited; it never sends anything. In the UI's language, one per mode. */
 export const SITUATION_EXAMPLES = [
-  "Just trained, very hungry, 20 minutes. I'll cook with the eggs and rice I have.",
-  "Tired and don't want to cook. Something nearby, around $15.",
-  "Want something sweet that I can grab right now.",
+  { label: "Cook with eggs & rice", text: "Just trained, very hungry, 20 minutes. I'll cook with the eggs and rice I have." },
+  { label: "Too tired to cook", text: "Tired and don't want to cook. Something nearby, around $15." },
+  { label: "Cook or buy, either", text: "Not sure if I want to cook or get something. Pretty hungry, about 30 minutes." },
+  { label: "Something sweet", text: "Want something sweet that I can grab right now." },
 ] as const;
 
 /** The last-used mode's answers, as one line — a shortcut, never the headline. */
@@ -86,7 +87,7 @@ export default function StartScreen({
           className="mt-2 block w-full resize-none rounded-2xl border border-line bg-card p-4 text-base leading-relaxed outline-none focus:border-accent disabled:opacity-60"
         />
         <p id="situation-help" className="mt-1.5 px-1 text-xs text-muted">
-          Tip: tap the microphone on your phone&apos;s keyboard to say it out loud. We read your sentence once and don&apos;t save it.
+          You can dictate with your keyboard&apos;s microphone. We read it once and don&apos;t save it.
         </p>
         {describeError && (
           <p role="alert" className="mt-2 px-1 text-sm text-red-700">
@@ -101,19 +102,21 @@ export default function StartScreen({
         <Button type="submit" className="mt-3" disabled={empty || describing}>
           {describing ? "Reading what you said…" : "Help me decide"}
         </Button>
-        <p className="mt-2 px-1 text-xs text-muted">If you ask for places nearby, we use your location once for that search. It isn&apos;t saved.</p>
+        <p className="mt-2 px-1 text-xs text-muted">Nearby places? Your location is used once for that search, not saved.</p>
       </form>
 
-      <div className="mt-4 flex flex-col gap-2" aria-label="Examples">
+      {/* One scrolling line of short examples: tapping fills the box (editable), nothing is sent. */}
+      <div className="no-scrollbar -mx-5 mt-3 flex gap-2 overflow-x-auto px-5" role="group" aria-label="Examples — tap to fill the box">
         {SITUATION_EXAMPLES.map((example) => (
           <button
-            key={example}
+            key={example.label}
             type="button"
             disabled={describing}
-            onClick={() => onDraft(example)}
-            className="min-h-11 rounded-2xl border border-line bg-card px-4 py-2 text-left text-sm text-ink/80 transition-colors hover:border-accent/50 disabled:opacity-50"
+            onClick={() => onDraft(example.text)}
+            title={example.text}
+            className="min-h-11 shrink-0 rounded-full border border-line bg-card px-4 text-sm text-ink/80 transition-colors hover:border-accent/50 disabled:opacity-50"
           >
-            {example}
+            {example.label}
           </button>
         ))}
       </div>

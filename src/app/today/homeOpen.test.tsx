@@ -143,6 +143,7 @@ describe("not one way, and not unclear: straight to one cross-way request", () =
   it("the understanding shows what was said and does not claim a protein gap", async () => {
     mount();
     await say("protein after a run, not hungry, buy or make", { hunger: "light", ways: ["cook", "buy"], after_exercise: true, protein_focus: true });
+    await click(/View \/ edit/);
     const panel = container.querySelector('section[aria-label="What I understood"]')?.textContent ?? "";
     expect(panel).toMatch(/protein/i);
     expect(panel).not.toMatch(/deficit|short of|missing protein|\d+\s?g/i);

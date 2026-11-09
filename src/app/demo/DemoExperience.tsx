@@ -42,9 +42,9 @@ export default function DemoExperience() {
 
       <div key={scenario.id} role="tabpanel" className="animate-fade-in mt-5 space-y-4">
         <h2 className="text-2xl font-semibold tracking-tight">{scenario.heading}</h2>
-        <UnderstoodPanel understood={scenario.understood} onEdit={() => {}} readOnly />
+        <UnderstoodPanel understood={scenario.understood} onEdit={() => {}} readOnly defaultOpen />
         <p className="px-1 text-xs text-muted">{scenario.note}</p>
-        <Carousel label="Example options">
+        <Carousel label="Example options" labels={scenario.cards.map((card) => card.role.replace("Lowest effort", "Easiest").replace("Something different", "Different").replace("Easy to order", "Easiest").replace("Most satisfying", "Filling").replace("Lighter option", "Lighter"))}>
           {scenario.cards.map((card) => (
             <ExampleCard key={card.title} card={card} />
           ))}

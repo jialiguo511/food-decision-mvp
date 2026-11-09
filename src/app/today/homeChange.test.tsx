@@ -204,6 +204,7 @@ describe("editing ONE item in 'What I understood' is not Change", () => {
     await type("Tired, order something around $15");
     await send();
     await answer("A");
+    await click(/View \/ edit/);
     await click("Edit: Under $15");
     expect(h1h2()).toBe("What's your budget?");
   });
@@ -213,8 +214,21 @@ describe("editing ONE item in 'What I understood' is not Change", () => {
     await type("Tired, order something around $15");
     await send();
     await answer("A");
+    await click(/View \/ edit/);
     await click("Edit details");
     expect(h1h2()).toBe("How are you getting food?");
+  });
+
+  it("the summary is collapsed by default, with an obvious way to open it", async () => {
+    mount();
+    await type("Tired, order something around $15");
+    await send();
+    await answer("A");
+    const panel = container.querySelector('section[aria-label="What I understood"]');
+    expect(panel?.textContent).toMatch(/View \/ edit/);
+    expect(panel?.querySelector("li")).toBeNull(); // no chips until opened
+    await click(/View \/ edit/);
+    expect(container.querySelector('section[aria-label="What I understood"] li')).not.toBeNull();
   });
 });
 
@@ -235,6 +249,7 @@ describe("a decision that started from the questions", () => {
     await type("Tired, order something around $15");
     await send();
     await answer("A");
+    await click(/View \/ edit/);
     await click("Edit details");
     // Walk the order questions to the end with the answers already filled in.
     for (let n = 0; n < 8 && !/Find something to order/.test(container.textContent ?? ""); n++) await click("Continue");

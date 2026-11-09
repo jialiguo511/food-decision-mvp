@@ -89,6 +89,9 @@ const DIETARY_RULE = `\`dietary\` is the dietary pattern the user follows — a 
 /** Dislikes: soft, but a very strong signal. */
 const DISLIKE_RULE = `\`disliked_foods\` are a very strong negative signal, but a preference, not a safety rule: don't build a recommendation around one and keep it out of the meal unless there is truly no reasonable alternative that satisfies every hard constraint. Read each entry for what the user means — "Very spicy" points away from dishes that are spicy by nature. Never describe a dislike as an allergy.`;
 
+/** What `reason` is FOR: the first card says why it wins; the others say what they trade against it. */
+const REASON_CONTRAST = `By role — best_match: why it is the strongest fit, from what the user actually said (hunger, time, what they have, craving, budget). lowest_effort / alternative: start from what it trades against best_match ("less work, but…"), only if true. Never invent scores, rankings or certainty.`;
+
 export function buildSystemPrompt(input: RecommendationInput): string {
   if (input.decision_mode === "open") return buildOpenSystemPrompt(input);
   if (input.decision_mode === "nearby") return buildNearbySystemPrompt(input);
@@ -168,7 +171,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "cook")}
 Keep every field short — these are cards read at a glance. Always include \`way\` and the fields that belong to that way; do not include another way's fields.
 
 - way: "cook", "order" or "store_snack" — one of the allowed ways only.
-- title, reason: for every way. reason is one short sentence to the user saying why this fits right now. Plain language, no moralizing.
+- title, reason: for every way. reason is one short sentence to the user saying why this fits right now. Plain language, no moralizing. ${REASON_CONTRAST}
 ${watchField(input.nutrition_priorities)}
 - estimated_calories, estimated_protein_g: rough estimates for one serving, shown as approximations. Never describe them as measured.
 
@@ -245,7 +248,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "cook")}${behav
 
 Keep every field short — the app shows these as cards, and the recipe is read in a glance.
 
-- reason: one short sentence addressed to the user, saying why this fits tonight. Plain language.
+- reason: one short sentence addressed to the user, saying why this fits tonight. Plain language. ${REASON_CONTRAST}
 ${watchField(input.nutrition_priorities)}
 - estimated_extra_cost_usd: the approximate money spent tonight buying what is in ingredients_needed — what they would actually pay, so a whole package even when the meal uses a little. 0 when nothing needs buying.
 - estimated_meal_cost_usd: the approximate value of the ingredients actually eaten, including ones the user already has. Both costs are rough guesses without real prices, shown as approximations.
@@ -376,7 +379,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "order")}${beha
 - search_terms: 2–3 short, broad search phrases to type into a delivery or takeout app search bar — common menu/category words likely to turn up results across many restaurants ("chicken curry", "curry bowl"), not one hyper-specific dish name. There is no menu data behind this app, so these are starting points for a search, not a guaranteed match — favor breadth over precision. Plain food descriptions, never a restaurant name.
 - order_notes: what to look for once search results come up, and how to build the order — protein, sides, extras, sauce — e.g. "a chicken curry with rice; ask for extra protein or vegetables if available". This is where you translate the craving into an actual order.
 - modification: null unless it genuinely helps — see the coaching philosophy above. Always include the field; use null rather than inventing something to fill it.
-- reason: one or two short sentences addressed to the user, saying why this fits right now. Plain language, no moralizing.
+- reason: one or two short sentences addressed to the user, saying why this fits right now. Plain language, no moralizing. ${REASON_CONTRAST}
 ${watchField(input.nutrition_priorities)}
 - estimated_calories and estimated_protein_g: rough estimates for the order described, for one person. Shown to the user as approximations.`;
 }
@@ -507,7 +510,7 @@ ${previousRecommendationsSection(input.previous_recommendations, "store_snack")}
 
 ## Fields
 
-- reason: one or two short sentences addressed to the user, saying why this fits the craving right now. Plain language, no moralizing.
+- reason: one or two short sentences addressed to the user, saying why this fits the craving right now. Plain language, no moralizing. ${REASON_CONTRAST}
 ${watchField(input.nutrition_priorities)}
 - what_to_look_for: the single most important field. Guidance for walking around the store — a category plus a rough, useful spec, specific enough to act on but not tied to one product. Good: "Single-serve Greek yogurt with 12–20g protein", "Mini or single-serve ice cream bar, around 150–250 kcal", "Individual bag of popcorn plus a small pack of jerky". Too vague: "a healthy snack", "some fruit". Too specific: naming an exact SKU, aisle number, or claiming a specific store has it. A common brand name may be mentioned as a familiar example, but the recommendation must stay useful even if that exact brand isn't available.
 - backup: optional — a realistic substitute if the first isn't found (e.g. "If you can't find that, a protein yogurt drink works too"). Set to null when there's no natural substitute worth naming; never invent one just to fill the field.

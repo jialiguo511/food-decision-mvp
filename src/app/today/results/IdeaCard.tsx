@@ -70,8 +70,7 @@ export default function IdeaCard({
         )
       }
     >
-      <Pills items={[`~${r.estimated_calories} cal`, `~${r.estimated_protein_g}g protein`]} />
-      <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-ink/90">{r.reason}</p>
+<p className="line-clamp-4 text-sm leading-relaxed text-ink/90">{r.reason}</p>
       <div className="mt-3 rounded-2xl bg-cream px-3.5 py-3 ring-1 ring-line">
         {r.decision_mode === "order" ? (
           <>
@@ -86,6 +85,9 @@ export default function IdeaCard({
             <p className="mt-1 text-sm">{r.what_to_look_for}</p>
           </>
         )}
+      </div>
+      <div className="mt-3">
+        <Pills items={[`~${r.estimated_calories} cal`, `~${r.estimated_protein_g}g protein`]} />
       </div>
     </ResultCard>
   );

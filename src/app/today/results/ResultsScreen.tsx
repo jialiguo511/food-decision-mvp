@@ -17,6 +17,7 @@ import Carousel from "./Carousel";
 import IdeaCard from "./IdeaCard";
 import PlaceCard from "./PlaceCard";
 import RecipeCard from "./RecipeCard";
+import { shortRoleLabel } from "./ResultCard";
 import { inventoryNote, isInventoryLimited, isNearbySession } from "./sessionKind";
 import { ErrorState, LoadingState, Notice } from "./States";
 import UnderstoodPanel from "./UnderstoodPanel";
@@ -205,7 +206,7 @@ export default function ResultsScreen({
       )}
 
       {recs.length > 0 && (
-        <Carousel key={session.session_id} label="Your options" initialIndex={chosenIndex ?? 0}>
+        <Carousel key={session.session_id} label="Your options" labels={recs.map(shortRoleLabel)} initialIndex={chosenIndex ?? 0}>
           {recs.map((r, i) => {
             const index = i as 0 | 1 | 2;
             if (r.decision_mode === "cook") {

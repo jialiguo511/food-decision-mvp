@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Button from "@/components/ui/Button";
 import type { Understood } from "../flow/interpret";
 
@@ -16,6 +19,7 @@ export default function UnderstoodPanel({
   onEditField,
   readOnly = false,
   hint,
+  defaultOpen = false,
 }: {
   understood: Understood;
   /** Open the questions from the first one. */
@@ -25,6 +29,8 @@ export default function UnderstoodPanel({
   readOnly?: boolean;
   /** A line under the chips, e.g. how to change a read-only request. */
   hint?: string;
+  /** Start expanded (the public example shows the reading as part of its story). */
+  defaultOpen?: boolean;
 }) {
   const assumed = understood.parts.some((p) => !p.said);
   const chip = "rounded-full px-2.5 py-1 text-xs font-medium";
@@ -44,10 +50,35 @@ export default function UnderstoodPanel({
       </span>
     );
 
+  // Collapsed by default: one line that says what it is and how many things were read, with an
+  // obvious way to open it. Everything else (the words as typed, each chip, edit) is one tap away.
+  const [open, setOpen] = useState(defaultOpen);
+  const count = understood.parts.length + (understood.foods.length > 0 ? 1 : 0) + (understood.craving ? 1 : 0);
+  if (!open) {
+    return (
+      <section aria-label="What I understood" className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 text-left text-sm"
+        >
+          <span className="min-w-0 truncate">
+            <span className="font-semibold">What I understood</span>
+            <span className="text-muted"> · {count} {count === 1 ? "item" : "items"}{assumed ? ", some filled in" : ""}</span>
+          </span>
+          <span className="shrink-0 font-semibold text-accent">View / edit</span>
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section aria-label="What I understood" className="mt-2 rounded-2xl border border-line bg-card p-4">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted">What I understood</p>
+        <button type="button" onClick={() => setOpen(false)} aria-expanded className="min-h-8 text-xs font-semibold uppercase tracking-wide text-muted">
+          What I understood ▴
+        </button>
         {!readOnly && (
           <Button variant="quiet" onClick={onEdit} className="-mr-3 -mt-2.5 font-semibold">
             Edit details

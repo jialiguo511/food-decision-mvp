@@ -15,8 +15,11 @@ export default function Carousel({
   children,
   initialIndex = 0,
   label,
+  labels,
 }: {
   children: React.ReactNode;
+  /** One short name per card (e.g. "Best match", "Easiest", "Different"), shown as tabs. */
+  labels?: string[];
   /** Card to show first, e.g. the chosen one on a restored session. */
   initialIndex?: number;
   label: string;
@@ -92,7 +95,33 @@ export default function Carousel({
         ))}
       </div>
 
-      {count > 1 && (
+      {count > 1 && labels && labels.length === count && (
+        // Named options: where you are and what each one is for, without opening it. Tapping a
+        // tab does what swiping does — browsing only, nothing is recorded.
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <Arrow dir="prev" disabled={active === 0} onClick={() => go(active - 1)} className="hidden sm:inline-flex" />
+          <div role="tablist" aria-label={`${label}, choose one to look at`} className="flex min-w-0 flex-1 items-center justify-center gap-1.5 sm:flex-none">
+            {labels.map((text, i) => (
+              <button
+                key={i}
+                type="button"
+                role="tab"
+                aria-selected={i === active}
+                aria-label={`${i + 1} of ${count}: ${text}`}
+                onClick={() => go(i)}
+                className={`min-h-11 min-w-0 flex-1 truncate rounded-full border px-2.5 text-xs font-semibold transition-colors sm:flex-none sm:px-4 ${
+                  i === active ? "border-accent bg-accent-soft text-accent" : "border-line bg-card text-muted"
+                }`}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          <Arrow dir="next" disabled={active === count - 1} onClick={() => go(active + 1)} className="hidden sm:inline-flex" />
+        </div>
+      )}
+
+      {count > 1 && !(labels && labels.length === count) && (
         <div className="mt-3 flex items-center justify-center gap-3">
           <Arrow dir="prev" disabled={active === 0} onClick={() => go(active - 1)} />
           <div className="flex items-center gap-1.5" aria-hidden>
@@ -115,14 +144,14 @@ export default function Carousel({
 
 const padStart = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingLeft) || 0;
 
-function Arrow({ dir, disabled, onClick }: { dir: "prev" | "next"; disabled: boolean; onClick: () => void }) {
+function Arrow({ dir, disabled, onClick, className = "inline-flex" }: { dir: "prev" | "next"; disabled: boolean; onClick: () => void; className?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-label={dir === "prev" ? "Previous option" : "Next option"}
-      className="inline-flex size-11 items-center justify-center rounded-full border border-line bg-card text-ink disabled:opacity-30"
+      className={`${className} size-11 shrink-0 items-center justify-center rounded-full border border-line bg-card text-ink disabled:opacity-30`}
     >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
         <path d={dir === "prev" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} strokeLinecap="round" strokeLinejoin="round" />
