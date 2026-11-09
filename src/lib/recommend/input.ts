@@ -20,6 +20,7 @@ import type {
   Hunger,
   MealBudget,
   MealContext,
+  OpenContext,
   OrderContext,
   OrderCravingCategory,
   OrderMethod,
@@ -110,11 +111,38 @@ export const storeSnackContextSchema = z.object({
   craving_type: z.enum(cravingTypes),
 }) satisfies z.ZodType<StoreSnackContext>;
 
-/** Any of Today's three dynamic contexts. */
+const phraseOrNull = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .nullable()
+    .transform((value) => value?.trim().replace(/\s+/g, " ") || null);
+
+/** The cross-way context a typed sentence can build ("I can buy things or make
+ *  something"). Every limit is nullable: not stated = not enforced. The cook/buy
+ *  pair can't both be false — there would be nothing to recommend. */
+export const openContextSchema = z
+  .object({
+    decision_mode: z.literal("open"),
+    hunger: z.enum(["light", "normal", "very_hungry"]),
+    ways: z.object({ cook: z.boolean(), buy: z.boolean() }).refine((w) => w.cook || w.buy, "at least one way must be allowed"),
+    minutes: z.number().int().min(5).max(180).nullable(),
+    effort: z.enum(["minimal", "some", "happy_to_cook"]).nullable(),
+    extra_spend_usd: z.number().min(0).max(100).nullable(),
+    meal_budget: z.enum(mealBudgets),
+    ingredients_on_hand: z.array(z.string().trim().min(1).max(60)).max(40),
+    craving: phraseOrNull(200),
+    after_exercise: z.boolean(),
+    protein_focus: z.boolean(),
+    easy_pick: z.boolean(),
+  }) satisfies z.ZodType<OpenContext, unknown>;
+
+/** Any of Today's dynamic contexts. */
 export const contextSchema = z.discriminatedUnion("decision_mode", [
   cookContextSchema,
   orderContextSchema,
   storeSnackContextSchema,
+  openContextSchema,
 ]);
 
 /** The full POST /api/recommend body. `previous_recommendations` is only ever
@@ -292,11 +320,36 @@ export type NearbyRecommendationInput = {
   behavioral_hints?: BehaviorHints;
 };
 
+/** One request whose answer may mix ways of eating (Cook / Get food / Snack
+ *  cards), under ONE model call — see OpenContext. */
+export type OpenRecommendationInput = {
+  decision_mode: "open";
+  hard_constraints: Extract<ActiveConstraints, { decision_mode: "open" }>;
+  soft_preferences: SoftGoalPreferences & {
+    preferred_cuisines: string[];
+    disliked_foods: string[];
+    hunger: Hunger;
+    effort: Effort | null;
+    craving: string | null;
+    /** ONLY what the person named plus their persistent Kitchen staples. Not a
+     *  statement that nothing else exists — nothing else is KNOWN. */
+    ingredients_on_hand: string[];
+    /** Rough budget for a bought meal ("no_preference" when not said). */
+    meal_budget: MealBudget;
+    easy_pick: boolean;
+    /** Their own words about the situation — context, never a measurement. */
+    situation: { after_exercise: boolean; wants_more_protein: boolean };
+  };
+  previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
+  nutrition_priorities?: NutritionPriority[];
+};
+
 export type RecommendationInput =
   | CookRecommendationInput
   | OrderRecommendationInput
   | StoreSnackRecommendationInput
-  | NearbyRecommendationInput;
+  | NearbyRecommendationInput
+  | OpenRecommendationInput;
 
 /** The nearby counterpart of resolveRecommendationInput: same profile, same
  *  order-flow context, plus the real candidates the provider returned. Kept
@@ -364,6 +417,51 @@ export function resolveRecommendationInput(
     ...(profile.nutrition_priorities.length > 0 ? { nutrition_priorities: profile.nutrition_priorities } : {}),
     ...(behavioralHints ? { behavioral_hints: behavioralHints } : {}),
   };
+
+  if (context.decision_mode === "open") {
+    // Equipment is the same hard constraint it is everywhere: only what the user said
+    // they can cook with counts, and unknown behaves as "no appliance". Time and the
+    // purchase ceiling are the person's own words from THIS sentence, else null —
+    // a Profile default or a system number is never turned into a limit they set.
+    const owned = (profile.equipment ?? []).filter((item) => (EQUIPMENT as readonly string[]).includes(item));
+    const equipmentKnown = owned.length > 0;
+    const appliances = owned.filter((item) => item !== NO_COOKING);
+    const noCooking = !equipmentKnown || owned.includes(NO_COOKING) || appliances.length === 0;
+    return {
+      decision_mode: "open",
+      hard_constraints: {
+        decision_mode: "open",
+        ways: context.ways,
+        allergies: profile.allergies,
+        dietary: dietaryOf(profile),
+        cook: context.ways.cook
+          ? {
+              max_minutes: context.minutes,
+              budget_usd: context.extra_spend_usd ?? profile.budget_per_meal_usd ?? null,
+              equipment: noCooking ? [] : appliances,
+              equipment_known: equipmentKnown,
+              no_cooking: noCooking,
+            }
+          : null,
+      },
+      soft_preferences: {
+        goal: profile.goal,
+        daily_protein_target_g: profile.protein_target_g,
+        daily_calorie_target_kcal: profile.daily_calorie_target_kcal,
+        preferred_cuisines: profile.cuisines,
+        disliked_foods: profile.dislikes,
+        hunger: context.hunger,
+        effort: context.effort,
+        craving: context.craving,
+        ingredients_on_hand: buildAvailableIngredients(context.ingredients_on_hand, context.ways.cook ? kitchenStaples : []),
+        meal_budget: context.meal_budget,
+        easy_pick: context.easy_pick,
+        situation: { after_exercise: context.after_exercise, wants_more_protein: context.protein_focus },
+      },
+      ...(previous ? { previous_recommendations: previous } : {}),
+      ...(profile.nutrition_priorities.length > 0 ? { nutrition_priorities: profile.nutrition_priorities } : {}),
+    };
+  }
 
   if (context.decision_mode === "order") {
     return {

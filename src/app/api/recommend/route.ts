@@ -74,7 +74,7 @@ const STATUS: Record<RecommendErrorCode, number> = {
   usage_unavailable: 503,
 };
 
-const MODE_LABEL = { cook: "Cook", order: "Get food", store_snack: "Snack" } as const;
+const MODE_LABEL = { cook: "Cook", order: "Get food", store_snack: "Snack", open: "Open" } as const;
 
 /** The browser tags each explicit submit with an id (X-Request-Id), so the
  *  client console and this terminal can be lined up: one tap should show one
@@ -90,7 +90,7 @@ function requestIdOf(request: Request): string | null {
 type Meta = {
   supabase?: Awaited<ReturnType<typeof createClient>>;
   userId?: string;
-  mode?: "cook" | "order" | "store_snack";
+  mode?: "cook" | "order" | "store_snack" | "open";
   nearby?: boolean;
   entry?: "sentence" | "steps" | "again" | "more";
 };
@@ -219,10 +219,14 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
         // column — absent fields simply read as "not set" (see lib/profile.ts).
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
       ),
-      context.decision_mode === "cook"
+      // Kitchen staples feed any request that can include a recipe.
+      context.decision_mode === "cook" || (context.decision_mode === "open" && context.ways.cook)
         ? timer.part("preferences", "staples", async () => supabase.from("kitchen_staples").select("name").eq("user_id", user.id))
         : Promise.resolve(null),
-      timer.part("preferences", "hints", () => loadBehaviorHints(supabase, user.id, context.decision_mode)),
+      // Behavioral hints are per mode; a cross-way request has no single mode to read them from.
+      context.decision_mode === "open"
+        ? Promise.resolve(null)
+        : timer.part("preferences", "hints", () => loadBehaviorHints(supabase, user.id, context.decision_mode)),
     ]),
   );
   if (profileResult.error) {

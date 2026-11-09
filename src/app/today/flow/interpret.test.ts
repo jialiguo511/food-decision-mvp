@@ -4,11 +4,11 @@
 // without is asked for.
 
 import { describe, expect, it } from "vitest";
-import { parseInterpretation, type Interpretation } from "@/lib/interpret/schema";
+import { isEmptyInterpretation, parseInterpretation, type Interpretation } from "@/lib/interpret/schema";
 import { baseDefaults, rememberedDefaults, type FormDefaults } from "@/lib/recommend/rememberedDefaults";
 import { toMealContext } from "@/lib/recommend/cookForm";
 import { cookContext } from "@/test/cookFixtures";
-import { applyInterpretation, changeTarget, cookReady, describeUnderstanding, stepForField, stepIndexForField } from "./interpret";
+import { applyInterpretation, changeTarget, cookReady, describeOpenUnderstanding, describeUnderstanding, stepForField, stepIndexForField } from "./interpret";
 import type { FormValues } from "./QuestionFlow";
 
 const read = (o: Record<string, unknown>): Interpretation => parseInterpretation(o);
@@ -120,12 +120,87 @@ describe("Eat out and snack", () => {
   });
 });
 
-describe("kind of help", () => {
-  it("a sentence that doesn't say it asks only for that — and the choice keeps everything else it said", () => {
-    const i = read({ hunger: "very_hungry", foods: ["eggs"] });
-    expect(applyInterpretation(i, formsOf(NEW), NEW.remembered).status).toBe("needs_mode");
-    const forced = applyInterpretation(i, formsOf(NEW), NEW.remembered, "cook");
+describe("one way, several ways, or unclear — the decision isn't always 'which mode'", () => {
+  const apply = (o: Record<string, unknown>) => applyInterpretation(read(o), formsOf(NEW), NEW.remembered);
+  const open = (o: Record<string, unknown>) => {
+    const a = apply(o);
+    if (a.status !== "open") throw new Error(`expected open, got ${a.status}`);
+    return a;
+  };
+
+  it("'I can buy things or I can make something myself' is OPEN to both — not a missing mode", () => {
+    const a = open({ hunger: "light", ways: ["cook", "buy"], protein_focus: true, after_exercise: true });
+    expect(a.context).toMatchObject({ decision_mode: "open", hunger: "light", ways: { cook: true, buy: true }, protein_focus: true, after_exercise: true });
+  });
+
+  it("an explicit 'both' beats a stray single mode — they said both", () => {
+    expect(open({ mode: "cook", ways: ["cook", "buy"] }).context.ways).toEqual({ cook: true, buy: true });
+  });
+
+  it("ruling cooking out ('I don't want to cook') is respected: buying only, never a recipe", () => {
+    expect(open({ ways: ["buy"] }).context.ways).toEqual({ cook: false, buy: true });
+  });
+
+  it("allowing ONLY cooking is a single Cook request, with the Cook questions it needs", () => {
+    const a = apply({ ways: ["cook"] });
+    expect(a.status).toBe("needs_answers");
+    expect(a.status === "needs_answers" && a.mode).toBe("cook");
+  });
+
+  it("a named single way stays a single-mode request, exactly as before", () => {
+    expect(apply({ mode: "order", method: "delivery" }).status).toBe("ready");
+    expect(apply({ mode: "store_snack", snack_craving: "sweet" }).status).toBe("ready");
+  });
+
+  it("'only what I have at home' (cook + inventory-only + the foods named) is a single Cook request that honours the inventory", () => {
+    const a = apply({ mode: "cook", shopping: "inventory_only", foods: ["eggs", "rice"] });
+    expect(a.status === "needs_answers" && a.forms.cook).toMatchObject({ shopping: "inventory_only", ingredients_on_hand: ["eggs", "rice"] });
+    expect(a.status === "needs_answers" && a.missing).not.toContain("ingredients"); // the foods were named
+  });
+
+  it("'just something' / 'you decide' is open and easy — nothing is asked first", () => {
+    const a = open({ leave_to_us: true });
+    expect(a.context).toMatchObject({ easy_pick: true, ways: { cook: true, buy: true } });
+    expect(describeOpenUnderstanding("x", a.context, a.said).parts.find((p) => p.text === "Easy options")?.said).toBe(false); // the app's reading, shown as assumed
+  });
+
+  it("a sentence that says something real but names no way is open too — never forced into a classification", () => {
+    expect(open({ hunger: "very_hungry" }).context.decision_mode).toBe("open");
+    expect(open({ craving: "something spicy" }).context.craving).toBe("something spicy");
+  });
+
+  it("what was NOT said stays unknown: no time, effort, budget or foods are invented", () => {
+    const { context } = open({ ways: ["cook", "buy"], hunger: "light" });
+    expect(context).toMatchObject({ minutes: null, effort: null, extra_spend_usd: null, meal_budget: "no_preference", ingredients_on_hand: [], craving: null, after_exercise: false, protein_focus: false, easy_pick: false });
+  });
+
+  it("a remembered Profile or earlier answer is never turned into a condition the person set", () => {
+    const returning = applyInterpretation(read({ ways: ["cook", "buy"] }), formsOf(RETURNING), RETURNING.remembered);
+    expect(returning.status === "open" && returning.context).toMatchObject({ minutes: null, effort: null, extra_spend_usd: null });
+  });
+
+  it("stated limits ARE carried: time, effort, spend, budget, foods, craving", () => {
+    const { context } = open({ ways: ["cook", "buy"], minutes: 15, effort: "minimal", extra_spend_usd: 6, meal_budget: "under_15", foods: ["eggs"], craving: "noodles" });
+    expect(context).toMatchObject({ minutes: 15, effort: "minimal", extra_spend_usd: 6, meal_budget: "under_15", ingredients_on_hand: ["eggs"], craving: "noodles" });
+  });
+
+  it("'wants protein' is the person's wish — the panel never states a shortfall or a number", () => {
+    const a = open({ ways: ["cook", "buy"], protein_focus: true, after_exercise: true });
+    const texts = describeOpenUnderstanding("x", a.context, a.said).parts.map((p) => p.text).join(" | ");
+    expect(texts).toContain("Wants protein");
+    expect(texts).toContain("After exercise");
+    expect(texts).not.toMatch(/short|low|deficit|missing|need|\d+\s?g/i);
+  });
+
+  it("a forced single mode (the equipment step resuming a Cook sentence) still wins", () => {
+    const forced = applyInterpretation(read({ hunger: "very_hungry", foods: ["eggs"] }), formsOf(NEW), NEW.remembered, "cook");
     expect(forced.status === "needs_answers" && forced.forms.cook).toMatchObject({ hunger: "very_hungry", ingredients_on_hand: ["eggs"] });
+  });
+
+  it("an empty read is not open — it is 'nothing found', which the reader reports before any of this runs", () => {
+    expect(isEmptyInterpretation(read({}))).toBe(true);
+    expect(isEmptyInterpretation(read({ leave_to_us: true }))).toBe(false);
+    expect(isEmptyInterpretation(read({ ways: ["buy"] }))).toBe(false);
   });
 });
 

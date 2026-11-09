@@ -3,6 +3,7 @@
 
 import AppShell from "@/components/AppShell";
 import SetupNotice from "@/components/SetupNotice";
+import { allergyStatus } from "@/lib/allergyStatus";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -153,6 +154,7 @@ export default async function TodayPage() {
         initialPlaceFeedback={initialPlaceFeedback}
         onboardingProfile={stage === "new" ? profileValues : null}
         nutritionProfile={stage === "partial" ? profileValues : null}
+        allergyStatus={allergyStatus(data)}
       />
     </AppShell>
   );

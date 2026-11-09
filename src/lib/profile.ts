@@ -7,6 +7,7 @@
 //   (resolved targets, what the recommender reads).
 // Old rows with missing columns are fine: every new field reads as "not set".
 
+import { ALLERGIES_PREF } from "./allergyStatus";
 import {
   ACTIVITY_LEVELS,
   CALORIE_TARGET,
@@ -142,7 +143,11 @@ export type ValidatedProfile =
  *  save's provenance and dietary pattern laid over it. */
 export function mergeProfilePrefs(existing: unknown, validated: Extract<ValidatedProfile, { ok: true }>, extra: Record<string, unknown> = {}) {
   const base = isRecord(existing) ? existing : {};
-  return { ...base, ...validated.prefs, ...extra };
+  // Listing an allergy is addressing allergies (see lib/allergyStatus.ts). Keep the
+  // first time; clearing the list later doesn't un-address it — it reads as "none known".
+  const listed = Array.isArray(validated.row.allergies) && validated.row.allergies.length > 0;
+  const addressed = listed && !(ALLERGIES_PREF in base) ? { [ALLERGIES_PREF]: new Date().toISOString() } : {};
+  return { ...base, ...validated.prefs, ...addressed, ...extra };
 }
 
 /** Validates what the browser sent and builds the row to save. Typed numbers

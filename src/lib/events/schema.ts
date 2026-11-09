@@ -16,6 +16,8 @@ import { z } from "zod";
 import { USAGE_KINDS } from "@/lib/usage/limits";
 
 const mode = z.enum(["cook", "order", "store_snack"]);
+/** A request's mode, including the cross-way "open" one (a sentence that allowed more than one way). */
+const requestMode = z.enum(["cook", "order", "store_snack", "open"]);
 /** How the decision started. "more" is "Show me 3 more" (never a negative signal). */
 const entry = z.enum(["sentence", "steps", "again", "more"]);
 const smallInt = (max: number) => z.number().int().min(0).max(max);
@@ -25,11 +27,11 @@ export const eventSchema = z.discriminatedUnion("name", [
   /** The person chose a way in: sent a sentence, picked a mode, or used "Last time". Browser. */
   z.object({ name: z.literal("entry_selected"), props: z.object({ entry: z.enum(["sentence", "steps", "again"]), mode: mode.optional() }) }),
   /** The sentence was read (or not). Server. */
-  z.object({ name: z.literal("interpret_done"), props: z.object({ ok: z.boolean(), code: code.optional(), ms: smallInt(120_000), mode: mode.optional(), fields: smallInt(20).optional() }) }),
+  z.object({ name: z.literal("interpret_done"), props: z.object({ ok: z.boolean(), code: code.optional(), ms: smallInt(120_000), mode: requestMode.optional(), fields: smallInt(20).optional() }) }),
   /** A sentence left something out, so a short follow-up was shown. Browser. */
   z.object({ name: z.literal("clarify_shown"), props: z.object({ mode: mode.optional(), asked: smallInt(6) }) }),
   /** A request for three suggestions finished — with cards or with a failure. Server. */
-  z.object({ name: z.literal("recommend_done"), props: z.object({ mode, nearby: z.boolean().optional(), entry: entry.optional(), ok: z.boolean(), code: code.optional(), ms: smallInt(600_000), count: smallInt(3).optional() }) }),
+  z.object({ name: z.literal("recommend_done"), props: z.object({ mode: requestMode, nearby: z.boolean().optional(), entry: entry.optional(), ok: z.boolean(), code: code.optional(), ms: smallInt(600_000), count: smallInt(3).optional() }) }),
   /** "Choose this". Server. */
   z.object({ name: z.literal("choice_made"), props: z.object({ mode: mode.or(z.literal("nearby")), role: z.enum(["best_match", "lowest_effort", "alternative"]) }) }),
   /** A paid call was refused for today. Server. */

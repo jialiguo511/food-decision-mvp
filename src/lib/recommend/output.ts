@@ -12,6 +12,7 @@ import type {
   ActiveConstraints,
   CookRecommendation,
   DecisionMode,
+  DietaryConstraint,
   NearbyRecommendation,
   OrderRecommendation,
   Recommendation,
@@ -207,6 +208,23 @@ export function buildOutputSchema(mode: DecisionMode, options: { allowFewer?: bo
   });
 }
 
+/**
+ * The structured-output schema for an OPEN request (the person is fine with more
+ * than one way of eating). Same shape as every other mode — one key per role, so
+ * exactly three — but each slot may be a Cook, Get-food or Snack card, tagged with
+ * `way`. Only the ways the person allows are offered to the model at all, so a
+ * request that rules out cooking can't come back with a recipe. It is ONE model
+ * call: the three ways are not generated separately and stitched together.
+ */
+export function buildOpenOutputSchema(ways: { cook: boolean; buy: boolean }) {
+  const variants = [
+    ...(ways.cook ? [cookRecommendationFields.extend({ way: z.literal("cook") })] : []),
+    ...(ways.buy ? [orderRecommendationFields.extend({ way: z.literal("order") }), storeSnackRecommendationFields.extend({ way: z.literal("store_snack") })] : []),
+  ];
+  const slot = (variants.length > 1 ? z.union(variants as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]]) : variants[0]) as z.ZodType<{ way: "cook" | "order" | "store_snack" } & Record<string, unknown>>;
+  return z.object({ best_match: slot, lowest_effort: slot, alternative: slot });
+}
+
 /** Validates a decision_sessions.recommendations value already in storage:
  *  the same per-recommendation shape above, each tagged with its role and
  *  decision_mode — three of them, or 0–3 for a strict "Use what I have"
@@ -252,6 +270,7 @@ export function parseRecommendations(
   if (constraints.decision_mode === "nearby") {
     return { ok: false, code: "malformed_output", details: ["Nearby output must be parsed with parseNearbyRecommendations."] };
   }
+  if (constraints.decision_mode === "open") return parseOpenRecommendations(json, constraints);
   const mode = constraints.decision_mode;
   const allowFewer = constraints.decision_mode === "cook" && constraints.no_shopping;
   const parsed = buildOutputSchema(mode, { allowFewer }).safeParse(json);
@@ -336,6 +355,7 @@ export function findConstraintViolations(
   onHand: readonly string[] = [],
 ): string[] {
   if (constraints.decision_mode === "nearby") return []; // checked against its candidates instead — parseNearbyRecommendations
+  if (constraints.decision_mode === "open") return findOpenConstraintViolations(recommendations, constraints);
 
   const allergens = findAllergenViolations(recommendations, constraints.allergies);
   if (constraints.decision_mode === "order" || constraints.decision_mode === "store_snack") {
@@ -351,15 +371,23 @@ export function findConstraintViolations(
   return [...findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints, onHand), ...allergens];
 }
 
-function findCookConstraintViolations(
-  recommendations: readonly CookRecommendation[],
-  constraints: Extract<ActiveConstraints, { decision_mode: "cook" }>,
-  onHand: readonly string[],
-): string[] {
+/** What the Cook checks read. A limit that is null was never stated by the person
+ *  (open requests) and is not enforced — it is not replaced by a made-up number. */
+type CookLimits = {
+  max_minutes: number | null;
+  budget_usd: number | null;
+  equipment: string[];
+  no_cooking: boolean;
+  no_shopping: boolean;
+  dietary: DietaryConstraint;
+};
+
+function findCookConstraintViolations(recommendations: readonly CookRecommendation[], constraints: CookLimits, onHand: readonly string[]): string[] {
   const minuteLimit =
-    constraints.max_minutes +
-    Math.max(MINUTES_TOLERANCE.minMinutes, Math.ceil(constraints.max_minutes * MINUTES_TOLERANCE.fraction));
-  const costLimit = constraints.budget_usd * (1 + BUDGET_TOLERANCE_FRACTION);
+    constraints.max_minutes === null
+      ? Infinity
+      : constraints.max_minutes + Math.max(MINUTES_TOLERANCE.minMinutes, Math.ceil(constraints.max_minutes * MINUTES_TOLERANCE.fraction));
+  const costLimit = constraints.budget_usd === null ? Infinity : constraints.budget_usd * (1 + BUDGET_TOLERANCE_FRACTION);
 
   return recommendations.flatMap((r) => {
     const problems: string[] = [];
@@ -416,6 +444,54 @@ function findCookConstraintViolations(
     }
     return problems;
   });
+}
+
+/** An open set, parsed from the model's JSON: three cards, each tagged with the way
+ *  it is, validated by the SAME checks its way gets everywhere else. */
+function parseOpenRecommendations(json: unknown, constraints: Extract<ActiveConstraints, { decision_mode: "open" }>): ParseResult {
+  const parsed = buildOpenOutputSchema(constraints.ways).safeParse(json);
+  if (!parsed.success) {
+    const details = parsed.error.issues.slice(0, 8).map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);
+    return { ok: false, code: "malformed_output", details };
+  }
+  const recommendations = ROLES.flatMap((role) => {
+    const { way, ...fields } = parsed.data[role] as { way: "cook" | "order" | "store_snack" } & Record<string, unknown>;
+    const sanitized = way === "cook" && Array.isArray(fields.steps) ? { ...fields, steps: stripLeakedImageQueryStep(fields.steps as string[]) } : fields;
+    return [{ decision_mode: way, role, ...sanitized }];
+  }) as Recommendation[];
+
+  if (recommendations.some((r) => r.decision_mode === "cook" && r.steps.length === 0)) {
+    return { ok: false, code: "malformed_output", details: ["A recommendation's steps were empty after removing a stray internal field-name artifact."] };
+  }
+  const titles = new Set(recommendations.map((r) => r.title.trim().toLowerCase()));
+  if (titles.size !== recommendations.length) {
+    return { ok: false, code: "malformed_output", details: ["The three recommendations are not different meals."] };
+  }
+  const violations = findConstraintViolations(recommendations, constraints);
+  if (violations.length > 0) return { ok: false, code: "constraint_violation", details: violations };
+  return { ok: true, recommendations, insufficientInventory: false };
+}
+
+/** What an open set must satisfy: the ways the person allowed, the allergy and diet
+ *  rules on every card, and — for Cook cards only — the cooking limits they stated
+ *  (equipment, no-cooking, time and purchase ceilings when given). */
+function findOpenConstraintViolations(recommendations: readonly Recommendation[], constraints: Extract<ActiveConstraints, { decision_mode: "open" }>): string[] {
+  const problems: string[] = [];
+  for (const r of recommendations) {
+    if (r.decision_mode === "cook" && !constraints.ways.cook) problems.push(`${r.role}: is a recipe, but the user doesn't want to cook.`);
+    if ((r.decision_mode === "order" || r.decision_mode === "store_snack") && !constraints.ways.buy) problems.push(`${r.role}: is something to buy, but only cooking was allowed.`);
+  }
+  const cooks = recommendations.filter((r): r is CookRecommendation => r.decision_mode === "cook");
+  if (cooks.length > 0 && constraints.cook) {
+    problems.push(
+      ...findCookConstraintViolations(
+        cooks,
+        { ...constraints.cook, no_shopping: false, dietary: constraints.dietary },
+        [],
+      ),
+    );
+  }
+  return [...problems, ...findAllergenViolations(recommendations, constraints.allergies)];
 }
 
 // Re-exported so callers that only need the shape, not the union, don't have

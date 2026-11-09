@@ -258,6 +258,27 @@ relies on a full page load to drop everything in memory. The service-role key
 (`SUPABASE_SERVICE_ROLE_KEY`, server-only, `src/lib/supabase/admin.ts`) is used
 for account deletion and nothing else.
 
+## Cross-way ("open") requests and allergy status
+
+Rules live in `PRODUCT.md` → "Cross-way ('open') decisions"; what matters in code:
+
+- `decision_mode: "open"` is a **request type, not a fourth product mode**. One call,
+  one schema (`buildOpenOutputSchema`); each card carries its own way (`cook` / `order`
+  / `store_snack`) and is validated as that way. Never run every mode's recommender and
+  stitch the results.
+- The sentence reader sets `mode` **only when the person limits themselves to one way**;
+  several ways or "you decide" has no mode and becomes an open request. There is no
+  "what kind of help" screen.
+- Unknown stays null/empty: no assumed ingredients, equipment, time, effort, budget or
+  location. An open card never names a real place or a price.
+- `after_exercise` / `protein_focus` are the person's own words. Never state or imply
+  a measured shortfall, grams missing or a recovery claim.
+- **Allergies: "none known" and "not set" differ.** `allergyStatus()`
+  (`src/lib/allergyStatus.ts`) reads `profiles.prefs.allergies_addressed_at`; an empty
+  list alone means *not set*. Never present an empty list as "no allergies" or as
+  confirmed safe. First-run setup asks only hard constraints; skipping leaves allergies
+  unset.
+
 ## Minimum decisions, progressive disclosure
 
 **The user should make the minimum number of decisions possible.** The

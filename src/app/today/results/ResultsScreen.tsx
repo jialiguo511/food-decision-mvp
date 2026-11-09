@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import Button from "@/components/ui/Button";
+import Link from "next/link";
+import Button, { buttonClass } from "@/components/ui/Button";
 import type { NutritionTargets } from "@/lib/nutrition";
 import { mealTargetsFor } from "@/lib/recommend/nutritionFit";
 import type { ActiveSession, DecisionContext } from "@/lib/types";
 import type { Understood } from "../flow/interpret";
-import { contextSummary, loadingLines } from "../flow/summary";
+import { loadingLines, sessionSummary } from "../flow/summary";
 import { BackButton } from "../flow/QuestionScreen";
 import MealFeedback, { type FeedbackData } from "../MealFeedback";
 import type { PlaceFeedbackState } from "../PlaceFeedback";
@@ -46,6 +47,7 @@ export default function ResultsScreen({
   nutritionNudge,
   understood,
   noMore,
+  allergyNote,
   onWiderDistance,
   onEditDetails,
   onEditField,
@@ -74,6 +76,8 @@ export default function ResultsScreen({
   understood?: Understood | null;
   /** Nearby: "Show me 3 more" found nothing new — the cards on screen stay. */
   noMore?: boolean;
+  /** Present while the person has never answered the allergy question. */
+  allergyNote?: { onNone: () => void };
   /** Open the distance question (never widened for the person). */
   onWiderDistance: () => void;
   /** Open the questions from the first one, everything filled in. */
@@ -133,6 +137,8 @@ export default function ResultsScreen({
   // earlier request's — never this one's — so they are labelled as exactly that and
   // are not dressed in the new request's heading, sentence or answers.
   const previous = request.kind === "error";
+  // A cross-way set mixes ways of eating, so each card says which one it is.
+  const crossWay = mode === "open";
 
   return (
     <div className="space-y-4">
@@ -147,14 +153,14 @@ export default function ResultsScreen({
             <p className="mt-1 text-sm text-muted" data-testid="previous-note">
               From an earlier request — not the one that just failed.
             </p>
-            <p className="mt-0.5 text-xs text-muted">Earlier answers: {contextSummary(session.context).join(" · ")}</p>
+            <p className="mt-0.5 text-xs text-muted">Earlier answers: {sessionSummary(session.context).join(" · ")}</p>
           </>
         ) : (
           <>
             <h2 className="text-2xl font-semibold tracking-tight">
-              {nearby ? "Places near you" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
+              {nearby ? "Places near you" : crossWay ? "Three ways to eat right now" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
             </h2>
-            {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} /> : <p className="mt-1 text-sm text-muted">{contextSummary(session.context).join(" · ")}</p>}
+            {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} readOnly={crossWay} hint={crossWay ? "Not what you meant? Use Change (top right) to reword it, or start over and pick Make something, Get food or Grab a snack." : undefined} /> : <p className="mt-1 text-sm text-muted">{sessionSummary(session.context).join(" · ")}</p>}
             <NutritionLine session={session} targets={nutritionTargets} notice={notice} />
           </>
         )}
@@ -204,7 +210,7 @@ export default function ResultsScreen({
             const index = i as 0 | 1 | 2;
             if (r.decision_mode === "cook") {
               return (
-                <RecipeCard key={r.role} r={r} index={index} sessionId={session.session_id} saved={!!session.saved?.recipeIndexes.includes(index)} selection={selection} onChoose={onChoose} />
+                <RecipeCard key={r.role} r={r} index={index} sessionId={session.session_id} saved={!!session.saved?.recipeIndexes.includes(index)} selection={selection} onChoose={onChoose} way={crossWay ? WAY_LABELS.cook : undefined} />
               );
             }
             if (r.decision_mode === "nearby") {
@@ -221,7 +227,7 @@ export default function ResultsScreen({
                 />
               );
             }
-            return <IdeaCard key={r.role} r={r} index={index} selection={selection} onChoose={onChoose} />;
+            return <IdeaCard key={r.role} r={r} index={index} selection={selection} onChoose={onChoose} way={crossWay ? WAY_LABELS[r.decision_mode] : undefined} />;
           })}
         </Carousel>
       )}
@@ -230,10 +236,25 @@ export default function ResultsScreen({
         <p className="text-xs text-muted">
           {nearby
             ? "Real places from Google Maps. We don't have their menus, so \"What to look for\" is a suggestion. If you have food allergies, check ingredients with the restaurant. Distances are approximate."
-            : mode === "cook"
-              ? "All numbers are estimates."
+            : mode === "cook" || crossWay
+              ? "All numbers are estimates. Buying ideas are things to search for or look for — we don't know what any particular place has."
               : "All numbers are estimates — exact items aren't guaranteed to be available."}
         </p>
+      )}
+
+      {allergyNote && recs.length > 0 && (
+        <section aria-label="Allergies not set" className="rounded-2xl border border-line bg-card p-4 text-sm">
+          <p className="font-semibold">We don&apos;t know about any food allergies yet.</p>
+          <p className="mt-0.5 text-muted">We&apos;re not assuming you have none. Tell us, so they&apos;re treated as a hard rule — and still check labels yourself.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Link href="/profile" className={buttonClass("secondary", "!w-auto px-4")}>
+              Add allergies in Me
+            </Link>
+            <Button variant="quiet" onClick={allergyNote.onNone}>
+              No known allergies
+            </Button>
+          </div>
+        </section>
       )}
 
       {chosenIndex !== null && recs[chosenIndex] && (
@@ -241,8 +262,10 @@ export default function ResultsScreen({
           key={session.session_id}
           sessionId={session.session_id}
           mealTitle={recs[chosenIndex].title}
-          decisionMode={mode}
-          nearby={nearby}
+          // The chosen CARD decides which questions are asked — a cross-way set can hold
+          // a recipe, a food idea and a snack side by side.
+          decisionMode={recs[chosenIndex].decision_mode === "nearby" ? "order" : recs[chosenIndex].decision_mode}
+          nearby={recs[chosenIndex].decision_mode === "nearby"}
           initial={initialFeedback ?? { id: null, didEat: null, note: null }}
         />
       )}
@@ -289,6 +312,7 @@ const roundTo = (n: number, step: number) => Math.round(n / step) * step;
  *  or for someone with no personal targets. */
 function NutritionLine({ session, targets, notice }: { session: ActiveSession; targets: NutritionTargets; notice: NutritionNotice | null }) {
   const context = session.context;
+  if (context.decision_mode === "open") return null; // mixed sizes (meal / snack) — no single per-serving range applies
   if (context.decision_mode === "order" && context.nearby === true) return null;
   const meal = mealTargetsFor(targets, context.hunger, context.decision_mode === "store_snack" ? "snack" : "meal");
   const shown = notice && notice.sessionId === session.session_id ? notice : null;
@@ -307,3 +331,6 @@ function NutritionLine({ session, targets, notice }: { session: ActiveSession; t
     </div>
   );
 }
+
+/** In a cross-way set: what each card IS, as a short label above its title. */
+const WAY_LABELS = { cook: "Make it", order: "Order it", store_snack: "Grab it" } as const;

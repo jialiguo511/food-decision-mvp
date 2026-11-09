@@ -8,6 +8,7 @@ import type { RecommendationInput } from "@/lib/recommend/input";
 import type { PlaceCandidate } from "@/lib/places/candidates";
 import {
   buildNearbyOutputSchema,
+  buildOpenOutputSchema,
   buildOutputSchema,
   parseNearbyRecommendations,
   parseRecommendations,
@@ -115,7 +116,9 @@ export async function generateRecommendations(
   const outputSchema =
     input.decision_mode === "nearby"
       ? buildNearbyOutputSchema(candidates.length)
-      : buildOutputSchema(input.decision_mode, { allowFewer: strictInventory });
+      : input.decision_mode === "open"
+        ? buildOpenOutputSchema(input.hard_constraints.ways)
+        : buildOutputSchema(input.decision_mode, { allowFewer: strictInventory });
   const onHand = input.decision_mode === "cook" ? input.soft_preferences.ingredients_on_hand : [];
   // Prompt + schema construction is pure CPU; timed separately so it is never
   // blamed (or forgotten) when the model call is slow.

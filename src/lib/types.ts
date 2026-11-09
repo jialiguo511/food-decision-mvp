@@ -203,8 +203,51 @@ export type StoreSnackContext = {
   craving_type: CravingType;
 };
 
-/** Any of Today's three dynamic contexts, discriminated on decision_mode. */
-export type DecisionContext = MealContext | OrderContext | StoreSnackContext;
+/**
+ * The person said more than one way of eating is fine — "I can buy things or make
+ * something", "you decide", "just something" — so the decision they need help with
+ * includes WHICH way. That is not a missing mode: it is a request whose answer
+ * may mix Cook / Get food / Snack cards (still at most three, one model call).
+ * Only built from a typed sentence; the step-by-step flow still asks for one mode.
+ *
+ * Everything here is either STATED by the person or an explicit "not stated":
+ * unknown time, effort, budget and foods stay null / empty and are never turned
+ * into a confirmed condition. Nothing is assumed about what is in their kitchen,
+ * and nothing about where they are (no real-places search happens in this mode).
+ */
+export type OpenContext = {
+  decision_mode: "open";
+  /** Stated, else "normal" (the same neutral starting point every flow uses). */
+  hunger: Hunger;
+  /** Which ways of eating the person allows. Both true when they said nothing
+   *  against either; cook false for "I don't want to cook". (A person who allows
+   *  ONLY cooking is a single-mode Cook request, not this.) */
+  ways: { cook: boolean; buy: boolean };
+  /** A cooking-time limit they stated, else null — no limit is assumed. */
+  minutes: number | null;
+  effort: Effort | null;
+  /** Money they said they would spend buying ingredients to cook, else null. */
+  extra_spend_usd: number | null;
+  /** Rough budget for a bought meal, as they said it; "no_preference" when not said. */
+  meal_budget: MealBudget;
+  /** Only foods they named as available right now. Unknown is NOT "none": a recipe
+   *  needing anything else lists it as something to buy. */
+  ingredients_on_hand: string[];
+  craving: string | null;
+  /** They said they had just exercised. Context for the recommendation only. */
+  after_exercise: boolean;
+  /** They said they want more protein (e.g. "I didn't get enough protein"). Their own
+   *  words — never a verified shortfall, and no intake gap is inferred or stated. */
+  protein_focus: boolean;
+  /** They left it to us with no specifics ("just something", "you decide"): every
+   *  option should be a low-burden one. The app's reading of the request, shown to
+   *  them as assumed. */
+  easy_pick: boolean;
+};
+
+/** Any of Today's dynamic contexts, discriminated on decision_mode. The first
+ *  three are what the step-by-step questions build; `open` comes from a sentence. */
+export type DecisionContext = MealContext | OrderContext | StoreSnackContext | OpenContext;
 
 export type RecommendationRole = "best_match" | "lowest_effort" | "alternative";
 
@@ -435,7 +478,25 @@ export type NearbyConstraints = {
   dietary: DietaryConstraint;
 };
 
-export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints | NearbyConstraints;
+/** The hard constraints an open (cross-way) set was generated under. Allergies and
+ *  the dietary pattern apply to every card; `cook` is present only when cooking is
+ *  allowed, and holds the cooking limits that apply to Cook cards. Limits the person
+ *  never stated are null and are not enforced — none is invented. */
+export type OpenConstraints = {
+  decision_mode: "open";
+  ways: { cook: boolean; buy: boolean };
+  allergies: string[];
+  dietary: DietaryConstraint;
+  cook: {
+    max_minutes: number | null;
+    budget_usd: number | null;
+    equipment: string[];
+    equipment_known: boolean;
+    no_cooking: boolean;
+  } | null;
+};
+
+export type ActiveConstraints = CookConstraints | OrderConstraints | StoreSnackConstraints | NearbyConstraints | OpenConstraints;
 
 /** Body of a successful POST /api/recommend. Exactly three — except in cook
  *  mode with no_shopping ("Use what I have"), where the user's current foods

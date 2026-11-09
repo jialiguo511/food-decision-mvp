@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import type { AllergyStatus } from "@/lib/allergyStatus";
 import type { Interpretation } from "@/lib/interpret/schema";
 import type { NutritionTargets } from "@/lib/nutrition";
 import { toMealContext } from "@/lib/recommend/cookForm";
 import type { FormDefaults } from "@/lib/recommend/rememberedDefaults";
 import { normalizeCraving } from "@/lib/text";
-import type { ActiveSession, DecisionMode, MealContext, OrderContext, ProfileFormValues } from "@/lib/types";
-import { dismissNutritionStep } from "./actions";
+import type { ActiveSession, DecisionMode, MealContext, OpenContext, OrderContext, ProfileFormValues } from "@/lib/types";
+import { confirmNoAllergies, dismissNutritionStep } from "./actions";
 import { createAdvanceScheduler } from "./flow/advance";
 import EquipmentScreen from "./flow/EquipmentScreen";
-import ClarifyScreen, { KindScreen } from "./flow/ClarifyScreen";
+import ClarifyScreen from "./flow/ClarifyScreen";
 import { homeReducer, initialScreen, modeToChange } from "./flow/homeReducer";
-import { applyInterpretation, changeTarget, describeUnderstanding, stepIndexForField, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
+import { applyInterpretation, changeTarget, describeOpenUnderstanding, describeUnderstanding, stepIndexForField, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
 import QuestionFlow, { type FormValues } from "./flow/QuestionFlow";
 import StartScreen, { ModeScreen } from "./flow/StartScreen";
 import { ingredientsStepIndex, orderSteps, searchesNearby } from "./flow/steps";
@@ -50,6 +51,7 @@ export default function HomeFlow({
   initialPlaceFeedback,
   onboardingProfile,
   nutritionProfile,
+  allergyStatus,
 }: {
   /** The signed-in user — the recommendation state belongs to them. */
   ownerId: string;
@@ -76,6 +78,8 @@ export default function HomeFlow({
   onboardingProfile: ProfileFormValues | null;
   /** Set only when the optional nutrition step may be offered after results. */
   nutritionProfile: ProfileFormValues | null;
+  /** Whether the person has ever answered the allergy question (lib/allergyStatus.ts). */
+  allergyStatus: AllergyStatus;
 }) {
   const { session, selection, request, requested, notice, noMore, live, run, retry, choose, ensureEnriched, rescore } = useRecommend(ownerId, {
     session: initialSession,
@@ -89,7 +93,10 @@ export default function HomeFlow({
   const { forms, setForm } = useHomeForms(defaults, session);
   // The mode of the most recent request, so "Change" still knows where to go
   // when that request failed and there is no session to read it from.
-  const lastMode: DecisionMode | null = requested?.decision_mode ?? null;
+  const lastMode: DecisionMode | null = requested && requested.decision_mode !== "open" ? requested.decision_mode : null;
+  // The one mode the session on screen belongs to; null for a cross-way ("open") set,
+  // which has no question flow of its own.
+  const sessionMode: DecisionMode | null = session && session.context.decision_mode !== "open" ? session.context.decision_mode : null;
   // Modes with answers worth showing back: those in the user's history, plus
   // any run since this page loaded (the server's `remembered` is read once, so
   // without this a mode used a minute ago would look new). A mode's *answers*
@@ -97,6 +104,8 @@ export default function HomeFlow({
   const [used, setUsed] = useState(defaults.remembered);
   // Nutrition step finished or dismissed since load — the server flag is stale.
   const [nutritionDone, setNutritionDone] = useState(false);
+  // "No known allergies" said from the results note since load — the server value is stale.
+  const [allergiesAnswered, setAllergiesAnswered] = useState(false);
   // Cook equipment answered since load — the server flag is stale.
   const [equipmentSaved, setEquipmentSaved] = useState(equipmentKnown);
 
@@ -215,11 +224,10 @@ export default function HomeFlow({
    *  answers, so Edit and Change start from them. */
   function proceed(text: string, interpretation: Interpretation, forcedMode?: DecisionMode, equipmentOk = equipmentSaved) {
     const applied = applyInterpretation(interpretation, forms, used, forcedMode);
-    if (applied.status === "needs_mode") {
-      setPending({ text, interpretation, mode: null, said: [], missing: [] });
-      track({ name: "clarify_shown", props: { asked: 1 } });
-      return dispatch({ type: "clarify" });
-    }
+    // Open to more than one way, or left to us: not a missing mode. Nothing blocks an
+    // answer, so it goes straight to the cards — one request, up to three cards, each
+    // one way of eating.
+    if (applied.status === "open") return sendOpen(text, applied.context, applied.said);
     setForm(applied.mode, applied.forms[applied.mode] as never);
     const missing = applied.status === "needs_answers" ? applied.missing : [];
     setPending({ text, interpretation, mode: applied.mode, said: applied.said, missing });
@@ -230,6 +238,17 @@ export default function HomeFlow({
       return dispatch({ type: "clarify" });
     }
     sendSentence(text, applied.mode, applied.forms, applied.said);
+  }
+
+  /** The cross-way request: shown back as understood, then ONE recommend call. */
+  function sendOpen(text: string, context: OpenContext, said: Said[]) {
+    readId.current++;
+    setDescribing(false);
+    setPending(null);
+    setDraft("");
+    setUnderstood(describeOpenUnderstanding(text, context, said));
+    dispatch({ type: "showResults" });
+    void run(context, undefined, "sentence");
   }
 
   function sendSentence(text: string, mode: DecisionMode, source: FormValues, said: Said[]) {
@@ -255,7 +274,7 @@ export default function HomeFlow({
   /** "Try a wider distance": straight to the distance question, with everything
    *  else as it was. Never done for the person — a wider search is their choice. */
   function widerDistance() {
-    const mode = modeToChange(session?.context.decision_mode ?? null, lastMode);
+    const mode = modeToChange(sessionMode, lastMode);
     const travel = mode === "order" ? orderSteps(forms.order).indexOf("travel") : -1;
     dispatch({ type: "customize", mode, step: travel >= 0 ? travel : 0 });
   }
@@ -273,12 +292,15 @@ export default function HomeFlow({
       setDraft(understood.text);
       return dispatch({ type: "start" });
     }
-    dispatch({ type: "customize", mode: modeToChange(session?.context.decision_mode ?? null, lastMode) });
+    // A cross-way set restored after a reload has no sentence in memory and no question
+    // flow of its own: back to the start, where either path is offered.
+    if (session?.context.decision_mode === "open" && !sessionMode) return dispatch({ type: "start" });
+    dispatch({ type: "customize", mode: modeToChange(sessionMode, lastMode) });
   }
 
   /** One item in "What I understood": open just that question. */
   function editField(field: Said) {
-    const mode = modeToChange(session?.context.decision_mode ?? null, lastMode);
+    const mode = modeToChange(sessionMode, lastMode);
     dispatch({ type: "customize", mode, step: stepIndexForField(mode, forms, field) });
   }
 
@@ -364,7 +386,6 @@ export default function HomeFlow({
   }
 
   if (screen.name === "clarify" && pending) {
-    if (!pending.mode) return <KindScreen onPick={(mode) => proceed(pending.text, pending.interpretation, mode)} onBack={back} />;
     const mode = pending.mode;
     return (
       <ClarifyScreen
@@ -436,13 +457,23 @@ export default function HomeFlow({
         onChange={change}
         noMore={noMore}
         onWiderDistance={widerDistance}
-        onEditDetails={() => dispatch({ type: "customize", mode: modeToChange(session?.context.decision_mode ?? null, lastMode) })}
+        onEditDetails={() => dispatch({ type: "customize", mode: modeToChange(sessionMode, lastMode) })}
         onEditField={editField}
         onStartOver={() => dispatch({ type: "start" })}
         nutritionNudge={
           nutritionProfile && !nutritionDone ? { onOpen: () => dispatch({ type: "openNutrition" }), onDismiss: dismissNutrition } : undefined
         }
         understood={understood}
+        allergyNote={
+          allergyStatus === "not_set" && !allergiesAnswered
+            ? {
+                onNone: () => {
+                  setAllergiesAnswered(true);
+                  void confirmNoAllergies();
+                },
+              }
+            : undefined
+        }
       />
     );
   }
@@ -476,8 +507,7 @@ export default function HomeFlow({
 type Pending = {
   text: string;
   interpretation: Interpretation;
-  /** null = the sentence didn't say what kind of help. */
-  mode: DecisionMode | null;
+  mode: DecisionMode;
   said: Said[];
   missing: ClarifyStep[];
 };

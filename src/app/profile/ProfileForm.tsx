@@ -17,6 +17,8 @@ import type { FridgeSize, Goal, ProfileFormValues } from "@/lib/types";
 import { saveProfile } from "./actions";
 import DietaryPicker from "./DietaryPicker";
 import EquipmentPicker from "./EquipmentPicker";
+import type { AllergyStatus } from "@/lib/allergyStatus";
+import { confirmNoAllergies } from "../today/actions";
 import FoodTermsCard from "./FoodTermsCard";
 import HealthPrioritiesCard from "./HealthPrioritiesCard";
 import NutritionSection from "./NutritionSection";
@@ -24,10 +26,22 @@ import ProfileSection from "./ProfileSection";
 
 /** `staples` is Kitchen staples, which saves itself as you edit it (unlike the
  *  rest, which waits for "Save profile"), so it arrives as a slot. */
-export default function ProfileForm({ initial, staples }: { initial: ProfileFormValues; staples: React.ReactNode }) {
+export default function ProfileForm({ initial, staples, allergyStatus }: { initial: ProfileFormValues; staples: React.ReactNode; allergyStatus: AllergyStatus }) {
   const [values, setValues] = useState<ProfileFormValues>(initial);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<null | { ok: boolean; message: string }>(null);
+  // "Not set" and "no known allergies" are different answers (lib/allergyStatus.ts).
+  const [allergiesAnswered, setAllergiesAnswered] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const allergiesUnset = allergyStatus === "not_set" && !allergiesAnswered && values.allergies.length === 0;
+
+  async function confirmNone() {
+    setConfirming(true);
+    const result = await confirmNoAllergies();
+    setConfirming(false);
+    if (result.ok) setAllergiesAnswered(true);
+    else setStatus({ ok: false, message: result.error });
+  }
 
   // One helper instead of a dozen onChange handlers.
   function set<K extends keyof ProfileFormValues>(key: K, value: ProfileFormValues[K]) {
@@ -63,7 +77,24 @@ export default function ProfileForm({ initial, staples }: { initial: ProfileForm
           values={values.allergies}
           placeholder="Another allergy…"
           onChange={(next) => set("allergies", next)}
+          notice={
+            allergiesUnset
+              ? "Not set yet — we're not assuming you have none."
+              : values.allergies.length === 0
+                ? "No known allergies."
+                : null
+          }
         />
+        {allergiesUnset && (
+          <button
+            type="button"
+            onClick={confirmNone}
+            disabled={confirming}
+            className="-mt-4 min-h-11 text-left text-sm font-semibold text-accent disabled:opacity-50"
+          >
+            {confirming ? "Saving…" : "I have no known food allergies"}
+          </button>
+        )}
 
         <Card title="Dietary preferences" hint="Treated like allergies: we won't suggest anything that breaks them. We can't verify sourcing, so always check yourself.">
           <DietaryPicker patterns={values.dietary_patterns} other={values.dietary_other} set={set} />

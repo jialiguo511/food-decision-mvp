@@ -99,7 +99,10 @@ export function rememberedDefaults(contexts: readonly unknown[], profile: Profil
     if (result.success) parsed.push(result.data);
   }
 
-  if (parsed.length > 0) defaults.mode = parsed[0].decision_mode;
+  // A cross-way ("open") request has no questions of its own to remember, so it is
+  // never what Home opens on: the most recent single-mode request is.
+  const lastSingle = parsed.find((c) => c.decision_mode !== "open");
+  if (lastSingle) defaults.mode = lastSingle.decision_mode as DecisionMode;
 
   const cook = parsed.find((c): c is MealContext => c.decision_mode === "cook");
   if (cook) {

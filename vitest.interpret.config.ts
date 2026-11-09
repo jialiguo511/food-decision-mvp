@@ -13,5 +13,5 @@ try {
 export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   oxc: { jsx: { runtime: "automatic" } },
-  test: { environment: "node", include: ["scripts/interpret-check.ts"], testTimeout: 120_000, fileParallelism: false },
+  test: { environment: "node", include: ["scripts/interpret-check.ts", "scripts/interpret-open-check.ts", "scripts/open-recommend-check.ts"], testTimeout: 120_000, fileParallelism: false },
 });

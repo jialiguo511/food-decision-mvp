@@ -14,7 +14,8 @@ vi.mock("@/lib/supabase/server", () => ({
   getUser: async () => (currentUser ? { id: currentUser } : null),
 }));
 
-import { completeNutritionStep, completeOnboarding, dismissNutritionStep } from "./actions";
+import { allergyStatus } from "@/lib/allergyStatus";
+import { completeNutritionStep, completeOnboarding, confirmNoAllergies, dismissNutritionStep } from "./actions";
 
 beforeEach(() => {
   db = createFakeDb();
@@ -45,6 +46,46 @@ describe("completeOnboarding", () => {
   it("refuses when signed out", async () => {
     currentUser = null;
     expect(await completeOnboarding({ ...DEFAULT_FORM_VALUES })).toMatchObject({ ok: false });
+  });
+});
+
+describe("allergies: 'no known allergies' is an answer, skipping is not", () => {
+  it("skipping the question leaves allergies NOT SET — an empty list is not read as 'none'", async () => {
+    await completeOnboarding({ ...DEFAULT_FORM_VALUES });
+    expect(allergyStatus(db.tables.profiles[0])).toBe("not_set");
+    expect(db.tables.profiles[0].allergies).toEqual([]);
+  });
+
+  it("saying 'no known allergies' records that answer, with an empty list", async () => {
+    await completeOnboarding({ ...DEFAULT_FORM_VALUES }, { noKnownAllergies: true });
+    expect(allergyStatus(db.tables.profiles[0])).toBe("none_known");
+    expect(db.tables.profiles[0].allergies).toEqual([]);
+  });
+
+  it("listing an allergy is itself an answer", async () => {
+    await completeOnboarding({ ...DEFAULT_FORM_VALUES, allergies: ["peanuts"] });
+    expect(allergyStatus(db.tables.profiles[0])).toBe("listed");
+    expect(db.tables.profiles[0].prefs).toHaveProperty("allergies_addressed_at");
+  });
+
+  it("'none known' never overrides a list that exists", async () => {
+    await completeOnboarding({ ...DEFAULT_FORM_VALUES, allergies: ["peanuts"] });
+    await confirmNoAllergies();
+    expect(db.tables.profiles[0].allergies).toEqual(["Peanuts"]);
+    expect(allergyStatus(db.tables.profiles[0])).toBe("listed");
+  });
+
+  it("confirmNoAllergies (from Me or the results note) answers it without touching anything else", async () => {
+    db.seed("profiles", { id: "user-1", goal: "fat_loss", allergies: [], prefs: { keep: 1 } });
+    expect(await confirmNoAllergies()).toEqual({ ok: true });
+    const row = db.tables.profiles[0];
+    expect(allergyStatus(row)).toBe("none_known");
+    expect(row).toMatchObject({ goal: "fat_loss", allergies: [], prefs: { keep: 1 } });
+  });
+
+  it("refuses when signed out", async () => {
+    currentUser = null;
+    expect(await confirmNoAllergies()).toMatchObject({ ok: false });
   });
 });
 

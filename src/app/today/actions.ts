@@ -12,7 +12,8 @@ import { mealTargetsFor, rankByNutritionFit } from "@/lib/recommend/nutritionFit
 import { parseStoredSession } from "@/lib/recommend/session";
 import { loadSavedState } from "@/lib/saved/savedQuery";
 import { actionForReason, isPlaceFeedbackReason, PLACE_PROVIDER } from "@/lib/places/feedback";
-import { writeProfile } from "@/lib/profileStore";
+import { ALLERGIES_PREF, allergyStatus } from "@/lib/allergyStatus";
+import { patchProfile, writeProfile } from "@/lib/profileStore";
 import { createClient } from "@/lib/supabase/server";
 import type { PlaceFeedbackAction, PlaceFeedbackReason, ProfileFormValues, Recommendation, SavedState } from "@/lib/types";
 
@@ -222,14 +223,14 @@ export type OnboardingResult = { ok: true } | { ok: false; error: string };
  * anything the step doesn't ask about is written back unchanged (and a field
  * the user never set stays unset). Other prefs keys are preserved.
  */
-async function saveProfileWithPref(values: ProfileFormValues, pref: string): Promise<OnboardingResult> {
+async function saveProfileWithPref(values: ProfileFormValues, prefs: Record<string, unknown>): Promise<OnboardingResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "You are signed out. Please sign in again." };
 
-  const result = await writeProfile(supabase, user.id, values, { [pref]: new Date().toISOString() });
+  const result = await writeProfile(supabase, user.id, values, prefs);
   if (result.ok) {
     revalidatePath("/profile");
     revalidatePath("/today");
@@ -239,13 +240,39 @@ async function saveProfileWithPref(values: ProfileFormValues, pref: string): Pro
 
 /** First-run setup (allergies, foods you don't eat): finished or skipped, it is
  *  recorded, so setup is offered once. */
-export async function completeOnboarding(values: ProfileFormValues): Promise<OnboardingResult> {
-  return saveProfileWithPref(values, ONBOARDING_PREF);
+export async function completeOnboarding(values: ProfileFormValues, options: { noKnownAllergies?: boolean } = {}): Promise<OnboardingResult> {
+  const now = new Date().toISOString();
+  // Saying "no known allergies" is an explicit answer; skipping the question is not — it
+  // stays unset (lib/allergyStatus.ts). Listing one is recorded by the Profile write itself.
+  return saveProfileWithPref(values, { [ONBOARDING_PREF]: now, ...(options.noKnownAllergies === true ? { [ALLERGIES_PREF]: now } : {}) });
+}
+
+/**
+ * "I have no known allergies", said from Me or from the note on the results. Writes the
+ * answer and nothing else of the Profile that the person didn't set (patchProfile reads
+ * the stored row through the provenance rules). An existing list is never emptied by this:
+ * if allergies are listed, it does nothing.
+ */
+export async function confirmNoAllergies(): Promise<OnboardingResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "You are signed out. Please sign in again." };
+  const { data: row, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  if (error) return { ok: false, error: "Couldn't save that. Please try again." };
+  if (allergyStatus(row) === "listed") return { ok: true };
+  const result = await patchProfile(supabase, user.id, {}, { [ALLERGIES_PREF]: new Date().toISOString() });
+  if (result.ok) {
+    revalidatePath("/profile");
+    revalidatePath("/today");
+  }
+  return result;
 }
 
 /** The optional "better portion and protein suggestions" step, finished. */
 export async function completeNutritionStep(values: ProfileFormValues): Promise<OnboardingResult> {
-  return saveProfileWithPref(values, NUTRITION_NUDGE_PREF);
+  return saveProfileWithPref(values, { [NUTRITION_NUDGE_PREF]: new Date().toISOString() });
 }
 
 /**
@@ -336,6 +363,8 @@ export async function rescoreSession(sessionId: string): Promise<RescoreResult> 
   if (restored.chosenIndex !== null) return { ok: true, targetsSig, rescored: false };
 
   const { context, recommendations } = restored.session;
+  // A cross-way set mixes meals and snacks, so no single per-serving range applies to it.
+  if (context.decision_mode === "open") return { ok: true, targetsSig, rescored: false };
   const kind = context.decision_mode === "store_snack" ? "snack" : "meal";
   const nearby = context.decision_mode === "order" && context.nearby === true;
   const meal = nearby ? null : mealTargetsFor(targets, context.hunger, kind);

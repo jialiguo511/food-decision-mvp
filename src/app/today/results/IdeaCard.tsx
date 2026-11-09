@@ -14,11 +14,14 @@ export default function IdeaCard({
   index,
   selection,
   onChoose,
+  way,
 }: {
   r: OrderRecommendation | StoreSnackRecommendation;
   index: 0 | 1 | 2;
   selection: Selection;
   onChoose: (index: 0 | 1 | 2) => void;
+  /** In a cross-way set: which way of eating this card is ("Order it"). */
+  way?: string;
 }) {
   const [open, setOpen] = useState(false);
   const details =
@@ -37,6 +40,7 @@ export default function IdeaCard({
   return (
     <ResultCard
       recommendation={r}
+      eyebrow={way ?? null}
       index={index}
       selection={selection}
       onChoose={onChoose}

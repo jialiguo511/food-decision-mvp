@@ -8,6 +8,7 @@ import SignOutButton from "@/components/SignOutButton";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { allergyStatus } from "@/lib/allergyStatus";
 import { toProfileFormValues } from "@/lib/profile";
 import AccountDataSection from "./AccountDataSection";
 import KitchenStaplesCard from "./KitchenStaplesCard";
@@ -45,7 +46,7 @@ export default async function ProfilePage() {
       subtitle="What we always avoid, plus a few things that help us fit you."
       action={<SignOutButton />}
     >
-      <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} />
+      <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} allergyStatus={allergyStatus(data)} />
       <AccountDataSection />
       <p className="mt-6 text-center text-xs text-muted">
         <Link href="/about" className="underline">

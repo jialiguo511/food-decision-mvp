@@ -36,10 +36,14 @@ Verified here:
   cannot read, edit or reset their counter.
 - The sentence reader against the **real model** (`INTERPRET_CONFIRM=1 npm run check:interpret`, a few cents):
   the three example sentences, a Chinese one, a bare craving (not read as an ingredient), a prompt-injection attempt
-  and a fake closing tag (neither can add food or change a rule), gibberish (reads as nothing).
+  and a fake closing tag (neither can add food or change a rule), gibberish (reads as nothing), and the cross-way
+  sentences ("buy or make", "I don't want to cook", "only eggs and rice", "just something").
+- The cross-way recommender against the **real model** (`OPEN_CONFIRM=1 npm run check:open`, ~2 cents a case): a mixed
+  set of recipe / order / snack in one call, zero recipes when cooking is ruled out, no invented ingredients, places or
+  prices, no protein-deficit claim, allergy and vegetarian held on every way.
 - In a real browser at 390 and 320 px: carousel loading (first card without scrolling, next card ahead of the swipe,
   no repeat request going back and forth, stable height across loading / loaded / failed), sentence → straight to cards,
-  sentence → short follow-up → cards, a failed read keeping the text, "what kind of help?", step-by-step, Edit, and the
+  sentence → short follow-up → cards, sentence that allows several ways → one set mixing Make it / Grab it / Order it (no "what kind of help?"), a failed read keeping the text, step-by-step, Edit, and the
   public pages. `/dev/*` pages are 404 in the production build.
 
 **Not verified — you need to do these (§6 and the checklist in §7):**

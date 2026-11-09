@@ -17,10 +17,21 @@ const returning = typeof window !== "undefined" && new URLSearchParams(window.lo
 function fakeRead(text: string) {
   const t = text.toLowerCase();
   const i: Record<string, unknown> = {};
-  if (/\b(cook|eggs|rice)\b|trained/.test(t) && !/don't want to cook/.test(t)) i.mode = "cook";
+  const onlyHave = /鸡蛋|米饭/.test(text) || /\b(eggs|rice)\b/.test(t);
+  if (/buy or (make|cook)|买或做|can buy.*(make|cook)/.test(t + text)) i.ways = ["cook", "buy"];
+  if (/不想做饭|don't want to cook/.test(t + text)) i.ways = ["buy"];
+  if (/帮我决定|随便|you decide/.test(t + text)) i.leave_to_us = true;
+  if (/marathon|after (a |my )?run|跑/.test(t + text)) i.after_exercise = true;
+  if (/protein|蛋白/.test(t + text)) i.protein_focus = true;
+  if (/not very hungry|not hungry/.test(t)) i.hunger = "light";
+  const openAsked = i.ways !== undefined || i.leave_to_us === true;
+  if (openAsked) {
+    /* several ways or "you decide": no single mode */
+  } else if (onlyHave || /\b(cook|eggs|rice)\b|trained/.test(t) && !/don't want to cook/.test(t)) i.mode = "cook";
   else if (/nearby|order|delivery|pickup|\$/.test(t)) i.mode = "order";
   else if (/sweet|snack/.test(t)) i.mode = "store_snack";
-  if (/very hungry|starving/.test(t)) i.hunger = "very_hungry";
+  if (onlyHave && !openAsked) i.shopping = "inventory_only";
+  if (/(?<!not )very hungry|starving/.test(t)) i.hunger = "very_hungry";
   const minutes = t.match(/(\d+) ?min/);
   if (minutes) i.minutes = Number(minutes[1]);
   const foods = ["eggs", "rice"].filter((f) => t.includes(f));
@@ -75,7 +86,7 @@ if (typeof window !== "undefined" && !window.__harness) {
       if (/fail/i.test(body.text)) return Response.json({ error: "unavailable" }, { status: 502 });
       const interpretation = fakeRead(body.text);
       if (Object.keys(interpretation).length === 0) return Response.json({ error: "nothing_found" }, { status: 422 });
-      return Response.json({ interpretation: { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ...interpretation } });
+      return Response.json({ interpretation: { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null, ...interpretation } });
     }
     if (url.endsWith("/api/recommend")) {
       window.__sent!.push({ url: "recommend", body });
@@ -92,7 +103,12 @@ if (typeof window !== "undefined" && !window.__harness) {
         if (shown.size > 0 && fresh.length === 0) return Response.json({ no_more: true, shown_place_ids: [...shown] });
         return Response.json({ recommendations: fresh, insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "rules", session_id: `fixture-${window.__sent!.length}`, shown_place_ids: [...shown, ...fresh.map((p) => p.place_id)] });
       }
-      const recommendations = mode === "cook" ? [recipe("best_match", "Egg fried rice"), recipe("lowest_effort", "Rice and soft eggs"), recipe("alternative", "Egg and rice bowl")] : mode === "order" ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : [{ decision_mode: "store_snack", role: "best_match", title: "Dark chocolate squares", reason: "Fixture.", what_to_look_for: "70% cacao.", backup: null, watch: null, estimated_calories: 180, estimated_protein_g: 3 }];
+      const mixed: Recommendation[] = [
+        { ...(recipe("best_match", "Tuna and cucumber wrap") as Extract<Recommendation, { decision_mode: "cook" }>), ingredients_on_hand: [], ingredients_needed: ["canned tuna", "tortilla", "cucumber"], equipment: [], steps: ["Drain the tuna.", "Wrap it."], estimated_minutes: 8 },
+        { decision_mode: "store_snack", role: "lowest_effort", title: "Greek yogurt cup", reason: "Fixture.", what_to_look_for: "Plain, single-serve.", backup: null, watch: null, estimated_calories: 150, estimated_protein_g: 15 },
+        idea("alternative", "Chicken rice bowl"),
+      ];
+      const recommendations = mode === "open" ? (body.context.ways?.cook === false ? [idea("best_match", "Chicken burrito bowl"), mixed[1], idea("alternative", "Poke bowl")] : mixed) : mode === "cook" ? [recipe("best_match", "Egg fried rice"), recipe("lowest_effort", "Rice and soft eggs"), recipe("alternative", "Egg and rice bowl")] : mode === "order" ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : [{ decision_mode: "store_snack", role: "best_match", title: "Dark chocolate squares", reason: "Fixture.", what_to_look_for: "70% cacao.", backup: null, watch: null, estimated_calories: 180, estimated_protein_g: 3 }];
       return Response.json({ recommendations, insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "fixture", session_id: `fixture-${window.__sent!.length}` });
     }
     return real(input, init);
@@ -120,6 +136,7 @@ export default function Harness() {
         initialPlaceFeedback={{}}
         onboardingProfile={null}
         nutritionProfile={null}
+        allergyStatus="listed"
       />
     </main>
   );

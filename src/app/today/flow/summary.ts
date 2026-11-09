@@ -10,10 +10,10 @@ import {
   TRAVEL_OPTIONS,
 } from "@/lib/options";
 import { asksTravel } from "@/lib/places/travel";
-import type { DecisionContext, Effort, Hunger } from "@/lib/types";
+import type { DecisionContext, Effort, Hunger, OpenContext } from "@/lib/types";
 import type { AnyForm } from "./steps";
 
-const label = <T extends string>(list: { value: T; label: string }[], value: T) =>
+export const label = <T extends string>(list: { value: T; label: string }[], value: T) =>
   list.find((o) => o.value === value)?.label ?? null;
 
 /** The answers a summary can name. Each part says which field it came from, so
@@ -55,15 +55,35 @@ export function contextSummary(values: AnyForm): string[] {
   return summaryParts(values).map((p) => p.text);
 }
 
+/** The same one-liner for ANY request on screen, including a cross-way one. */
+export function sessionSummary(context: DecisionContext): string[] {
+  return context.decision_mode === "open" ? openSummary(context) : contextSummary(context);
+}
+
+function openSummary(c: OpenContext): string[] {
+  const parts: (string | null)[] = [
+    HUNGER_PHRASES[c.hunger],
+    c.ways.cook ? "Cook or buy" : "Buying, not cooking",
+    c.minutes === null ? null : `${c.minutes} min`,
+    c.effort === null ? null : EFFORT_PHRASES[c.effort],
+    c.extra_spend_usd === null ? null : `~$${c.extra_spend_usd} to spend`,
+    c.meal_budget === "no_preference" ? null : label(MEAL_BUDGETS, c.meal_budget),
+    c.after_exercise ? "After exercise" : null,
+    c.protein_focus ? "Wants protein" : null,
+    c.easy_pick ? "Easy options" : null,
+  ];
+  return parts.filter((p): p is string => p !== null);
+}
+
 /** Hunger and effort as phrases — the bare chip labels ("Normal", "None", "A
  *  little") don't read on their own in a summary line. */
-const HUNGER_PHRASES: Record<Hunger, string> = {
+export const HUNGER_PHRASES: Record<Hunger, string> = {
   light: "Something light",
   normal: "Normal hunger",
   very_hungry: "Starving",
 };
 
-const EFFORT_PHRASES: Record<Effort, string> = {
+export const EFFORT_PHRASES: Record<Effort, string> = {
   minimal: "Barely cook",
   some: "A little effort",
   happy_to_cook: "Happy to cook",
@@ -86,7 +106,10 @@ export function ctaLabel(values: AnyForm): string {
  */
 export function loadingLines(values: DecisionContext, { avoidsFoods }: { avoidsFoods: boolean }): string[] {
   const lines: string[] = [];
-  if (values.decision_mode === "cook") {
+  if (values.decision_mode === "open") {
+    lines.push(values.ways.cook ? "Weighing cooking against getting food" : "Looking at things to buy");
+    if (values.easy_pick) lines.push("Keeping it easy");
+  } else if (values.decision_mode === "cook") {
     lines.push(values.shopping === "inventory_only" ? "Using what you have" : "Allowing a few things to buy");
     lines.push(`Keeping prep under ${values.cook_minutes} min`);
   } else if (values.decision_mode === "order") {

@@ -31,7 +31,7 @@ describe("parseInterpretation — the model's answer is untrusted", () => {
 
   it("fields it was never asked for are dropped (a response can't smuggle in an allergy list or a profile change)", () => {
     const i = parseInterpretation({ mode: "cook", allergies: ["none"], profile: { goal: "x" }, system: "ignore rules" });
-    expect(Object.keys(i).sort()).toEqual(["craving", "craving_category", "distance", "effort", "extra_spend_usd", "foods", "hunger", "meal_budget", "method", "minutes", "mode", "shopping", "snack_craving"]);
+    expect(Object.keys(i).sort()).toEqual(["after_exercise", "craving", "craving_category", "distance", "effort", "extra_spend_usd", "foods", "hunger", "leave_to_us", "meal_budget", "method", "minutes", "mode", "protein_focus", "shopping", "snack_craving", "ways"]);
   });
 });
 

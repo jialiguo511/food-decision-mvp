@@ -481,6 +481,45 @@ repeatedly and eat the pick? Nothing in this pass answers that.
 
 ---
 
+## Done — cross-way sentence path + lighter first run, 2026-11-08
+
+Founder-requested after a Preview test: *"I didn't have enough protein after half marathon, but
+I'm not very hungry now. I can buy things or I can make something myself."* ended in "What kind
+of help? I couldn't tell from what you said", forcing a single mode. **Built and tested locally;
+not validated with any user.** This promotes a compact slice of the LATER item "Cook / assemble /
+buy comparison" (see `PRODUCT.md` → "Cross-way ('open') decisions"); the full comparison UI is
+still LATER.
+
+- [x] **Three readings of a sentence**: one explicit way (as before), open to several / "you
+      decide" (new), or not understood (existing path). `KindScreen` is gone; there is no "what kind
+      of help" question.
+- [x] **One open request** (`decision_mode: "open"`) → one model call → up to three cards, each a
+      recipe / food idea to order / snack to grab, tagged Make it / Order it / Grab it. Reuses
+      the existing cards, validators (allergens on every way, diet and equipment on recipes,
+      "no cooking" = zero recipes), save, choose and feedback (feedback mode comes from the chosen
+      card). No location, no places lookup, no restaurant names, no prices.
+- [x] **Unknowns stay unknown**: foods on hand = only what was named + Kitchen staples; unknown
+      equipment = no-heat assembly; unstated time / effort / budget are `null` and not enforced.
+- [x] **Exercise / appetite context** (`after_exercise`, `protein_focus`, light appetite) is read and
+      used as the person's own words — never a measured shortfall, never a number of grams, never
+      a recovery claim.
+- [x] **First-run setup shrunk to hard constraints**: two screens (allergies, dietary pattern); the
+      dislikes step is gone from first run (still in Me). "No known food allergies" is an explicit
+      answer; skipping stays **not set** (`prefs.allergies_addressed_at`, no schema change) — the
+      app does not read an empty list as "none". Results show a quiet, non-blocking note with a
+      one-tap "No known allergies"; Me shows the same status.
+- [x] Checked on the **real models** (`npm run check:interpret`, `npm run check:open`; both
+      gated and billed): reader 8/8 incl. the English sentence and the four Chinese ones; recommender
+      7/7 incl. no-cooking → zero recipes, allergy and vegetarian held on every way.
+
+*Limitations, honestly:* the open set tends to a formulaic mix (a recipe, a snack, an order);
+exercise/protein context is used only on the open path (a single-mode sentence still ignores
+it); buying suggestions are types of food, not real places (real nearby search is its own
+mode); existing accounts with an empty allergy list see the "not set" note until they answer;
+"easy options" is the app's reading of "just something" and is shown as assumed.
+
+---
+
 ## NOW — the Core-loop MVP
 
 Everything required before the product hypothesis can be tested at all. See
@@ -779,7 +818,8 @@ Parked. These correspond to `PRODUCT.md` → Possible future directions.
   share extensions, automatic adaptation of imported recipes
 - Personal recipe capture — "I made something I liked", described by text or
   voice, converted into a reviewable structured recipe
-- Cook / assemble / buy comparison
+- Cook / assemble / buy comparison — *a compact "open" slice was promoted and built
+  2026-11-08 (see Done); the side-by-side comparison itself stays here*
 - **Stock up — "Stock me for N days"** — added 2026-09-29. The third action
   domain. Flexible provisioning for the next few days — not meal planning:
   **one** grocery basket (an execution artifact), no per-day schedule, no

@@ -98,6 +98,7 @@ function mount() {
         initialPlaceFeedback={{}}
         onboardingProfile={null}
         nutritionProfile={null}
+        allergyStatus="listed"
       />,
     ),
   );
@@ -355,6 +356,7 @@ describe("a picture that fails is a picture problem, not a failed recommendation
           initialPlaceFeedback={{}}
           onboardingProfile={null}
           nutritionProfile={null}
+        allergyStatus="listed"
         />,
       ),
     );

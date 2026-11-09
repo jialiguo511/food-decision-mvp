@@ -181,9 +181,54 @@ works out the solution space. Example, **direction not built**:
 The product should answer within the right space — ready-to-eat or nearby food,
 quick, protein-forward — rather than make the user reason through nutrition from
 scratch. Today the user picks a mode first and the follow-up questions narrow
-from there; choosing the mode for them is a possible future capability, and the
-user's own choice always wins. See also "Cook / assemble / buy" under Possible
-future directions.
+from there. **Built 2026-11-08 (founder-promoted, unvalidated):** when the person
+does not limit themselves to ONE way — "I can buy or make", "you decide", "just
+something" — the sentence entry makes one cross-way request ("open") and returns up
+to three cards that may be a recipe, a food idea to order, or a snack to grab (see
+"Cross-way ('open') decisions" below). The person's own choice always wins: a stated
+single way ("only what I have", "I don't want to cook") is honoured as a limit, never
+overridden. See also "Cook / assemble / buy" under Possible future directions.
+
+---
+
+## Cross-way ("open") decisions
+
+*Built 2026-11-08 at the founder's explicit request, on `codex/web-beta`;
+unvalidated. It resolves a conflict between this file's "Possible future directions →
+Cook / assemble / buy" and a real input ("I can buy things or make something myself")
+that the app answered with a forced single-mode question.*
+
+A typed situation can be read three ways, and the product must tell them apart:
+
+1. **One explicit way** — "only what I have", "something nearby", "a sweet snack".
+   Treated as before: that mode, its own questions only for what it cannot go without.
+2. **Open to several, or "you decide"** — "buy or make", "just something", "I don't
+   care". One *open* request: the same three-card contract, but a card may be a recipe
+   (**Make it**), something to order (**Order it**) or something to grab (**Grab it**).
+   There is no question about "what kind of help".
+3. **Not understood** — nothing usable was read. The existing "couldn't read that"
+   path; the step-by-step entry stays available.
+
+Rules for the open request:
+
+- **One model call**, one schema whose slot may be any allowed way — never every
+  mode's recommender run and stitched together (cost, latency, duplicated cards).
+- **Still exactly three decisions**, still `best_match` / `lowest_effort` /
+  `alternative`; each card keeps its own way's rules, save, choose and feedback.
+- **Unknown is unknown.** No foods named → no ingredient is assumed on hand (only
+  Kitchen staples). No location → no restaurant, store or price is named; buying
+  suggestions are *types of food and what to look for*, and real nearby search stays
+  its own mode that asks for location. Equipment never stated → no appliance is
+  assumed (assembly-only). Time, effort and budget the person did not state are not
+  invented and not enforced.
+- **A stated limit is a hard constraint for the request**: "I don't want to cook" means
+  not one recipe. Allergies, dietary pattern and equipment hold on every card of every way.
+- **Self-reported context is not a measurement.** "I didn't get enough protein after
+  my run" is kept as *wants protein* / *after exercise* and may tilt the options; the
+  product never says or implies a verified shortfall, a deficiency, a number of grams
+  missing, or a recovery claim, and never computes an intake gap.
+- **Ask little.** An open request needs no clarifying screen. Where something is
+  genuinely required (Cook needs a time and effort), only that is asked, with chips.
 
 ---
 
@@ -1096,7 +1141,10 @@ capability and lives in the Extended MVP above.
   is served by **Stock up** below. Kept only as a pointer so the distinction is
   not lost.
 - **Cook / assemble / buy** — compare three kinds of food decision: cook it,
-  assemble it with minimal preparation, or buy something nearby.
+  assemble it with minimal preparation, or buy something nearby. *A compact slice
+  of this was promoted by the founder on 2026-11-08 and built — see "Cross-way
+  ('open') decisions"; a side-by-side comparison UI, and choosing the way from
+  evidence about the person, are still only this idea.*
 - **Adaptive preference learning** — learn cuisine preference, effort
   tolerance, ingredient preferences, meal patterns, and routine contexts
   (weekday lunch / weekday dinner / weekend) from actual behavior. The

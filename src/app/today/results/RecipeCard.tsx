@@ -18,6 +18,7 @@ export default function RecipeCard({
   saved,
   selection,
   onChoose,
+  way,
 }: {
   r: CookRecommendation;
   index: 0 | 1 | 2;
@@ -25,6 +26,8 @@ export default function RecipeCard({
   saved: boolean;
   selection: Selection;
   onChoose: (index: 0 | 1 | 2) => void;
+  /** In a cross-way set: which way of eating this card is ("Make it"). */
+  way?: string;
 }) {
   const [open, setOpen] = useState(false);
   const chosen = selection.status === "chosen" && selection.index === index;
@@ -32,6 +35,7 @@ export default function RecipeCard({
   return (
     <ResultCard
       recommendation={r}
+      eyebrow={way ?? null}
       index={index}
       selection={selection}
       onChoose={onChoose}

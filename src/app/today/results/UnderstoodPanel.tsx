@@ -15,6 +15,7 @@ export default function UnderstoodPanel({
   onEdit,
   onEditField,
   readOnly = false,
+  hint,
 }: {
   understood: Understood;
   /** Open the questions from the first one. */
@@ -22,6 +23,8 @@ export default function UnderstoodPanel({
   /** Open just the question behind one chip. */
   onEditField?: (field: Field) => void;
   readOnly?: boolean;
+  /** A line under the chips, e.g. how to change a read-only request. */
+  hint?: string;
 }) {
   const assumed = understood.parts.some((p) => !p.said);
   const chip = "rounded-full px-2.5 py-1 text-xs font-medium";
@@ -55,7 +58,7 @@ export default function UnderstoodPanel({
       <ul className="mt-3 flex flex-wrap gap-1.5">
         {understood.parts.map((part) => (
           <li key={part.text}>
-            {renderChip({ text: part.text, field: part.field, className: part.said ? solid : dotted, title: part.said ? undefined : "Filled in from your earlier answers" })}
+            {renderChip({ text: part.text, field: part.field, className: part.said ? solid : dotted, title: part.said ? undefined : "Not in your sentence" })}
           </li>
         ))}
         {understood.foods.length > 0 && (
@@ -69,7 +72,8 @@ export default function UnderstoodPanel({
           </li>
         )}
       </ul>
-      {assumed && <p className="mt-2 text-xs text-muted">Dotted ones weren&apos;t in your sentence — they&apos;re from your earlier answers.</p>}
+      {assumed && <p className="mt-2 text-xs text-muted">Dotted ones weren&apos;t in your sentence — we filled them in.</p>}
+      {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
       {editable && <p className="mt-1 text-xs text-muted">Tap an item to change just that, or use Change (top right) to reword your sentence.</p>}
     </section>
   );

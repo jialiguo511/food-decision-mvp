@@ -10,7 +10,7 @@ import { cookQuestion } from "./cookQuestions";
 import { cookReady, missingCook, missingOrder, type ClarifyStep } from "./interpret";
 import type { FormValues } from "./QuestionFlow";
 import { BackButton } from "./QuestionScreen";
-import { MODE_LABELS, ModeRow } from "./StartScreen";
+import { MODE_LABELS } from "./StartScreen";
 import { ctaLabel } from "./summary";
 
 const HEADINGS: Record<ClarifyStep, string> = {
@@ -130,21 +130,3 @@ export default function ClarifyScreen({
   );
 }
 
-/** The sentence didn't say what kind of help it wanted. Three taps, then the
- *  usual path — everything else it said is kept. */
-export function KindScreen({ onPick, onBack }: { onPick: (mode: DecisionMode) => void; onBack: () => void }) {
-  return (
-    <div>
-      <BackButton onClick={onBack} />
-      <div className="animate-step-in pt-4">
-        <h2 className="text-2xl font-semibold tracking-tight">What kind of help?</h2>
-        <p className="mt-1.5 text-sm text-muted">I couldn&apos;t tell from what you said.</p>
-        <div className="mt-5 space-y-3">
-          {(["cook", "order", "store_snack"] as const).map((mode) => (
-            <ModeRow key={mode} mode={mode} onClick={() => onPick(mode)} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}

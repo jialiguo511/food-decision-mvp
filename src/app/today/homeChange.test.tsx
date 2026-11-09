@@ -43,7 +43,7 @@ const ideas = (tag: string) => [
   { decision_mode: "order", role: "alternative", title: `${tag} salad`, reason: "r", search_terms: ["x"], order_notes: "n", modification: null, watch: null, estimated_calories: 400, estimated_protein_g: 15 },
 ];
 const reply = (tag: string) => ({ recommendations: ideas(tag), insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "m", session_id: `session-${tag}` });
-const EMPTY_READ = { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null };
+const EMPTY_READ = { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null };
 
 beforeEach(() => {
   resetStore();
@@ -96,6 +96,7 @@ function mount(defaults = rememberedDefaults([])) {
         initialPlaceFeedback={{}}
         onboardingProfile={null}
         nutritionProfile={null}
+        allergyStatus="listed"
       />,
     ),
   );

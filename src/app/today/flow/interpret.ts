@@ -16,19 +16,22 @@
 import { missingCookAnswers, toMealContext } from "@/lib/recommend/cookForm";
 import { asksTravel } from "@/lib/places/travel";
 import type { Interpretation } from "@/lib/interpret/schema";
-import type { CookForm, DecisionMode, OrderContext, StoreSnackContext } from "@/lib/types";
+import { MEAL_BUDGETS } from "@/lib/options";
+import type { CookForm, DecisionMode, OpenContext, OrderContext, StoreSnackContext } from "@/lib/types";
 import type { FormValues } from "./QuestionFlow";
-import { summaryParts, type SummaryField } from "./summary";
+import { EFFORT_PHRASES, HUNGER_PHRASES, label, summaryParts, type SummaryField } from "./summary";
 import { stepsFor, type Step } from "./steps";
 
-export type Said = SummaryField | "foods" | "craving";
+export type Said = SummaryField | "foods" | "craving" | "ways" | "exercise" | "protein" | "easy";
 
 /** What a request is still missing — the only things worth asking. */
 export type ClarifyStep = "time_effort" | "shopping" | "budget" | "ingredients" | "method";
 
 export type Applied =
-  /** The sentence did not say what kind of help (cook / get food / snack). */
-  | { status: "needs_mode" }
+  /** The person is open to more than one way of eating, or left it to us. Not a
+   *  missing mode: the request itself is "help me decide how and what". It needs no
+   *  follow-up — nothing here blocks an answer. */
+  | { status: "open"; context: OpenContext; said: Said[] }
   | { status: "needs_answers"; mode: DecisionMode; forms: FormValues; said: Said[]; missing: ClarifyStep[] }
   | { status: "ready"; mode: DecisionMode; forms: FormValues; said: Said[] };
 
@@ -39,8 +42,21 @@ export type Applied =
  * request depends on them (Eat out's method).
  */
 export function applyInterpretation(i: Interpretation, forms: FormValues, remembered: Record<DecisionMode, boolean>, forcedMode?: DecisionMode): Applied {
-  const mode = forcedMode ?? i.mode;
-  if (!mode) return { status: "needs_mode" };
+  // Three readings of a sentence, in this order:
+  //  1. it names ONE way (a mode, or "only cooking") → that mode, exactly as before;
+  //  2. it says several ways are fine, leaves it to us, or names no way but says something
+  //     real → OPEN: the decision includes which way;
+  //  3. it says nothing readable → never gets here (the reader reports "nothing found" and
+  //     the person keeps their text).
+  // An explicit "both cook and buy" beats a stray single mode: they said both.
+  let mode: DecisionMode | null = forcedMode ?? i.mode;
+  if (!forcedMode) {
+    const cook = i.ways.includes("cook");
+    const buy = i.ways.includes("buy");
+    if (cook && buy) mode = null;
+    else if (cook && !mode) mode = "cook"; // only cooking is allowed: that is a Cook request
+  }
+  if (!mode) return openFrom(i);
   const said = new Set<Said>();
 
   if (mode === "cook") {
@@ -129,6 +145,61 @@ export function missingCook(form: CookForm): ClarifyStep[] {
  *  real earlier session did. */
 export function missingOrder(methodAnswered: boolean): ClarifyStep[] {
   return methodAnswered ? [] : ["method"];
+}
+
+/** The cross-way request. Everything not said stays unknown (null / empty); the only
+ *  defaults are the neutral ones every flow starts from (normal hunger, no budget
+ *  preference), and the person is shown them as assumed. */
+function openFrom(i: Interpretation): Applied {
+  const onlyBuy = i.ways.length > 0 && i.ways.includes("buy") && !i.ways.includes("cook");
+  const context: OpenContext = {
+    decision_mode: "open",
+    hunger: i.hunger ?? "normal",
+    // Said nothing → both are fine. Said only "buy" → no cooking. (Only "cook" never gets here.)
+    ways: { cook: !onlyBuy, buy: true },
+    minutes: i.minutes,
+    effort: i.effort,
+    extra_spend_usd: i.extra_spend_usd,
+    meal_budget: i.meal_budget ?? "no_preference",
+    ingredients_on_hand: i.foods,
+    craving: i.craving,
+    after_exercise: i.after_exercise === true,
+    protein_focus: i.protein_focus === true,
+    easy_pick: i.leave_to_us === true,
+  };
+  const said: Said[] = [];
+  if (i.hunger) said.push("hunger");
+  if (i.ways.length > 0) said.push("ways");
+  if (i.minutes !== null) said.push("time");
+  if (i.effort) said.push("effort");
+  if (i.extra_spend_usd !== null) said.push("budget");
+  if (i.meal_budget && i.meal_budget !== "no_preference") said.push("meal_budget");
+  if (i.foods.length > 0) said.push("foods");
+  if (i.craving) said.push("craving");
+  if (context.after_exercise) said.push("exercise");
+  if (context.protein_focus) said.push("protein");
+  return { status: "open", context, said };
+}
+
+/** What an open request was understood as, for "What I understood": each part marked as
+ *  said, or assumed (the app's own reading — "easy options" for "just something"). */
+export function describeOpenUnderstanding(text: string, c: OpenContext, said: Said[]): Understood {
+  const stated = new Set<Said>(said);
+  // Hunger is shown only when the person said it: an unstated "normal" is a system
+  // fallback, not something to present as their condition (see "Preferences have provenance").
+  const parts: Understood["parts"] = [];
+  if (stated.has("hunger")) parts.push({ text: HUNGER_PHRASES[c.hunger], said: true, field: "hunger" });
+  parts.push(
+    { text: c.ways.cook ? "Cook or buy" : "Buying, not cooking", said: stated.has("ways"), field: "ways" },
+  );
+  if (c.minutes !== null) parts.push({ text: `${c.minutes} min`, said: true, field: "time" });
+  if (c.effort) parts.push({ text: EFFORT_PHRASES[c.effort], said: true, field: "effort" });
+  if (c.extra_spend_usd !== null) parts.push({ text: `~$${c.extra_spend_usd} to spend`, said: true, field: "budget" });
+  if (c.meal_budget !== "no_preference") parts.push({ text: label(MEAL_BUDGETS, c.meal_budget) ?? c.meal_budget, said: true, field: "meal_budget" });
+  if (c.after_exercise) parts.push({ text: "After exercise", said: true, field: "exercise" });
+  if (c.protein_focus) parts.push({ text: "Wants protein", said: true, field: "protein" });
+  if (c.easy_pick) parts.push({ text: "Easy options", said: false, field: "easy" });
+  return { text, parts, foods: c.ingredients_on_hand, craving: c.craving };
 }
 
 function finish(mode: DecisionMode, forms: FormValues, said: Set<Said>, missing: ClarifyStep[]): Applied {

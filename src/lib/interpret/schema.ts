@@ -82,6 +82,15 @@ export const interpretationSchema = z.object({
   craving: phrase(60).default(null),
   craving_category: enumOf<OrderCravingCategory>(ORDER_CRAVINGS).nullable().catch(null).default(null),
   snack_craving: enumOf<CravingType>(STORE_SNACK_CRAVINGS).nullable().catch(null).default(null),
+  // Which ways of eating the person said are fine. Both = "I can buy things or make
+  // something"; ["buy"] = they ruled out cooking. A person who allows ONLY cooking is a
+  // single-mode Cook request (mode "cook"), not this. Empty = they said nothing about it.
+  ways: z.array(z.enum(["cook", "buy"])).catch([]).default([]).transform((w) => [...new Set(w)]),
+  // They left it to us: "anything is fine", "you decide", "just something".
+  leave_to_us: z.boolean().nullable().catch(null).default(null),
+  // Situation they SAID — context for the recommendation, never a measurement.
+  after_exercise: z.boolean().nullable().catch(null).default(null),
+  protein_focus: z.boolean().nullable().catch(null).default(null),
 });
 
 export type Interpretation = z.infer<typeof interpretationSchema>;
@@ -108,7 +117,11 @@ export function isEmptyInterpretation(i: Interpretation): boolean {
     i.distance === null &&
     i.craving === null &&
     i.craving_category === null &&
-    i.snack_craving === null
+    i.snack_craving === null &&
+    i.ways.length === 0 &&
+    i.leave_to_us !== true &&
+    i.after_exercise !== true &&
+    i.protein_focus !== true
   );
 }
 

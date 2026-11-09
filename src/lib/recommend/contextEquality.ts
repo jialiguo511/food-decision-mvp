@@ -34,6 +34,22 @@ export function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
   if (a.decision_mode === "store_snack" && b.decision_mode === "store_snack") {
     return a.hunger === b.hunger && a.craving_type === b.craving_type;
   }
+  if (a.decision_mode === "open" && b.decision_mode === "open") {
+    return (
+      a.hunger === b.hunger &&
+      a.ways.cook === b.ways.cook &&
+      a.ways.buy === b.ways.buy &&
+      a.minutes === b.minutes &&
+      a.effort === b.effort &&
+      a.extra_spend_usd === b.extra_spend_usd &&
+      a.meal_budget === b.meal_budget &&
+      a.craving === b.craving &&
+      a.after_exercise === b.after_exercise &&
+      a.protein_focus === b.protein_focus &&
+      a.easy_pick === b.easy_pick &&
+      arraysEqual(a.ingredients_on_hand, b.ingredients_on_hand)
+    );
+  }
   return false;
 }
 
