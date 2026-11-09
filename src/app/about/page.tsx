@@ -6,6 +6,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
+import { appVersion } from "@/lib/feedback";
 import { DEFAULT_LIMITS } from "@/lib/usage/limits";
 import { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 
@@ -121,6 +122,10 @@ export default function AboutPage() {
           </p>
         </Section>
       )}
+      {/* The deployed commit (short), so "which version is this?" has a one-glance answer. */}
+      <p className="mt-10 text-xs text-muted" data-testid="build-version">
+        {BRAND.name} · {BRAND.stage} · build {appVersion()}
+      </p>
     </div>
   );
 }

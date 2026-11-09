@@ -22,16 +22,30 @@ with what that does and doesn't prove) · **not verified** (needs a deployment, 
 | Sentence entry | **Found by the real-model check:** since the cross-way change, the headline example *"…I have eggs and rice."* names no single way, so the reader (correctly, by design) leaves `mode` empty and the app made an **open** request — not the Cook flow the demo and checklist showed. And *"Something nearby, around $15"* (cooking ruled out + a named way of getting food) became a generic buy-only open request instead of Eat out. Fixed: that second case is now Eat out (`applyInterpretation`); the Home example chip and `/demo` now say *"I'll cook with the eggs and rice I have"*; the stale `check:interpret` expectations were updated (plus a test that a foods-only sentence stays open). |
 | Docs | This file, `CASE_STUDY.md`, README links, `supabase/metrics.sql` owner queries. |
 
+### Final-polish round (2026-11-10) — what changed on top of the above
+
+| area | change |
+|---|---|
+| **Security: metering is server-only** | `consume_usage()` used to be callable by any signed-in browser with limits *the caller chose* (`p_limit => 1000000`) and could push the app-wide counter. It now takes the user id as an argument and **only `service_role` can execute it**; the app calls it from the server with the verified session's id and its own limits. Production **refuses paid calls without `SUPABASE_SERVICE_ROLE_KEY`**. Tested on real Postgres: signed-in and signed-out callers get a permission error; the old signatures no longer exist. |
+| **Security: shared picture cache is server-write-only** | `recipe_images` and the `recipe-images` bucket had insert policies for any signed-in user (a picture could be pre-seeded for any dish). Now there is **no insert grant/policy for the browser** (table and Storage); the server writes with the service role after checking key shape, content type, file signature and size (≤ 1 MB). Without the service key no picture is generated (so no paid generation can go uncached). Tested on real Postgres. |
+| Migrations | one new file, **`2026-11-10_server_only_writes.sql`**, with impact, order and rollback in its header. The older migrations (`2026-10-02`, `2026-11-07`, `2026-11-09`) were edited so re-running any of them **cannot re-open** either hole; a test applies them in a shuffled order and `check-schema.sql` stays clean. `check-schema.sql` now reports `EXPOSED` if the browser could execute `consume_usage` or write the cache. |
+| Cards | reason first (for the top card: *why it wins* from what you said; for the others: *what it trades against it* — prompt rule, no invented scores), then **To buy** (or "Nothing to buy"), then estimates. Steps are under **View steps**. |
+| Carousel | named tabs (*Best match · Easiest · Different*, per way) show where you are and what each option is for; swipe, tap, or arrows on wide screens. |
+| Summary | "What I understood" is one collapsed line with **View / edit**; the public example opens it. |
+| Home | one scrolling row of short examples (incl. *Cook or buy, either*) instead of three tall ones; shorter helper text so the box and button fit the first screen at 320 px. |
+| Sign-in check | the Turnstile widget shows Cloudflare's real error code and a retry (see §6.3); a blocked host (`110200`) is a Cloudflare hostname setting, not a code bug. |
+
 ## 2. Verification — what was run, and what it does and doesn't prove
 
 ### Automated (run on this branch, in this environment)
 
 | check | result |
 |---|---|
-| `npm run typecheck` · `npm run lint` · `npm test` · `npm run build` | **all pass** on the final tree: 1284 tests in 90 files (2026-11-09). The real-Postgres tests (PGlite) are part of that run. |
+| `npm run typecheck` · `npm run lint` · `npm test` · `npm run build` | **all pass** on the final tree: 1295 tests in 90 files (2026-11-10). The real-Postgres tests (PGlite) are part of that run. |
 | Two-account isolation, real Postgres engine (PGlite) running the real `schema.sql` | for each of the 10 user-owned tables: user B cannot read, update, delete or insert-as user A; signed-out (`anon`) can do neither; usage/cost tables unreadable; `release_user_storage` not callable by users |
-| Cost guard, real Postgres engine | exactly N of 40 simultaneous calls allowed per person; exactly 12 of 60 simultaneous calls across 4 accounts allowed against an app ceiling of 12; ceiling refusal gives the unit back; off switch stops a kind instantly; users can't read or edit counters/flags; old two-argument call still works |
-| Migration safety | the new migration applies on a database that stopped at the previous migration, fixes exactly the four `MISSING` rows in `check-schema.sql`, and re-applying it is harmless |
+| Cost guard, real Postgres engine (called as `service_role`, as the server does) | exactly N of 40 simultaneous calls allowed per person; exactly 12 of 60 simultaneous calls across 4 accounts allowed against an app ceiling of 12; ceiling refusal gives the unit back; off switch stops a kind instantly; users can't read or edit counters/flags; **signed-in and signed-out callers cannot call `consume_usage` at all** (permission error), and only the 4-argument version exists |
+| Shared picture cache, real Postgres engine | signed-in users can read but not insert / pre-seed / update / delete a `recipe_images` row; no insert policy on the bucket for them; the service role can store; the server-side check refuses a wrong key, type, file signature or size before upload (unit test) |
+| Migration safety | every migration applies on a database that already has the schema, in any order and twice, and `check-schema.sql` stays clean (no `MISSING`, no `EXPOSED`) — so re-running an old one can't re-open the closed holes |
 | Route tests (in-memory DB) | per-person limit, app ceiling, off switch (env and DB), cross-site refusal — each **before** the model / Places is called; failed requests still count |
 | Production build served locally | security headers present; `/dev/*` and `/api/dev/*` → 404; every private/paid route answers 401/404 signed-out; `/auth/callback?next=@evil.example` stays on-site; `/login`, `/about`, `/demo` look right at 375 px |
 | Real Home UI, stand-in network (`/dev/home`) | signed-out failure → new copy and *Sign in (opens a new tab)*; *Try again* then succeeds and the failure notice is gone |
@@ -57,7 +71,7 @@ this round; this is regression evidence, not new capability.
 
 ## 3. Test URL
 
-No deployed URL was given to me. **Locally:** `npm run dev` → <http://localhost:3000> (public: `/demo`, `/about`, `/login`).
+Preview given by you: `food-decision-cpthglww5-jialiguo511.vercel.app` (commit `d1c4c19`, older than this round) and later `food-decision-rbygo54a4-jialiguo511.vercel.app`. I read the first one's response headers anonymously (security headers present; its bundle was built **without** the Turnstile site key, so it showed no widget). The **deployed commit is now visible on `/about`** ("build abc1234", from `VERCEL_GIT_COMMIT_SHA`): compare it with `git rev-parse --short HEAD`. **Locally:** `npm run dev` → <http://localhost:3000> (public: `/demo`, `/about`, `/login`).
 Dev-only pages (404 in production): `/dev/home` (real Home with a fake network; `?returning=1`, `?failat=1&code=…`), `/dev/carousel`.
 **Preview:** pushing `codex/web-beta` should build a Vercel Preview if the repo is connected — read its URL and commit SHA on the Vercel dashboard.
 
@@ -69,17 +83,19 @@ against an old database is safe but unusable (people see "paused for a moment").
 1. **Back up first.** Supabase dashboard → *Database → Backups* (or *Project Settings → Database → Backups*; on the free plan take a manual dump:
    `pg_dump` with the connection string from *Project Settings → Database*). Nothing below deletes data, but you should have it.
 2. **Look first (read-only):** paste `supabase/check-schema.sql` → every row says `ok` or `MISSING`.
-3. **Run only what's missing:**
-   - project already has everything through `2026-11-08_release_user_storage.sql` → run **only**
-     **`supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql`**. (One transaction. Adds `global_usage`, `app_flags`, `feedback`; replaces
-     `consume_usage()` with a version whose third argument is optional, so code already deployed keeps working during the switch.)
+3. **Run only what's missing** (each file is one transaction and safe to re-run):
+   - project already has everything through `2026-11-08_release_user_storage.sql` → run, **in this order**,
+     **`2026-11-09_abuse_guards_and_feedback.sql`** (adds `global_usage`, `app_flags`, `feedback`) then
+     **`2026-11-10_server_only_writes.sql`** (the new server-only `consume_usage(uuid, text, integer, integer)`; removes the browser's write access to the picture cache).
    - empty project → `supabase/schema.sql` once (it includes everything; idempotent).
-   - in between → `schema.sql` is idempotent and adds only what's missing; it also drops the old two-argument `consume_usage` (two overloads would make the call ambiguous).
-4. Run `check-schema.sql` again → expect **no** `MISSING`.
-5. **Impact:** no existing table is altered and no row rewritten. New objects: tables `global_usage`, `app_flags` (owner-only: RLS on, no policy, no grant), `feedback`
-   (own rows only); function `consume_usage(text, integer, integer)` (old `(text, integer)` dropped).
-6. **Rollback** (if ever needed): `drop function if exists public.consume_usage(text, integer, integer);` then re-run the `consume_usage()` definition from
-   `2026-11-07_usage_and_events.sql`; `drop table if exists public.feedback, public.global_usage, public.app_flags;`. (The previous code then runs as before.)
+   - Do **not** paste every file in `migrations/` "just in case": that is now harmless (tested) but unnecessary.
+4. Run `check-schema.sql` again → expect **no** `MISSING` and **no** `EXPOSED`.
+5. **Impact:** no existing table is altered and no row rewritten or removed. New objects: tables `global_usage`, `app_flags` (owner-only), `feedback` (own rows only); function
+   `consume_usage(uuid, text, integer, integer)` executable by `service_role` only (the older `(text, integer)` and `(text, integer, integer)` are **dropped**). Removed: the browser's insert
+   policy/grant on `recipe_images` and the Storage insert policy on `recipe-images`. Pictures already stored keep working.
+   **Order matters:** code from before this round calls the old function, which is dropped — paid calls on that *old* deployment show "unavailable" until the new code is live. Run the SQL, then promote the new deployment, close together.
+6. **Optional after running** (header of the 11-10 file): list `recipe_images` rows and delete any you don't trust (the next request regenerates them) — they could have been added while writes were open.
+7. **Rollback** (if ever needed): in the 11-10 file's last comment block. It restores the weaker state; use it only to get the *previous* code running again.
 
 "Delete my account" still needs `2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY` (unchanged; table of failure messages in git history of this file and in `account.actions.ts`).
 
@@ -92,7 +108,7 @@ Set in Vercel (Production **and** Preview). Nothing secret has a `NEXT_PUBLIC_` 
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | project URL and anon (publishable) key |
 | `NEXT_PUBLIC_SITE_URL` | yes | the real https origin |
 | `ANTHROPIC_API_KEY` | yes | recommendations, sentence reader, nearby wording |
-| `SUPABASE_SERVICE_ROLE_KEY` | for "Delete my account" | server-only; used for nothing else |
+| `SUPABASE_SERVICE_ROLE_KEY` | **yes** (paid calls, picture storage, "Delete my account") | server-only, never `NEXT_PUBLIC_`; used for the usage meter, storing generated pictures, and account deletion — always for the verified session's own id. **Production refuses paid calls without it.** Supabase → Project Settings → API → `service_role` (a secret key) |
 | `GOOGLE_PLACES_API_KEY` | for nearby + place photos | restrict to Places API (New) |
 | `PEXELS_API_KEY` · `OPENAI_API_KEY` | optional | real dish photos · generated pictures (≈ $0.005 each, once per dish, shared) |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | recommended | enables the CAPTCHA widget on sign-in; **also** enable it in Supabase (§6.3) or it's cosmetic |
@@ -165,7 +181,7 @@ Phone, against the Preview URL, signed in with your own email. Tick as you go.
 5. [ ] **Edit** → the usual questions open with answers filled in; **Change** on a typed request returns to the text, still editable.
 6. [ ] Step by step → **Get food** → *Eat nearby* → allow location → real places; **Show me 3 more** twice → no place repeats; when nothing new is left it says so.
 7. [ ] **Make or buy, either is fine** typed as a sentence (e.g. *I can buy something or cook, don't care*) → one set mixing Make it / Grab it / Order it.
-8. [ ] Swipe the cards: pictures load without layout jumping; a card with no picture is still usable.
+8. [ ] Cards lead with the reason, then **To buy** (or "Nothing to buy"); the tabs under them (*Best match · Easiest · Different*) jump between cards; **View steps** opens the recipe; **What I understood** is one collapsed line that opens with **View / edit**. Swipe the cards: pictures load without layout jumping; a card with no picture is still usable. Try 320 px wide (browser devtools) — nothing overflows.
 9. [ ] **Choose this** → "did you eat it?" → answer. Bookmark a recipe → it's under **Saved**. Refresh the page → your last results are still there.
 10. [ ] Me → add an allergy → ask again → it's respected (remember: not a guarantee). **Send feedback** (Me, or *Report a problem* on an error panel) → check it in `public.feedback`.
 11. [ ] **Sign out** → you land on sign-in; browser Back doesn't show your cards. Sign in again.
@@ -176,7 +192,7 @@ Phone, against the Preview URL, signed in with your own email. Tick as you go.
 ## 9. Release blockers vs. deferrable
 
 **Blocks a public release (needs you):**
-1. Run the 2026-11-09 migration (§4) and confirm `check-schema.sql` shows no `MISSING`.
+1. Run the 2026-11-09 **and** 2026-11-10 migrations (§4), set `SUPABASE_SERVICE_ROLE_KEY` on the deployment, and confirm `check-schema.sql` shows no `MISSING` and no `EXPOSED`.
 2. Sign-in email works for non-members (custom SMTP, §6.1) and redirect URLs are set (§6.2).
 3. Vendor spend caps set (§6.4).
 4. You complete the §8 checklist on the Preview (the live, signed-in run I couldn't do).
@@ -189,9 +205,8 @@ a screen to *see* inferred memory (then re-enable `BEHAVIORAL_HINTS`); a real do
 
 ## 10. Known limits (so nobody is surprised)
 
-- **Shared picture cache can be pre-seeded by any signed-in user.** `recipe_images` and its Storage bucket let any authenticated user add a picture under a dish's hash name (the app
-  uploads with the user's own session). Nobody can *overwrite or delete* one (tested), and it holds no private data, but a malicious account could put a wrong picture under a
-  dish that hasn't been generated yet. Fix when it matters: move the upload to the service role. **Recorded, not fixed.**
+- **Shared picture cache is server-write-only now** (was: any signed-in user could pre-seed it). Remaining edge: pictures stored **before** `2026-11-10` ran may include one a user added — see §4 step 6 to review them.
+- The usage meter and picture storage depend on the service-role key being set and correct; if it is missing, production **refuses** paid calls (safe, but the app looks "paused") — the first thing to check when everything says "unavailable".
 - Allergen checks are literal word matches — never a guarantee. Dietary pattern is checked literally for Cook only.
 - Pexels/idea-photo lookups are not metered (free, but a signed-in user could exhaust the vendor's free quota; pictures then fall back gracefully).
 - Sign-in email rate limiting is Supabase's plus a UI cooldown; the app can't enforce a per-IP limit because the browser talks to Supabase directly.
@@ -224,4 +239,5 @@ Run with the key in `.env.local`, a few cents in total. Prompts were unchanged.
 - `OPEN_CONFIRM=1 npm run check:open` — **8 of 8 passed** (≈ 80 s): cross-way sets mixing recipe / order / snack; zero recipes when cooking is ruled out; no invented ingredients, places or prices; no protein-deficit claim; allergy and vegetarian held on every way.
 - `INTERPRET_CONFIRM=1 npm run check:interpret` — first run **14 passed, 2 failed**: the two failures were the stale expectations described in §1 (a real behavior mismatch, not model flakiness). After the fix: **17 passed, 0 failed** (8 skipped = the other script's gate, `OPEN_CONFIRM`).
 - What this does **not** show: results on a corpus of real users' sentences, latency on a deployed host, or anything about image generation.
+- **Final-polish round (2026-11-10):** the cook/order/snack prompts gained one rule (top card says why it wins from what you said; the others say what they trade against it; no invented scores). `OPEN_CONFIRM=1 npm run check:open` again **8 of 8 passed** (≈ 80 s) — the hard rules (allergy, no cooking, no invented ingredients/places/prices) still hold. It does **not** judge whether the new reasons *read* well; read the "reason" lines on your first few real results (checklist 4).
 
