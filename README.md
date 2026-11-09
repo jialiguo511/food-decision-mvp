@@ -12,7 +12,8 @@ constraints you actually have tonight.
 | [`PERSONALIZATION.md`](PERSONALIZATION.md) | How the product remembers and learns — explicit, routine, behavioral memory |
 | [`CLAUDE.md`](CLAUDE.md) | Coding and product rules for AI-assisted development |
 | [`LEARNINGS.md`](LEARNINGS.md) | Evidence and product learnings |
-| [`RELEASE.md`](RELEASE.md) | **Web beta: what's built, what was and wasn't verified, migrations, env vars, external setup, 10-minute acceptance checklist** |
+| [`RELEASE.md`](RELEASE.md) | **Public Beta: what's built, what was and wasn't verified, migrations, env vars, external setup, the off switch, 10-minute acceptance checklist, release blockers** |
+| [`CASE_STUDY.md`](CASE_STUDY.md) | Project write-up: the problem, a 60–90 s demo script, technical decisions with evidence and their limits, built vs. unvalidated, resume text |
 
 ---
 

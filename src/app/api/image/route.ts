@@ -21,6 +21,7 @@ import { createSupabaseImageCache, resolveRecipeImageOutcome } from "@/lib/image
 import { storedRecommendationSchema } from "@/lib/recommend/output";
 import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { refuseCrossSite } from "@/lib/sameOrigin";
 import { consumeUsage } from "@/lib/usage/consume";
 
 // A generation can take most of a minute (generated.ts: 45 s timeout). Without
@@ -32,6 +33,8 @@ export const maxDuration = 60;
 const EMPTY = { url: null, reason: "unavailable" } as const;
 
 export async function POST(request: Request) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   const supabase = await createClient();
   const {
     data: { user },

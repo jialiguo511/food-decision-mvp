@@ -17,6 +17,7 @@ import { readSituation } from "@/lib/interpret/read";
 import { isEmptyInterpretation, validateInterpretText, type Interpretation, type InterpretErrorCode } from "@/lib/interpret/schema";
 import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { refuseCrossSite } from "@/lib/sameOrigin";
 import { consumeUsage } from "@/lib/usage/consume";
 
 export const maxDuration = 30;
@@ -36,6 +37,8 @@ const STATUS: Record<InterpretErrorCode, number> = {
 const fail = (error: InterpretErrorCode) => NextResponse.json({ error }, { status: STATUS[error] });
 
 export async function POST(request: Request) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   const supabase = await createClient();
   const {
     data: { user },

@@ -80,3 +80,36 @@ from public.usage_counters
 where day = (now() at time zone 'utc')::date
 order by count desc
 limit 50;
+
+-- ===========================================================================
+-- Public beta: feedback, cost guards, the off switch. (Run as the project owner.)
+-- ===========================================================================
+
+-- 8. Feedback people sent (newest first). `contact` is only what they chose to type.
+select created_at, kind, page, app_version, contact, message
+from public.feedback
+order by created_at desc
+limit 100;
+
+-- 9. The whole app's use of each paid call TODAY (UTC) against its daily ceiling.
+--    The ceilings are DEFAULT_GLOBAL_LIMITS in src/lib/usage/limits.ts (or USAGE_GLOBAL_<KIND>).
+select kind, count as used_today
+from public.global_usage
+where day = (now() at time zone 'utc')::date
+order by kind;
+
+-- 10. Who used the most today — to spot one account behaving like a script.
+--     (Shows user ids, not emails; look an id up in Authentication → Users.)
+select user_id, kind, count
+from public.usage_counters
+where day = (now() at time zone 'utc')::date
+order by count desc
+limit 20;
+
+-- 11. THE OFF SWITCH. Takes effect on the next request, no redeploy. Run ONE of these by hand:
+--       update public.app_flags set value = 'all' where key = 'paused_kinds';                -- stop every paid call
+--       update public.app_flags set value = 'recommend,image' where key = 'paused_kinds';   -- stop only these kinds
+--       update public.app_flags set value = '' where key = 'paused_kinds';                   -- back on
+--     Kinds: recommend, nearby, interpret, enrich, image, place_photo, feedback.
+--     While paused, people see "unavailable right now" and nothing is counted against them.
+select key, value from public.app_flags;

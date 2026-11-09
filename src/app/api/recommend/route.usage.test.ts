@@ -213,3 +213,12 @@ describe("product events — one per request, nothing personal in them", () => {
     expect((await call(COOK)).status).toBe(200);
   });
 });
+
+describe("a cross-site browser request is refused before anything is metered or called", () => {
+  it("403 with no model call and no allowance spent", async () => {
+    const res = await POST(new Request("https://app.example/api/recommend", { method: "POST", headers: { origin: "https://evil.example", host: "app.example" }, body: JSON.stringify({ context: COOK }) }));
+    expect(res.status).toBe(403);
+    expect(generate).not.toHaveBeenCalled();
+    expect(db.usageOf("user-1", "recommend")).toBe(0);
+  });
+});

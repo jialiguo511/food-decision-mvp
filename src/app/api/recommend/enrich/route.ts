@@ -22,6 +22,7 @@ import {
 import { parseStoredSession } from "@/lib/recommend/session";
 import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
+import { refuseCrossSite } from "@/lib/sameOrigin";
 import { createTimer } from "@/lib/timing";
 import { consumeUsage } from "@/lib/usage/consume";
 import type { NearbyRecommendation } from "@/lib/types";
@@ -33,6 +34,8 @@ export const maxDuration = 60;
 const DEFAULT_ENRICH_MODEL = "claude-haiku-4-5-20251001";
 
 export async function POST(request: Request) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   const timer = createTimer("Nearby enrichment");
   try {
     const supabase = await createClient();

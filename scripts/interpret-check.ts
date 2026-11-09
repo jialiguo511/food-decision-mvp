@@ -21,8 +21,8 @@ const show = (label: string, text: string, i: Interpretation) => {
 };
 
 describe.skipIf(!run)("sentence reader — real model", () => {
-  it("example 1 (cook): hunger, time and foods are read; shopping and effort — not said — stay empty", async () => {
-    const text = "Just trained, very hungry, 20 minutes, I have eggs and rice.";
+  it("example 1 (cook): hunger, time, foods and 'I'll cook with what I have' are read; effort — not said — stays empty", async () => {
+    const text = "Just trained, very hungry, 20 minutes. I'll cook with the eggs and rice I have.";
     const i = await read(text);
     show("example 1", text, i);
     expect(i.mode).toBe("cook");
@@ -30,15 +30,24 @@ describe.skipIf(!run)("sentence reader — real model", () => {
     expect(i.minutes).toBe(20);
     expect(i.foods.map((f) => f.toLowerCase()).join(" ")).toMatch(/egg/);
     expect(i.foods.map((f) => f.toLowerCase()).join(" ")).toMatch(/rice/);
-    expect(i.shopping).toBeNull();
+    expect(i.shopping).toBe("inventory_only"); // "the eggs and rice I have" = only what's at home
     expect(i.effort).toBeNull();
+  });
+
+  it("a sentence that only LISTS foods at home is not forced into Cook: it names no way, so the app treats it as open", async () => {
+    const text = "Just trained, very hungry, 20 minutes, I have eggs and rice.";
+    const i = await read(text);
+    show("foods only", text, i);
+    expect(i.mode).toBeNull();
+    expect(i.foods.map((f) => f.toLowerCase()).join(" ")).toMatch(/egg/);
   });
 
   it("example 2 (eat out): nearby and ~$15 are read; nothing about food at home is invented", async () => {
     const text = "Tired and don't want to cook. Something nearby, around $15.";
     const i = await read(text);
     show("example 2", text, i);
-    expect(i.mode).toBe("order");
+    // Either named as Eat out outright, or "no cooking, buy" plus a way of getting food — which the app turns into Eat out.
+    expect(i.mode === "order" || (i.mode === null && i.ways.includes("buy") && !i.ways.includes("cook"))).toBe(true);
     expect(i.method).toBe("eat_nearby");
     expect(["under_15", "15_to_25"]).toContain(i.meal_budget);
     expect(i.foods).toEqual([]);

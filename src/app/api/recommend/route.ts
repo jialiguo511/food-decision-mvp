@@ -33,6 +33,7 @@ import { withoutExcludedPlaces } from "@/lib/recommend/placeExclusions";
 import { recordEvent } from "@/lib/events/record";
 import { consumeUsage } from "@/lib/usage/consume";
 import { createClient } from "@/lib/supabase/server";
+import { refuseCrossSite } from "@/lib/sameOrigin";
 import { createTimer, type Timer } from "@/lib/timing";
 import { MAX_SHOWN_PLACES } from "@/lib/recommend/session";
 import type {
@@ -99,6 +100,8 @@ type Meta = {
 };
 
 export async function POST(request: Request) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   const requestId = requestIdOf(request);
   const timer = createTimer("recommend", undefined, requestId);
   console.info(`[recommend] received requestId=${requestId ?? "none"}`);

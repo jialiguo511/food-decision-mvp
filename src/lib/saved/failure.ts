@@ -70,7 +70,7 @@ export function logSavedFailure(
   };
   console.error(`[saved] ${operation} failed`, {
     ...failure,
-    details: e.details ?? null,
+    // Not `details`: Postgres can put the failing row's values there.
     hint: e.hint ?? null,
     user: context.userId ? `${context.userId.slice(0, 8)}…` : null,
     session: context.sessionId ?? null,

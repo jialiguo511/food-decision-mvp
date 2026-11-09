@@ -1,18 +1,10 @@
-import AppShell from "@/components/AppShell";
-import EmptyState from "@/components/ui/EmptyState";
-import SetupNotice from "@/components/SetupNotice";
-import { isSupabaseConfigured } from "@/lib/env";
-import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-export default async function PlanPage() {
-  if (!isSupabaseConfigured) return <SetupNotice />;
-  await requireUser();
-
-  return (
-    <AppShell title="Plan" subtitle="Plan a few meals ahead and shop once.">
-      <EmptyState title="Planning ahead isn't here yet" action={{ href: "/today", label: "Decide your next meal" }}>
-        Soon you&apos;ll be able to line up a few meals and shop once. For now, Home picks what to eat next.
-      </EmptyState>
-    </AppShell>
-  );
+// Plan is part of the information architecture (CLAUDE.md → "The top-level information
+// architecture") but has no contents yet, and the web beta's nav doesn't link it. A page
+// that only says "not here yet" is a dead end for anyone who types the URL, so it sends
+// them Home. When Plan has contents, replace this redirect with the page (and add the tab
+// back to BottomNav.tsx).
+export default function PlanPage() {
+  redirect("/today");
 }

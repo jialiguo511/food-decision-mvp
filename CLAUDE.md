@@ -333,11 +333,18 @@ back to `BottomNav.tsx` when they have contents. Two public pages sit outside th
 five areas and are not navigation: `/demo` (static labelled example) and
 `/about` (privacy and estimates).
 
-**Paid calls are metered per person, before the call.** Every paid entry point
-(`/api/recommend`, nearby search, `/api/recommend/interpret`, nearby wording, picture
-generation, place photos) spends `consumeUsage()` (`src/lib/usage/`) first — counted
-even if the call fails, in Postgres, refused in production if it can't be checked.
-A new paid call must be added to `limits.ts` and call it. Product events
+**Paid calls are metered per person AND for the whole app, before the call.** Every paid
+entry point (`/api/recommend`, nearby search, `/api/recommend/interpret`, nearby wording,
+picture generation, place photos — and the feedback form, which writes a row from a public
+sign-up) spends `consumeUsage()` (`src/lib/usage/`) first — counted even if the call fails,
+in Postgres, refused in production if it can't be checked. One atomic function enforces the
+per-person limit, an app-wide daily ceiling (`DEFAULT_GLOBAL_LIMITS`) and the owner's off
+switch (`app_flags.paused_kinds`, or `PAUSED_KINDS`); a refused call is never charged to the
+person. A new paid call must be added to `limits.ts` (both tables) and call it. Paid POST
+routes also refuse cross-site requests (`lib/sameOrigin.ts`). Server-side logs and events carry
+codes, never text, health data, coordinates or a database error's `details` (it can quote the
+whole row). **Inferred behavioral hints are off** unless `BEHAVIORAL_HINTS=on` (no way to see
+them yet). The sign-in callback follows only a same-site `next` path (`lib/safeNext.ts`). Product events
 (`src/lib/events/`) are names + enumerated props only — never text, health data or
 location; a new event needs the schema, the SQL `CHECK` list and `metrics.sql`.
 

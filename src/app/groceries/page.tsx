@@ -1,18 +1,7 @@
-import AppShell from "@/components/AppShell";
-import EmptyState from "@/components/ui/EmptyState";
-import SetupNotice from "@/components/SetupNotice";
-import { isSupabaseConfigured } from "@/lib/env";
-import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
-export default async function GroceriesPage() {
-  if (!isSupabaseConfigured) return <SetupNotice />;
-  await requireUser();
-
-  return (
-    <AppShell title="Groceries" subtitle="Your shopping list will appear here.">
-      <EmptyState title="No grocery list yet" action={{ href: "/today", label: "Find something to make" }}>
-        A single shopping list from your planned recipes will live here. It isn&apos;t built yet.
-      </EmptyState>
-    </AppShell>
-  );
+// Same as /plan: an empty placeholder, unlinked in the web beta, so it goes Home instead of
+// showing a "coming soon" page. Restore the real page (and the nav tab) when Groceries has contents.
+export default function GroceriesPage() {
+  redirect("/today");
 }

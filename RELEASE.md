@@ -1,187 +1,225 @@
-# Web beta — release notes and checklist
+# Public Beta — release notes, verification, and checklist
 
-Branch `codex/web-beta`. **Nothing here has been deployed.** No production
-database, external service or paid account was touched while preparing it. This
-file says what is built, what was actually tested, what was not, and exactly
-what has to be set up before and during a real release.
+Branch `codex/web-beta`. **Nothing here has been released to production, and no production database or paid account setting was
+changed while preparing it.** This file says what is built, what was *actually* verified (and how), what was not, and exactly what has to
+be done by you before and during a real release.
 
-Status words used throughout: **built** (the code exists) · **tested locally**
-(automated tests, or clicked through in a browser here) · **not verified** (needs
-a deployment, a real account, or a paid key this environment didn't have).
+Words used throughout: **built** (the code exists) · **verified here** (automated test, or clicked through in a browser in this environment —
+with what that does and doesn't prove) · **not verified** (needs a deployment, a signed-in session, or a paid account this environment didn't have).
 
 ---
 
-## 1. What this release is
+## 1. What changed in this round (Public Beta hardening)
 
-| area | status |
+| area | change |
 |---|---|
-| One-sentence entry ("Tell me what's going on") beside step-by-step | built · real-model checked · UI clicked through with a stubbed network |
-| Carousel picture loading, stable frame, retry | built · client behaviour tested in a real browser and automated · real image generation **not verified** |
-| Per-user daily limits on every paid call | built · tested on real Postgres (PGlite) and in route tests · **not run against your Supabase** |
-| First-party product events + `supabase/metrics.sql` | built · tested · not run against your Supabase |
-| Public `/demo` (static example) and `/about` (privacy, estimates) | built · looked at in a browser |
-| Nav = Home / Saved / Me (Plan, Groceries hidden, code kept) | built |
-| One brand name everywhere (`src/lib/brand.ts`, placeholder name) | built |
-| Voice | **keyboard dictation only** — the box is friendly to a phone keyboard's microphone and says so. No in-app recording, no speech API. |
-| Native app, Plan/Groceries, open-ended chat, training load, saved fridge | **not built, on purpose** |
+| Cost / abuse | `consume_usage()` now also enforces an **app-wide daily ceiling per kind** and an **owner's off switch** (edit one row, no deploy). Many sign-ups can no longer multiply the per-person limit. A refused call is never charged to the person. New codes `service_paused` / `nearby_paused`. |
+| Security | **Open redirect fixed** in the sign-in callback (`?next=@evil.example`). Cross-site POSTs to paid routes refused (`Origin` check). Security headers (`frame-ancestors`, `nosniff`, referrer, permissions). Server actions validate ids/notes, check the session belongs to the caller, cap text, and no longer return raw database errors. Logs no longer carry a database error's `details` (can quote a whole row) or allergen findings. |
+| Data | Two-account isolation test over **every** user-owned table on real Postgres. `feedback` is in Reset / Delete. |
+| Memory | **Inferred "behavioral hints" are OFF** (`BEHAVIORAL_HINTS=on` to enable): they shaped results but there is no screen to *see* them (`PLAN.md` known gap). Last-answer defaults ("Last time") are visible and editable, and stay. |
+| Accounts | Sign-in: resend with cooldown, "use a different email", plain-language errors, expired-link / wrong-browser notice, optional **Cloudflare Turnstile**. Signed out mid-session → sign-in opens in a **new tab** and *Try again* keeps the answers. Sign-out is a full page load (no cards/pictures left in the tab's memory). |
+| Product | `/feedback` form (type, text, optional contact; page path + build version attached; 5/day). `/plan` and `/groceries` redirect Home. "Public Beta" label (sign-in, About). About/privacy text matches the code. |
+| Sentence entry | **Found by the real-model check:** since the cross-way change, the headline example *"…I have eggs and rice."* names no single way, so the reader (correctly, by design) leaves `mode` empty and the app made an **open** request — not the Cook flow the demo and checklist showed. And *"Something nearby, around $15"* (cooking ruled out + a named way of getting food) became a generic buy-only open request instead of Eat out. Fixed: that second case is now Eat out (`applyInterpretation`); the Home example chip and `/demo` now say *"I'll cook with the eggs and rice I have"*; the stale `check:interpret` expectations were updated (plus a test that a foods-only sentence stays open). |
+| Docs | This file, `CASE_STUDY.md`, README links, `supabase/metrics.sql` owner queries. |
 
-## 2. What was and wasn't verified
+## 2. Verification — what was run, and what it does and doesn't prove
 
-Verified here:
+### Automated (run on this branch, in this environment)
 
-- `npm run typecheck`, `npm run lint`, `npm test` (929 tests) and `npm run build` pass.
-- The deployment SQL on a real Postgres engine (PGlite): `schema.sql` applies on an empty
-  database and again on top of itself; every migration applies on top of it; `check-schema.sql` and
-  `metrics.sql` run; the daily-limit function lets exactly N of 40 simultaneous calls through, and a signed-in user
-  cannot read, edit or reset their counter.
-- The sentence reader against the **real model** (`INTERPRET_CONFIRM=1 npm run check:interpret`, a few cents):
-  the three example sentences, a Chinese one, a bare craving (not read as an ingredient), a prompt-injection attempt
-  and a fake closing tag (neither can add food or change a rule), gibberish (reads as nothing), and the cross-way
-  sentences ("buy or make", "I don't want to cook", "only eggs and rice", "just something").
-- The cross-way recommender against the **real model** (`OPEN_CONFIRM=1 npm run check:open`, ~2 cents a case): a mixed
-  set of recipe / order / snack in one call, zero recipes when cooking is ruled out, no invented ingredients, places or
-  prices, no protein-deficit claim, allergy and vegetarian held on every way.
-- Picture matching on written-out Pexels descriptions (sushi for roll-ups, salad for a wrap, soup for rice, missing description) and idea-card routes (never generated, never for a place); real Pexels results need `PEXELS_API_KEY` and are checked by hand on the Preview.
-- In a real browser at 390 and 320 px: carousel loading (first card without scrolling, next card ahead of the swipe,
-  no repeat request going back and forth, stable height across loading / loaded / failed), sentence → straight to cards,
-  sentence → short follow-up → cards, sentence that allows several ways → one set mixing Make it / Grab it / Order it (no "what kind of help?"), a failed read keeping the text, step-by-step, Edit, and the
-  public pages. `/dev/*` pages are 404 in the production build.
+| check | result |
+|---|---|
+| `npm run typecheck` · `npm run lint` · `npm test` · `npm run build` | **all pass** on the final tree: 1284 tests in 90 files (2026-11-09). The real-Postgres tests (PGlite) are part of that run. |
+| Two-account isolation, real Postgres engine (PGlite) running the real `schema.sql` | for each of the 10 user-owned tables: user B cannot read, update, delete or insert-as user A; signed-out (`anon`) can do neither; usage/cost tables unreadable; `release_user_storage` not callable by users |
+| Cost guard, real Postgres engine | exactly N of 40 simultaneous calls allowed per person; exactly 12 of 60 simultaneous calls across 4 accounts allowed against an app ceiling of 12; ceiling refusal gives the unit back; off switch stops a kind instantly; users can't read or edit counters/flags; old two-argument call still works |
+| Migration safety | the new migration applies on a database that stopped at the previous migration, fixes exactly the four `MISSING` rows in `check-schema.sql`, and re-applying it is harmless |
+| Route tests (in-memory DB) | per-person limit, app ceiling, off switch (env and DB), cross-site refusal — each **before** the model / Places is called; failed requests still count |
+| Production build served locally | security headers present; `/dev/*` and `/api/dev/*` → 404; every private/paid route answers 401/404 signed-out; `/auth/callback?next=@evil.example` stays on-site; `/login`, `/about`, `/demo` look right at 375 px |
+| Real Home UI, stand-in network (`/dev/home`) | signed-out failure → new copy and *Sign in (opens a new tab)*; *Try again* then succeeds and the failure notice is gone |
 
-**Not verified — you need to do these (§6 and the checklist in §7):**
+**What the database tests do *not* prove:** they run the shipped SQL on a local engine that stubs Supabase's `auth` schema and PostgREST. They
+do not prove that *your* Supabase project was set up from this file — run `supabase/check-schema.sql` in the SQL editor for that (§4).
 
-- Anything that needs a signed-in session: the real `/api/recommend` for each mode, Save, "did you eat it", Reset / Delete.
-  (Sign-in is a magic link to your own inbox, so it can't be driven from here.) The Home flows above were checked with a
-  stand-in for the network, which proves the screens, not the server.
-- Real recipe-picture generation: `OPENAI_API_KEY` and `PEXELS_API_KEY` weren't available. The browser checks used a stand-in
-  for `/api/image`, so they prove when a card asks, how often, and what each state looks like — not that the vendor returns a picture.
-- Real nearby search (a Google key was available locally, but it needs a signed-in session and your location).
-- Anything on a deployed host: Vercel limits, Supabase email, redirect URLs, cold starts.
+### Real model (a few cents; run in this round)
+
+See §2a at the end of this file for what `check:open` and `check:interpret` returned. These re-check that the recommender and the sentence reader
+still behave on real model output (allergy, no-cooking, no invented ingredients, prompt-injection attempts). The prompts were **not** changed in
+this round; this is regression evidence, not new capability.
+
+### Not verified — I could not do these here
+
+- **Anything signed in, against a deployment.** Sign-in is a magic link to an inbox I don't have, there is no service-role key or Vercel/Supabase access
+  in this environment, and I was not given the Preview URL. So **the real flows on a deployed host — first-run setup, each mode through the real
+  `/api/recommend`, Change, "Show me 3 more", Save, "did you eat it", refresh, sign-out, Reset, Delete — are covered by tests and the stand-in
+  harness, not by a live run.** The checklist in §8 is that run, for you.
+- Real picture generation and real Pexels/Google results (needs `OPENAI_API_KEY`, `PEXELS_API_KEY`, and a signed-in session).
+- Supabase email delivery, redirect URLs, Turnstile/CAPTCHA enforcement, the vendors' own spend caps.
+- Whether the Preview's deployed commit equals the pushed commit: I can't read the Vercel dashboard. Compare the SHA on the Vercel deployment page with `git rev-parse --short HEAD` (checklist item 14).
 
 ## 3. Test URL
 
-There is no deployed URL yet — you said to hand this over for testing before going live.
-
-- **Locally:** `npm run dev` → <http://localhost:3000>. Public pages (no sign-in): `/demo`, `/about`, `/login`.
-  After signing in with your own email: `/today`.
-- **Dev-only pages** (404 in production): `/dev/home` (the real Home with a fake network — try `?returning=1`),
-  `/dev/carousel` (`?mode=fail|genfail|broken|none&delay=3000`).
-- **A preview deployment** is the next step, after §4–§6. I did not create one.
+No deployed URL was given to me. **Locally:** `npm run dev` → <http://localhost:3000> (public: `/demo`, `/about`, `/login`).
+Dev-only pages (404 in production): `/dev/home` (real Home with a fake network; `?returning=1`, `?failat=1&code=…`), `/dev/carousel`.
+**Preview:** pushing `codex/web-beta` should build a Vercel Preview if the repo is connected — read its URL and commit SHA on the Vercel dashboard.
 
 ## 4. Database — exactly what to run, in what order
 
-Don't run every file. Pick by what your Supabase project already has.
+**Do the SQL before the new code serves traffic.** In production the app refuses paid calls when the metering function can't answer, so new code
+against an old database is safe but unusable (people see "paused for a moment").
 
-1. **Look first (read-only).** Paste `supabase/check-schema.sql` into the SQL editor. Every row says `ok` or `MISSING`.
-2. **If everything is `ok`:** nothing to run.
-3. **If your project is new/empty:** run `supabase/schema.sql` once. It includes everything.
-4. **If your project already exists and rows are `MISSING`:** run `supabase/schema.sql` — it's idempotent (verified twice-over on a
-   real engine) and only adds what is missing. The narrower alternative, if you want to add *only* the web-beta pieces to a
-   database that already has everything through Oct 2:
-   `supabase/migrations/2026-11-07_usage_and_events.sql`, then `supabase/migrations/2026-11-08_release_user_storage.sql` (needed for "Delete my account" — see below) — **and nothing else**. The four older migrations are subsets of `schema.sql`
-   (place feedback, Saved, recipe images, Saved repair) and are only for a database that lacks them; the profile-v2 columns
-   exist only in `schema.sql`, so an old database that is missing them needs `schema.sql`, not a migration file.
-5. Run `check-schema.sql` again; expect no `MISSING`.
+1. **Back up first.** Supabase dashboard → *Database → Backups* (or *Project Settings → Database → Backups*; on the free plan take a manual dump:
+   `pg_dump` with the connection string from *Project Settings → Database*). Nothing below deletes data, but you should have it.
+2. **Look first (read-only):** paste `supabase/check-schema.sql` → every row says `ok` or `MISSING`.
+3. **Run only what's missing:**
+   - project already has everything through `2026-11-08_release_user_storage.sql` → run **only**
+     **`supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql`**. (One transaction. Adds `global_usage`, `app_flags`, `feedback`; replaces
+     `consume_usage()` with a version whose third argument is optional, so code already deployed keeps working during the switch.)
+   - empty project → `supabase/schema.sql` once (it includes everything; idempotent).
+   - in between → `schema.sql` is idempotent and adds only what's missing; it also drops the old two-argument `consume_usage` (two overloads would make the call ambiguous).
+4. Run `check-schema.sql` again → expect **no** `MISSING`.
+5. **Impact:** no existing table is altered and no row rewritten. New objects: tables `global_usage`, `app_flags` (owner-only: RLS on, no policy, no grant), `feedback`
+   (own rows only); function `consume_usage(text, integer, integer)` (old `(text, integer)` dropped).
+6. **Rollback** (if ever needed): `drop function if exists public.consume_usage(text, integer, integer);` then re-run the `consume_usage()` definition from
+   `2026-11-07_usage_and_events.sql`; `drop table if exists public.feedback, public.global_usage, public.app_flags;`. (The previous code then runs as before.)
 
-**Order matters in one way:** do the SQL **before** deploying this code. In production the app refuses every paid request while
-`consume_usage()` doesn't exist (so a deploy without the migration is safe, but useless). Do not edit a production database from
-anywhere else until you have read the SQL — `schema.sql` is plain text.
-
-**"Delete my account" needs `2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY`.** Supabase refuses to delete a user who still owns
-Storage files ([docs](https://supabase.com/docs/guides/auth/managing-user-data)). A generated recipe picture is uploaded with the signed-in user's own
-session, so anyone who caused a picture to be generated could no longer delete their account (found on the first Preview that generated real pictures).
-The function releases those shared files (the picture stays; its owner becomes null) just before the auth user is removed; only the service role can call it.
-What delete can say, and what each means:
-
-| message | cause | look at |
-|---|---|---|
-| *Deleting an account isn't set up on this server yet.* | `SUPABASE_SERVICE_ROLE_KEY` isn't visible to that deployment (missing, not ticked for Preview, or added without a redeploy). Nothing was touched. | log `[account] delete refused` |
-| *Couldn't delete everything. Your account is still active* | clearing the data tables failed; the login is intact. The data is now cleared with the **user's own** client (like Reset) — the first version used the admin client, and on a project with no blanket table grants `service_role` was refused at the first table. | log `[account] couldn't clear <table> { code, message }` |
-| *Your data was cleared, but the account couldn't be removed* | the auth user couldn't be deleted — typically the Storage-ownership case above | log `[account] delete: auth user removal failed` / the migration hint |
-
-The web-beta migration adds two tables and one function. `usage_counters` is deliberately **not** wiped by "Reset my data" (that would
-refund a day's allowance) and cascades with the account on delete; `product_events` **is** wiped by reset.
+"Delete my account" still needs `2026-11-08_release_user_storage.sql` and `SUPABASE_SERVICE_ROLE_KEY` (unchanged; table of failure messages in git history of this file and in `account.actions.ts`).
 
 ## 5. Environment variables
 
-Set in Vercel (Production and Preview). Nothing secret has a `NEXT_PUBLIC_` prefix.
+Set in Vercel (Production **and** Preview). Nothing secret has a `NEXT_PUBLIC_` prefix. After changing a variable, **redeploy** — Vercel applies variables to new deployments only.
 
 | variable | needed | notes |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | the project's URL and anon (publishable) key |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | project URL and anon (publishable) key |
 | `NEXT_PUBLIC_SITE_URL` | yes | the real https origin |
-| `ANTHROPIC_API_KEY` | yes | recommendations, the sentence reader, nearby wording |
-| `SUPABASE_SERVICE_ROLE_KEY` | for "Delete my account" | server-only; without it deletion is refused cleanly. Used for nothing else. |
-| `GOOGLE_PLACES_API_KEY` | for nearby search + place photos | restrict it to Places API (New); set a budget alert and quota |
-| `PEXELS_API_KEY` | optional | real dish photos; unset → cards fall back to generation, then the placeholder |
-| `OPENAI_API_KEY` | optional | generated dish pictures (≈ $0.005 each, once per dish, cached for everyone) |
-| `NEXT_PUBLIC_CONTACT_EMAIL` | optional | shown on `/about`; public, so use an address you're happy to publish |
-| `INTERPRET_MODEL`, `RECOMMEND_MODEL`, `RECOMMEND_EFFORT`, `ENRICH_MODEL`, `USAGE_LIMIT_*` | optional | defaults are in code (`src/lib/usage/limits.ts` for limits) |
+| `ANTHROPIC_API_KEY` | yes | recommendations, sentence reader, nearby wording |
+| `SUPABASE_SERVICE_ROLE_KEY` | for "Delete my account" | server-only; used for nothing else |
+| `GOOGLE_PLACES_API_KEY` | for nearby + place photos | restrict to Places API (New) |
+| `PEXELS_API_KEY` · `OPENAI_API_KEY` | optional | real dish photos · generated pictures (≈ $0.005 each, once per dish, shared) |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | recommended | enables the CAPTCHA widget on sign-in; **also** enable it in Supabase (§6.3) or it's cosmetic |
+| `PAUSED_KINDS` | optional | `all` or `recommend,image,…` — stops those paid calls (needs a redeploy; the SQL switch in §7 is instant) |
+| `USAGE_LIMIT_<KIND>` · `USAGE_GLOBAL_<KIND>` | optional | per-person and app-wide daily numbers; defaults in `src/lib/usage/limits.ts` |
+| `BEHAVIORAL_HINTS` | leave unset | `on` re-enables inferred hints (not recommended until they can be seen) |
+| `NEXT_PUBLIC_CONTACT_EMAIL` | optional | shown on `/about`; public |
+| `INTERPRET_MODEL`, `RECOMMEND_MODEL`, `RECOMMEND_EFFORT`, `ENRICH_MODEL` | optional | defaults in code |
 
-Daily limits per person (UTC day) by default: 30 suggestion requests, 12 nearby searches, 50 sentences, 30 nearby wordings,
-40 picture generations, 60 place photos. Rough worst case for one person who uses every allowance in a day: about $1–1.5 (my estimate from the per-call cost notes in `PLAN.md`, not a measured number). Change the limits in one file.
+Daily numbers (UTC day). **Per person:** 30 suggestion requests, 12 nearby searches, 50 sentences, 30 nearby wordings, 40 pictures, 60 place photos, 5 feedback messages.
+**Whole app:** 600 suggestions, 150 nearby, 1500 sentences, 600 wordings, 300 pictures, 1000 place photos, 200 feedback.
+My estimate of the worst-case day if every app-wide ceiling were hit is **roughly $20–25** (600 × ~$0.02 + 150 nearby searches at a few cents + pictures ≈ $1.5); that is derived from
+`PLAN.md`'s per-call notes, **not measured**. Lower the ceilings if that's too high for you.
 
-## 6. External services you need to set up
+## 6. What protects spend, and where each layer lives
 
-1. **Email for sign-in — this is a blocker for inviting anyone.** Per Supabase's current documentation, the built-in email service
-   allows about **2 emails per hour for the whole project** and only delivers to **members of your Supabase organization**; after you set up your own
-   SMTP the limit starts low (documented as ~30 per hour) and is adjustable. I could not check your project's live setting — look at
-   it: Supabase dashboard → *Authentication → Emails → SMTP Settings* (is "Enable custom SMTP" on?) and *Authentication → Rate Limits*.
-   To fix: create an account with an email sender (Resend, Postmark, SendGrid, …), verify a sending domain (SPF/DKIM), then enter host,
-   port, username, password and sender in *SMTP Settings*, and raise the email rate limit to something sensible for your first 20–50 invitees.
-   Docs: <https://supabase.com/docs/guides/auth/auth-smtp> · <https://supabase.com/docs/guides/auth/rate-limits>
-2. **Supabase redirect URLs:** *Authentication → URL Configuration* — set **Site URL** to the production origin and add
-   `https://<your-domain>/**` (and `http://localhost:3000/**` for local) to **Redirect URLs**. The sign-in page builds the link from the page you are on, so
-   preview deployments need their own entry (or a wildcard you're comfortable with).
-3. **Vercel:** import the repo, set the variables above, deploy `codex/web-beta` as a **Preview** first. The image and sentence routes set `maxDuration`
-   (60 s and 30 s); check your plan allows it.
-4. **Cost guards at the vendors** (the app's own limits are a second line, not the first): a monthly budget/spend cap on Anthropic and OpenAI, and a budget alert +
-   daily quota on Google Places (New).
-5. **Anthropic / OpenAI / Google terms:** this app sends user food preferences to Anthropic and a dish description to OpenAI/Pexels; `/about` says so.
-   Read each vendor's data terms and edit `/about` if your setup differs.
+| layer | where | what it is | caveat |
+|---|---|---|---|
+| Must be signed in | app | every paid route checks the session first | — |
+| Per-person daily limit | **app (Postgres)** | atomic, counted before the call, counted even if the call fails | an attacker with many accounts multiplies it |
+| **App-wide daily ceiling** | **app (Postgres)** | same function; bounds total spend whatever the account count | the *app's* line, not a billing cap |
+| **Off switch** | **app (Postgres row / env)** | `app_flags.paused_kinds` instant; `PAUSED_KINDS` after a redeploy | you have to notice and flip it |
+| Cross-site POST refused | app | `Origin` check on paid POST routes | defence in depth on top of SameSite cookies |
+| Sign-up friction | **Supabase dashboard + Turnstile** | CAPTCHA on sign-in; Supabase's auth rate limits | **external — you configure it** (§6.3) |
+| Email volume | **Supabase dashboard / SMTP provider** | per-hour email limit; the app adds a 60 s resend cooldown (UI only) | external |
+| Spend caps | **Anthropic / OpenAI / Google consoles** | the only *hard* money limits | **external — see below** |
 
-## 7. Ten-minute acceptance checklist
+A **budget alert is not a cap.** Treat each vendor's *spend limit / quota* setting as the hard stop and the app's limits as the second line.
 
-Do this on your phone against the preview URL (§3), signed in with your own email. Tick as you go.
+### Setup only you can do (blocking unless marked)
 
-1. [ ] `/demo` opens without signing in; the "Example" labels are visible; the three tabs switch. `/about` opens.
-2. [ ] `/login` → request a link → the email arrives within a minute → the link signs you in. *(If not: §6.1.)*
-3. [ ] Home leads with **"Tell me what's going on"**; the three example sentences fill the box without sending; **"Or choose step by step"** shows the three modes.
-4. [ ] Type: *just trained, very hungry, 20 minutes, I have eggs and rice* → **Help me decide** → it asks only about effort and shopping (not time) → three recipes.
-5. [ ] On the results, **What I understood** shows your sentence and chips; tap **Edit** → the usual questions open with answers filled in.
-6. [ ] Swipe through the three cards: pictures appear (first card without swiping; the next one shortly after), the frame doesn't jump, and swiping back doesn't reload them.
-7. [ ] Type *tired, order something around $15* → straight to ideas (no follow-up). Type *want something sweet* → snack ideas.
-8. [ ] Type nonsense (`asdf`) → a clear message, your text is still there, step-by-step still works.
-9. [ ] Choose a card → "Nice — this is your pick" → say whether you ate it. Tap the bookmark on a recipe → it appears under **Saved**.
-10. [ ] Step by step → **Get food** → *Eat nearby* → allow location → real places; a photo or the neutral placeholder; **Not for me** works.
-11. [ ] Me → set an allergy → ask again → it is respected (and remember `/about`: this is not a guarantee).
-12. [ ] With a **throwaway email** that has generated a picture: Me → Account & data → Delete my account → you land on the sign-in page, and signing in again starts from an empty account.
-13. [ ] After a few requests, run `supabase/metrics.sql` query 3–4 in the SQL editor: your requests are there, with entry and mode, and no text.
-14. [ ] To see a limit: set `USAGE_LIMIT_RECOMMEND=2` on the preview, ask three times → the third says you've reached today's limit.
-15. [ ] Nav shows only Home / Saved / Me.
+1. **Sign-in email (blocking for inviting anyone).** Supabase's built-in email sender is for testing: documented at about **2 emails per hour for the whole project**, only to
+   members of your Supabase organization. Configure SMTP (Resend/Postmark/SendGrid…, with a verified domain/SPF/DKIM) in *Authentication → Emails → SMTP Settings*, then raise
+   *Authentication → Rate Limits* to something sensible. <https://supabase.com/docs/guides/auth/auth-smtp> · <https://supabase.com/docs/guides/auth/rate-limits>
+2. **Redirect URLs (blocking).** *Authentication → URL Configuration*: Site URL = production origin; Redirect URLs include `https://<production>/**`, `http://localhost:3000/**`,
+   and the Preview's origin (or a wildcard you're comfortable with). Sign-in builds the link from the page you are on, so each origin must be allowed.
+3. **CAPTCHA (recommended before public sign-up).** Cloudflare Turnstile is free: create a widget, put the **site key** in `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, and put the **secret key** in
+   Supabase → *Authentication → Attack Protection → Enable CAPTCHA protection*. Turn on both or neither: enabled in Supabase without the site key breaks sign-in; the site key alone
+   does nothing. <https://supabase.com/docs/guides/auth/auth-captcha>
+4. **Vendor spend caps (blocking).** Anthropic: a monthly spend limit. OpenAI: a project budget/limit (only if `OPENAI_API_KEY` is set). Google: restrict the key to Places API (New) and set a quota
+   per day plus a budget alert. Do this before the key sees public traffic.
+5. **Vercel:** set §5 variables on Preview and Production; function `maxDuration` is 200 s on `/api/recommend`, 60 s on image/enrich, 30 s on interpret — check your plan allows it.
+6. **Vendor terms:** this app sends food preferences to Anthropic and a dish description to OpenAI/Pexels; `/about` says so. Read each vendor's data terms and edit `/about` if your setup differs.
 
-## 8. When a request fails — how to find out why
+## 7. Running the beta — the off switch and what to watch
 
-Every error panel shows a small line: **`Reference 8c763925 · upstream_timeout`** (the request id and the error code; nothing from what you
-typed). To look it up: Vercel → the project → **Logs** (filter the Preview deployment), search the id. Two things share it:
+Paste into the Supabase SQL editor (these run as owner; the app never can). Full queries: `supabase/metrics.sql`.
 
-- `[recommend] failed { requestId, code, status, last_stage, stages, total_ms }` — one line per failed request: which code, which HTTP status, the **last stage it reached**
-  (`auth`, `usage`, `preferences`, `prompt`, `model`, `parse`, `session_write`…) and how long every stage took. Names, codes and milliseconds only — no answers, foods, profile, keys or model output.
-- `[Cook timing 8c763925]` — the full stage table for the same request, and `[recommend] model call requestId=… attempt=N` lines (N = 2 means the SDK retried once).
+```sql
+-- STOP every paid call now (takes effect on the next request, no deploy):
+update public.app_flags set value = 'all' where key = 'paused_kinds';
+-- stop only some kinds (recommend, nearby, interpret, enrich, image, place_photo, feedback):
+update public.app_flags set value = 'recommend,image' where key = 'paused_kinds';
+-- back on:
+update public.app_flags set value = '' where key = 'paused_kinds';
+```
+While paused, people see "unavailable right now" and nothing is counted against them. To see today's use against the ceilings: `metrics.sql` queries 9–10.
+Feedback arrives in `public.feedback` (query 8).
 
-Reading it: `last_stage: model` with ~45 000 ms → the AI call timed out; `code: malformed_output` / `constraint_violation` → the answer failed our checks (the rejected output's finding is the
-line just above, `[recommend] rejected output`); `session_write` → the cards were made but not stored; a browser error of `bad_response` with *no* `[recommend] failed` line at all → the request never reached
-the route's own error handling (the host answered first: a gateway timeout or crash page — check the deployment's function logs for that time).
+## 8. Ten-minute acceptance checklist
 
-The first failure reported on the Preview (2026-11-07: *"Couldn't find good options this time"* on the first Generate, fine on the second) could not be traced: the deployment logs were not available to me,
-and that wording was the generic fallback used for **every** non-timeout failure, so it didn't identify the cause. If it happens again, send me the Reference line.
+Phone, against the Preview URL, signed in with your own email. Tick as you go.
 
-## 9. Known gaps (so nobody is surprised)
+1. [ ] `/demo` opens signed-out; the "This is an example" banner is visible; tabs switch. `/about` shows the **Public Beta** pill.
+2. [ ] `/login` → request a link → email arrives → link signs you in. *(If not: §6 step 1.)* Use **Send another link** (timer counts down). Open an old/used link → you get the "didn't work… same browser" notice.
+3. [ ] First run asks only allergies / foods you avoid; **Skip** works and leaves allergies *unset* (not "none").
+4. [ ] Home: type *just trained, very hungry, 20 minutes, I have eggs and rice* → **Help me decide** → short follow-up only for what you didn't say → three recipes; "Have" shows only eggs, rice and your staples.
+5. [ ] **Edit** → the usual questions open with answers filled in; **Change** on a typed request returns to the text, still editable.
+6. [ ] Step by step → **Get food** → *Eat nearby* → allow location → real places; **Show me 3 more** twice → no place repeats; when nothing new is left it says so.
+7. [ ] **Make or buy, either is fine** typed as a sentence (e.g. *I can buy something or cook, don't care*) → one set mixing Make it / Grab it / Order it.
+8. [ ] Swipe the cards: pictures load without layout jumping; a card with no picture is still usable.
+9. [ ] **Choose this** → "did you eat it?" → answer. Bookmark a recipe → it's under **Saved**. Refresh the page → your last results are still there.
+10. [ ] Me → add an allergy → ask again → it's respected (remember: not a guarantee). **Send feedback** (Me, or *Report a problem* on an error panel) → check it in `public.feedback`.
+11. [ ] **Sign out** → you land on sign-in; browser Back doesn't show your cards. Sign in again.
+12. [ ] With a throwaway email: Me → Account & data → **Reset my data** → back to first-run; then **Delete my account** → signing in again starts empty.
+13. [ ] Set `USAGE_LIMIT_RECOMMEND=2` on the Preview, redeploy, ask three times → the third says you've reached today's limit. Then run the **pause** SQL from §7 → *suggestions are unavailable right now*; un-pause → works.
+14. [ ] On the Vercel deployment page, the commit SHA equals `git rev-parse --short HEAD` of this branch.
 
-- Nothing has been used by anyone yet; "does it help people decide?" is untested (proof steps 1–2, `PRODUCT.md`). The Claude Project
-  baseline from `LEARNINGS.md` (2026-10-20) is the number to beat.
+## 9. Release blockers vs. deferrable
+
+**Blocks a public release (needs you):**
+1. Run the 2026-11-09 migration (§4) and confirm `check-schema.sql` shows no `MISSING`.
+2. Sign-in email works for non-members (custom SMTP, §6.1) and redirect URLs are set (§6.2).
+3. Vendor spend caps set (§6.4).
+4. You complete the §8 checklist on the Preview (the live, signed-in run I couldn't do).
+5. Decide the contact address (`NEXT_PUBLIC_CONTACT_EMAIL`) — `/about` promises hand-removal only if one is shown.
+
+**Strongly recommended, not strictly blocking:** Turnstile on (§6.3); lower the app-wide ceilings to what you're comfortable losing in a day.
+
+**Can wait:** a script-src Content-Security-Policy (needs nonces; partial CSP is on); a signed-in smoke test in CI; a per-IP limit on sign-in (Supabase + Turnstile cover it for now);
+a screen to *see* inferred memory (then re-enable `BEHAVIORAL_HINTS`); a real domain, and Plan/Groceries contents.
+
+## 10. Known limits (so nobody is surprised)
+
+- **Shared picture cache can be pre-seeded by any signed-in user.** `recipe_images` and its Storage bucket let any authenticated user add a picture under a dish's hash name (the app
+  uploads with the user's own session). Nobody can *overwrite or delete* one (tested), and it holds no private data, but a malicious account could put a wrong picture under a
+  dish that hasn't been generated yet. Fix when it matters: move the upload to the service role. **Recorded, not fixed.**
 - Allergen checks are literal word matches — never a guarantee. Dietary pattern is checked literally for Cook only.
-- The sentence reader has been exercised on a handful of real sentences, not a corpus. Expect to find phrasing it misses; the follow-up
-  screen and step-by-step are the safety net.
-- A user out of today's pictures sees "Picture limit reached" even when the real cause is the allowance check failing (rare).
+- Pexels/idea-photo lookups are not metered (free, but a signed-in user could exhaust the vendor's free quota; pictures then fall back gracefully).
+- Sign-in email rate limiting is Supabase's plus a UI cooldown; the app can't enforce a per-IP limit because the browser talks to Supabase directly.
+- Nothing has been used by anyone yet; "does it help people decide?" is untested (`PRODUCT.md` proof steps; baseline in `LEARNINGS.md`).
+- The sentence reader was exercised on a handful of sentences, not a corpus.
+- A user out of today's pictures sees "Picture limit reached" even when the cause is the app-wide ceiling or the pause switch.
+- Events and limits use a UTC day; for a US evening user "tomorrow" starts mid-evening.
 - The brand name is a placeholder (`src/lib/brand.ts`).
-- Events and limits use a UTC day; "tomorrow" for a user is a few hours into their evening in the US.
+- **Security conclusion, with its edges:** account data is isolated at the database for every table I could enumerate (tests above), secrets are server-only, inputs and ownership are
+  validated, and logs/events carry no free text. That is the *verified scope*; it is not a claim that the app is "secure" in general — it hasn't had an external review, and the
+  hosted project's actual configuration is the part I can't see.
+
+## 11. When a request fails — how to find out why
+
+Every error panel shows **`Reference 8c763925 · upstream_timeout`** (request id + code; nothing you typed). Vercel → project → **Logs** → search the id:
+
+- `[recommend] failed { requestId, code, status, last_stage, stages, total_ms }` — one line per failed request: the code, HTTP status, the last stage reached
+  (`auth`, `usage`, `preferences`, `prompt`, `model`, `parse`, `session_write`…) and every stage's milliseconds. Names, codes and timings only.
+- `[Cook timing 8c763925]` — the stage table; `[recommend] model call requestId=… attempt=N` (N = 2: the SDK retried once).
+
+`last_stage: model` at ~45 000 ms → the AI call timed out; `constraint_violation` → the answer broke one of your rules (the log says *which kind*, never the food); `session_write` → made but not stored;
+`bad_response` with no `[recommend] failed` line → the host answered first (gateway timeout/crash page).
+
+---
+
+## 2a. Real-model checks run in this round (2026-11-09)
+
+Run with the key in `.env.local`, a few cents in total. Prompts were unchanged.
+
+- `OPEN_CONFIRM=1 npm run check:open` — **8 of 8 passed** (≈ 80 s): cross-way sets mixing recipe / order / snack; zero recipes when cooking is ruled out; no invented ingredients, places or prices; no protein-deficit claim; allergy and vegetarian held on every way.
+- `INTERPRET_CONFIRM=1 npm run check:interpret` — first run **14 passed, 2 failed**: the two failures were the stale expectations described in §1 (a real behavior mismatch, not model flakiness). After the fix: **17 passed, 0 failed** (8 skipped = the other script's gate, `OPEN_CONFIRM`).
+- What this does **not** show: results on a corpus of real users' sentences, latency on a deployed host, or anything about image generation.
+

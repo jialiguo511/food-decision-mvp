@@ -55,6 +55,9 @@ export function applyInterpretation(i: Interpretation, forms: FormValues, rememb
     const buy = i.ways.includes("buy");
     if (cook && buy) mode = null;
     else if (cook && !mode) mode = "cook"; // only cooking is allowed: that is a Cook request
+    // Cooking ruled out AND a way of getting food named ("something nearby", delivery, pick-up): that is
+    // one way — Eat out — not an open request. ("I don't want to cook" alone stays open, buying only.)
+    else if (buy && !cook && !mode && i.method) mode = "order";
   }
   if (!mode) return openFrom(i);
   const said = new Set<Said>();

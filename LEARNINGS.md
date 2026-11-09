@@ -312,3 +312,33 @@ CrossFit box. Read `supabase/metrics.sql` queries 1, 3 and 4 (sentence vs step-b
 
 **Investigate.** Keep the question flow as the fallback. If sentence use is not higher than step-by-step use in the first
 two weeks, the entry-cost hypothesis fails (the stated failure condition in `PLAN.md`).
+
+---
+
+## Public beta hardening — what the audit showed (2026-11-09)
+
+**Status: engineering observations from auditing and testing. Not product evidence — still no real user.**
+
+#### Observation
+
+1. The sign-in callback followed an untrusted `?next=` by appending it to the site origin; `@evil.example` turns that into a redirect to another host
+   after a *legitimate* sign-in. Found by reading, not by a test — none existed for the parameter.
+2. A per-person daily limit does not bound spend once sign-up is open: N accounts multiply it. The bound has to be app-wide, and it has to be
+   changeable without a deploy (an environment variable needs one; a database row does not).
+3. Two error logs carried a database error's `details`, which for a failed constraint quotes the whole failing row (age, weight, allergies), and a
+   rejected-output log quoted the allergen that tripped a rule.
+4. "Inferred memory needs a way to see and reset it" was a documented principle with a documented open gap (behavioral hints v0 shipped without it). With public
+   sign-up the gap stops being theoretical, so the hints are off by default rather than quietly shaping results.
+5. The earlier "signed out" copy told people to refresh and re-type; a typed sentence or a long answer flow is the *cost* of the session expiring.
+
+#### Interpretation / hypothesis
+
+Hypothesis (unvalidated): these are the failure modes a first public cohort would otherwise find for us. Nothing here says anyone wants the product.
+
+#### Next test
+
+The §8 checklist in `RELEASE.md` on a deployed Preview; then watch `metrics.sql` queries 9–10 (app-wide use vs ceilings) during the first invited cohort.
+
+#### Product implication
+
+**Continue** — hardening, not scope. No product direction changes.

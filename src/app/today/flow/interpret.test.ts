@@ -141,6 +141,14 @@ describe("one way, several ways, or unclear — the decision isn't always 'which
     expect(open({ ways: ["buy"] }).context.ways).toEqual({ cook: false, buy: true });
   });
 
+  it("ruling cooking out AND naming a way to get food ('something nearby', delivery) is one way — Eat out — not an open request", () => {
+    const a = apply({ ways: ["buy"], method: "eat_nearby", effort: "minimal", meal_budget: "under_15" });
+    expect(a.status).not.toBe("open");
+    expect(a.status !== "open" && a.mode).toBe("order");
+    // …but a stray method alongside "cook or buy" is still open: they said both.
+    expect(open({ ways: ["cook", "buy"], method: "delivery" }).context.ways).toEqual({ cook: true, buy: true });
+  });
+
   it("allowing ONLY cooking is a single Cook request, with the Cook questions it needs", () => {
     const a = apply({ ways: ["cook"] });
     expect(a.status).toBe("needs_answers");

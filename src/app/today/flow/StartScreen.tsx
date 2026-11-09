@@ -18,7 +18,7 @@ const MODES: DecisionMode[] = ["cook", "order", "store_snack"];
 /** Starting points for the sentence box — tapping one fills the box so it can
  *  be edited; it never sends anything. In the UI's language, one per mode. */
 export const SITUATION_EXAMPLES = [
-  "Just trained, very hungry, 20 minutes, I have eggs and rice.",
+  "Just trained, very hungry, 20 minutes. I'll cook with the eggs and rice I have.",
   "Tired and don't want to cook. Something nearby, around $15.",
   "Want something sweet that I can grab right now.",
 ] as const;

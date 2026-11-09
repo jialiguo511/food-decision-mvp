@@ -23,7 +23,7 @@ export async function writeProfile(
 
   const { data: existing, error: readError } = await supabase.from("profiles").select("prefs").eq("id", userId).maybeSingle();
   if (readError) {
-    console.error("[profile] couldn't read prefs before saving", { code: readError.code, message: readError.message });
+    console.error("[profile] couldn't read prefs before saving", { code: readError.code });
     return { ok: false, error: "Couldn't save that. Please try again." };
   }
 
@@ -31,7 +31,8 @@ export async function writeProfile(
     .from("profiles")
     .upsert({ id: userId, ...validated.row, prefs: mergeProfilePrefs(existing?.prefs, validated, extraPrefs) });
   if (error) {
-    console.error("[profile] couldn't save", { code: error.code, message: error.message, details: error.details });
+    // No `details`: for a failed check constraint Postgres puts the whole failing ROW there — age, weight, allergies.
+    console.error("[profile] couldn't save", { code: error.code });
     return { ok: false, error: "Couldn't save that. Please try again." };
   }
   return { ok: true };
@@ -48,7 +49,7 @@ export async function patchProfile(
 ): Promise<WriteResult> {
   const { data: row, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error) {
-    console.error("[profile] couldn't read before patching", { code: error.code, message: error.message });
+    console.error("[profile] couldn't read before patching", { code: error.code });
     return { ok: false, error: "Couldn't save that. Please try again." };
   }
   return writeProfile(supabase, userId, { ...toProfileFormValues(row), ...patch }, extraPrefs);

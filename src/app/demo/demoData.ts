@@ -37,7 +37,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
     label: "Make something",
     heading: "Here's what to make",
     understood: {
-      text: "Just trained, very hungry, 20 minutes, I have eggs and rice.",
+      text: "Just trained, very hungry, 20 minutes. I'll cook with the eggs and rice I have.",
       parts: [
         { text: "Starving", said: true },
         { text: "20 min", said: true },
@@ -47,7 +47,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       foods: ["eggs", "rice"],
       craving: null,
     },
-    note: "It asked two quick follow-ups (how much effort, and whether you'd shop) — only what the sentence didn't say. Only eggs, rice and kitchen staples (oil, soy sauce, salt) appear.",
+    note: "It asked one quick follow-up (how much effort) — only what the sentence didn't say. Only eggs, rice and kitchen staples (oil, soy sauce, salt) appear.",
     cards: [
       {
         role: "Best match",

@@ -12,6 +12,7 @@ import {
   buildOutputSchema,
   parseNearbyRecommendations,
   parseRecommendations,
+  violationKinds,
 } from "@/lib/recommend/output";
 import { buildSystemPrompt, buildUserMessage } from "@/lib/recommend/prompt";
 import type { Timer } from "@/lib/timing";
@@ -175,7 +176,9 @@ export async function generateRecommendations(
         : parseRecommendations(text, input.hard_constraints, onHand);
     timer?.record("parse", performance.now() - parseStart);
     if (!parsed.ok) {
-      console.warn("[recommend] rejected output", { code: parsed.code, details: parsed.details });
+      // Which kind of rule, never the findings: they quote the food that tripped it, and an allergen
+      // name in a log is health information.
+      console.warn("[recommend] rejected output", { code: parsed.code, broke: parsed.code === "constraint_violation" ? violationKinds(parsed.details) : [] });
       return {
         result: {
           ok: false,
