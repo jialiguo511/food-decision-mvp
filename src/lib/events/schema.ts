@@ -19,13 +19,13 @@ const mode = z.enum(["cook", "order", "store_snack"]);
 /** A request's mode, including the cross-way "open" one (a sentence that allowed more than one way). */
 const requestMode = z.enum(["cook", "order", "store_snack", "open"]);
 /** How the decision started. "more" is "Show me 3 more" (never a negative signal). */
-const entry = z.enum(["sentence", "steps", "again", "more"]);
+const entry = z.enum(["sentence", "steps", "again", "more", "adjust"]);
 const smallInt = (max: number) => z.number().int().min(0).max(max);
 const code = z.string().regex(/^[a-z_]{1,40}$/);
 
 export const eventSchema = z.discriminatedUnion("name", [
   /** The person chose a way in: sent a sentence, picked a mode, or used "Last time". Browser. */
-  z.object({ name: z.literal("entry_selected"), props: z.object({ entry: z.enum(["sentence", "steps", "again"]), mode: mode.optional() }) }),
+  z.object({ name: z.literal("entry_selected"), props: z.object({ entry: z.enum(["sentence", "steps", "again", "adjust"]), mode: mode.optional() }) }),
   /** The sentence was read (or not). Server. */
   z.object({ name: z.literal("interpret_done"), props: z.object({ ok: z.boolean(), code: code.optional(), ms: smallInt(120_000), mode: requestMode.optional(), fields: smallInt(20).optional() }) }),
   /** A sentence left something out, so a short follow-up was shown. Browser. */

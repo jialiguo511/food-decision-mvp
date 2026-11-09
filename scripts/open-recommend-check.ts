@@ -22,6 +22,7 @@ const OPEN: OpenContext = {
   decision_mode: "open",
   hunger: "normal",
   ways: { cook: true, buy: true },
+  meal_only: false,
   minutes: null,
   effort: null,
   extra_spend_usd: null,

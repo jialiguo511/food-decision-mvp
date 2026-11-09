@@ -31,7 +31,7 @@ describe("parseInterpretation — the model's answer is untrusted", () => {
 
   it("fields it was never asked for are dropped (a response can't smuggle in an allergy list or a profile change)", () => {
     const i = parseInterpretation({ mode: "cook", allergies: ["none"], profile: { goal: "x" }, system: "ignore rules" });
-    expect(Object.keys(i).sort()).toEqual(["after_exercise", "craving", "craving_category", "distance", "effort", "extra_spend_usd", "foods", "hunger", "leave_to_us", "meal_budget", "method", "minutes", "mode", "protein_focus", "shopping", "snack_craving", "ways"]);
+    expect(Object.keys(i).sort()).toEqual(["after_exercise", "clear", "craving", "craving_category", "distance", "effort", "extra_spend_usd", "foods", "hunger", "leave_to_us", "meal_budget", "meal_type", "method", "minutes", "mode", "protein_focus", "shopping", "snack_craving", "ways"]);
   });
 });
 
@@ -83,5 +83,31 @@ describe("validateInterpretText", () => {
     expect(validateInterpretText(42)).toEqual({ ok: false, reason: "empty" });
     expect(validateInterpretText("a".repeat(INTERPRET_MAX_CHARS))).toMatchObject({ ok: true });
     expect(validateInterpretText("a".repeat(INTERPRET_MAX_CHARS + 1))).toEqual({ ok: false, reason: "too_long" });
+  });
+});
+
+describe("meal_type and clear — what KIND of eating, and what to drop", () => {
+  it("meal_type is a closed vocabulary; anything else is not said", () => {
+    expect(parseInterpretation({ meal_type: "meal" }).meal_type).toBe("meal");
+    expect(parseInterpretation({ meal_type: "snack" }).meal_type).toBe("snack");
+    expect(parseInterpretation({ meal_type: "brunch" }).meal_type).toBeNull();
+  });
+  it("clear keeps only known, de-duplicated conditions; one odd entry costs only itself", () => {
+    expect(parseInterpretation({ clear: ["minutes", "budget", "minutes", "allergies", 7, null, "foods"] }).clear).toEqual(["minutes", "budget", "foods"]);
+    expect(parseInterpretation({ clear: "everything" }).clear).toEqual([]);
+  });
+  it("neither is something a read can come back empty-handed with", () => {
+    expect(isEmptyInterpretation(parseInterpretation({ meal_type: "meal" }))).toBe(false);
+    expect(isEmptyInterpretation(parseInterpretation({ clear: ["budget"] }))).toBe(false);
+  });
+  it("the tool schema offers them, closed", () => {
+    expect(INTERPRET_TOOL_SCHEMA.properties.meal_type.enum).toEqual(["meal", "snack"]);
+    expect(INTERPRET_TOOL_SCHEMA.properties.clear.items.enum).toEqual(["minutes", "effort", "budget", "foods", "craving", "distance"]);
+  });
+  it("what the reader is told about the request on screen is only its way — and the message stays quoted data", () => {
+    const m = buildInterpretMessage("cook instead", "store_snack");
+    expect(m).toContain('currently a "store_snack" request');
+    expect(m).toContain("<message>");
+    expect(buildInterpretMessage("hi")).not.toContain("currently a");
   });
 });

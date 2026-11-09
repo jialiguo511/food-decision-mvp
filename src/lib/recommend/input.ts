@@ -135,6 +135,8 @@ export const openContextSchema = z
     after_exercise: z.boolean(),
     protein_focus: z.boolean(),
     easy_pick: z.boolean(),
+    // Older stored sessions and pages have no such field: not asked for.
+    meal_only: z.boolean().default(false),
   }) satisfies z.ZodType<OpenContext, unknown>;
 
 /** Any of Today's dynamic contexts. */
@@ -155,7 +157,7 @@ export const recommendRequestSchema = z.object({
   context: contextSchema,
   // How this decision started, for the product events only — never read by the
   // recommender. Optional so an older page still works.
-  entry: z.enum(["sentence", "steps", "again", "more"]).optional(),
+  entry: z.enum(["sentence", "steps", "again", "more", "adjust"]).optional(),
   // Nearby "Show me 3 more" only: every place already shown in this decision.
   // Lenient on purpose — it can only EXCLUDE places, so anything that isn't a
   // short string is dropped rather than failing the request.
@@ -432,6 +434,7 @@ export function resolveRecommendationInput(
       hard_constraints: {
         decision_mode: "open",
         ways: context.ways,
+        meal_only: context.meal_only,
         allergies: profile.allergies,
         dietary: dietaryOf(profile),
         cook: context.ways.cook

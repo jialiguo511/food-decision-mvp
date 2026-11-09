@@ -96,7 +96,7 @@ type Meta = {
   userId?: string;
   mode?: "cook" | "order" | "store_snack" | "open";
   nearby?: boolean;
-  entry?: "sentence" | "steps" | "again" | "more";
+  entry?: "sentence" | "steps" | "again" | "more" | "adjust";
 };
 
 export async function POST(request: Request) {

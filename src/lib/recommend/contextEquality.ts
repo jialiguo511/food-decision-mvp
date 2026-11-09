@@ -47,6 +47,7 @@ export function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
       a.after_exercise === b.after_exercise &&
       a.protein_focus === b.protein_focus &&
       a.easy_pick === b.easy_pick &&
+      a.meal_only === b.meal_only &&
       arraysEqual(a.ingredients_on_hand, b.ingredients_on_hand)
     );
   }

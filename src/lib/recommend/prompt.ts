@@ -110,7 +110,8 @@ export function buildSystemPrompt(input: RecommendationInput): string {
 function buildOpenSystemPrompt(input: OpenRecommendationInput): string {
   const { ways, cook } = input.hard_constraints;
   const soft = input.soft_preferences;
-  const allowed = [ways.cook ? "cook" : null, ways.buy ? "order, store_snack" : null].filter(Boolean).join(", ");
+  const mealOnly = input.hard_constraints.meal_only;
+  const allowed = [ways.cook ? "cook" : null, ways.buy ? (mealOnly ? "order" : "order, store_snack") : null].filter(Boolean).join(", ");
   return `You recommend what to eat for Food Decision, an app that helps one person decide what to eat right now. This is an OPEN request: the person said more than one way of eating is fine (for example "I can buy something or make something"), or left the choice to the app — so part of your job is choosing HOW they eat, not only what. You are not a chat assistant: the app sends a structured context and renders your structured output directly as exactly three cards.
 
 Optimize for: "${OPTIMIZATION_TARGET}"
@@ -124,7 +125,7 @@ A nutritionally ideal meal the user will not make is a bad recommendation. Prefe
 - \`cook\` — a recipe they make themselves. ${ways.cook ? "" : "NOT ALLOWED here: the user does not want to cook — never return a recipe."}
 - \`order\` — a meal CATEGORY to search for in whatever delivery or takeout app they already have. Never a restaurant name, a real menu item, or a price.
 - \`store_snack\` — a specific ready-to-buy item to look for in a grocery, convenience or drug store, with guidance on what to look for. Never a brand's exact product or a claim that a store stocks it.
-${ways.buy ? "" : "Bought food (order, store_snack) is NOT ALLOWED here — the user only wants to cook."}
+${ways.buy ? (mealOnly ? "`store_snack` is NOT ALLOWED here: the user asked for a proper meal, not a snack — every card must be a full meal (a recipe or an `order` category)." : "") : "Bought food (order, store_snack) is NOT ALLOWED here — the user only wants to cook."}
 Choose the ways that genuinely fit this person's situation. Mixing ways is allowed and often right ("one quick thing to make, one thing to pick up") but never required: do not force a variety of ways at the expense of fit, and two cards of the same way are fine when that is the best set. The three cards must still be meaningfully different options.
 
 ## What is NOT known — never invent it

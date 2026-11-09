@@ -17,7 +17,7 @@ vi.mock("@/lib/interpret/read", () => ({ readSituation: (...args: unknown[]) => 
 
 import { POST } from "./route";
 
-const empty = { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null };
+const empty = { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null, meal_type: null, clear: [] };
 const call = (body: unknown) => POST(new Request("http://localhost/api/recommend/interpret", { method: "POST", body: JSON.stringify(body) }));
 const SECRET = "xylophone-casserole-7731";
 
@@ -149,5 +149,18 @@ describe("POST /api/recommend/interpret", () => {
     await call({ text: `I want ${SECRET} tonight` });
     expect(logged.length).toBeGreaterThan(0);
     expect(JSON.stringify(logged)).not.toContain(SECRET);
+  });
+});
+
+describe("POST /api/recommend/interpret — adjusting", () => {
+  it("passes only the WAY of the request on screen to the reader; an invalid value is ignored", async () => {
+    read.mockResolvedValue({ ...empty, mode: "cook" });
+    const send = (body: unknown) => POST(new Request("http://localhost/api/recommend/interpret", { method: "POST", body: JSON.stringify(body) }));
+    await send({ text: "cook instead", adjusting: "store_snack" });
+    expect(read.mock.calls[0][3]).toBe("store_snack");
+    await send({ text: "cook instead", adjusting: "<script>" });
+    expect(read.mock.calls[1][3]).toBeNull();
+    await send({ text: "cook instead" });
+    expect(read.mock.calls[2][3]).toBeNull();
   });
 });

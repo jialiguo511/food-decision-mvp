@@ -118,7 +118,7 @@ export async function generateRecommendations(
     input.decision_mode === "nearby"
       ? buildNearbyOutputSchema(candidates.length)
       : input.decision_mode === "open"
-        ? buildOpenOutputSchema(input.hard_constraints.ways)
+        ? buildOpenOutputSchema(input.hard_constraints.ways, { mealOnly: input.hard_constraints.meal_only })
         : buildOutputSchema(input.decision_mode, { allowFewer: strictInventory });
   const onHand = input.decision_mode === "cook" ? input.soft_preferences.ingredients_on_hand : [];
   // Prompt + schema construction is pure CPU; timed separately so it is never

@@ -13,6 +13,7 @@ const OPEN: OpenContext = {
   decision_mode: "open",
   hunger: "normal",
   ways: { cook: true, buy: true },
+  meal_only: false,
   minutes: null,
   effort: null,
   extra_spend_usd: null,
@@ -229,5 +230,27 @@ describe("violationKinds — which rule was broken, from the validator's own fin
     expect(violationKinds(["best_match: names peanuts, which the user is allergic to.", "alternative: names peanuts, which the user is allergic to."])).toEqual(["allergy"]);
     expect(violationKinds([])).toEqual([]);
     expect(violationKinds(undefined)).toEqual([]);
+  });
+});
+
+describe("a proper meal was asked for (meal_only): no snack cards, in the prompt and in the check", () => {
+  it("the prompt forbids store_snack and does not offer it as an allowed way", () => {
+    const i = input({ meal_only: true });
+    const prompt = buildSystemPrompt(i);
+    expect(prompt).toMatch(/Every card must be one of: cook, order\./);
+    expect(prompt).toMatch(/`store_snack` is NOT ALLOWED here/);
+    expect(buildSystemPrompt(input({ meal_only: false }))).toMatch(/cook, order, store_snack/);
+  });
+  it("a set with a snack in it is rejected; the same set is fine when snacks are allowed", () => {
+    const withSnack = set(cook(), idea(), snack());
+    expect(parse(withSnack, input({ meal_only: true })).ok).toBe(false);
+    expect(parse(withSnack, input({ meal_only: false })).ok).toBe(true);
+    expect(parse(set(cook(), idea(), idea({ title: "Poke bowl" })), input({ meal_only: true })).ok).toBe(true);
+  });
+  it("it is independent of the way: buying-only and meal-only gives order cards only", () => {
+    const i = input({ ways: { cook: false, buy: true }, meal_only: true });
+    expect(buildSystemPrompt(i)).toMatch(/Every card must be one of: order\./);
+    expect(parse(set(idea(), idea({ title: "Poke bowl" }), idea({ title: "Ramen" })), i).ok).toBe(true);
+    expect(parse(set(idea(), idea({ title: "Poke bowl" }), snack()), i).ok).toBe(false);
   });
 });

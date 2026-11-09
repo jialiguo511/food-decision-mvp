@@ -437,6 +437,27 @@ deployed; not validated with any user.** Facts, checks and the setup list are in
       one `BRAND` constant.
 - [x] **Deployment SQL proven** on a real engine; `check-schema.sql`.
 
+- [x] **Adjust on the results screen, 2026-11-10** (scope: this one interaction). *Found by using the Preview:*
+      after a typed sentence produced a Snack set, "Change" could only edit the Snack's own answers; to cook a proper
+      meal, or to buy something instead, the person had to go back to Home. Root cause: change was *per mode* — the
+      only editor was the question flow of the mode the results were in. Now **Adjust** (results header, and under the
+      cards): one box + three one-tap changes, in words, across ways (Cook / Get food / Snack / Open).
+      Three actions, three meanings: **Show me 3 more** — same request, different options (conditions untouched, no
+      read); **Adjust** — change the request on screen, across ways; **Start over** (secondary) — clears this
+      situation. "Edit my sentence" / "Edit answers step by step" stay, inside Adjust.
+      How: the request on screen becomes the same record a sentence is read into (`interpretationOf`), the new words
+      are laid over it (`mergeAdjustment` — a new way replaces the old; unmentioned conditions stay; dropped ones —
+      `clear` — stay dropped and are not refilled from a remembered default), and it goes through the existing
+      `applyInterpretation`. Two things are now separate: **how** they get food (cook / buy) and **what kind** of
+      eating (`meal_type`: a proper meal vs a snack; open requests gain `meal_only`, which forbids snack cards in the
+      prompt, the output schema and the check). The reader is told only the *way* of the request on screen (an enum),
+      never its answers; the text is in page memory only, not stored or logged; it uses the same sign-in, `interpret`
+      allowance, origin check and kill switch as a sentence. Only what a new way truly cannot go without is asked
+      (one short clarify screen); a change that alters nothing the request uses (a budget for a snack) sends nothing
+      and says so. A failed change keeps the text and the earlier results, labelled as the earlier request's.
+      Not done on purpose: no chat history, no memory of dropped cooking-only answers when switching to buy-only
+      (they are not carried; a later "cook is fine" starts from what the request then holds). Hypothesis, not
+      validated: that people use this instead of starting over.
 - [x] **Preview feedback fixes, 2026-11-07** (two things found by using the Preview):
       (1) *Nearby "Show me 3 more" repeated places.* Root cause: the browser sent only the
       LAST batch and the server excluded only that, so batch 3 could repeat batch 1. Now one

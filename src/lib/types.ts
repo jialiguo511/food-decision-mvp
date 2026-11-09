@@ -243,6 +243,9 @@ export type OpenContext = {
    *  option should be a low-burden one. The app's reading of the request, shown to
    *  them as assumed. */
   easy_pick: boolean;
+  /** They asked for a proper meal, not a snack ("no snacks, a real dinner"). Separate from the WAY:
+   *  a meal can be cooked or bought, and cooking is not the same thing as a meal. */
+  meal_only: boolean;
 };
 
 /** Any of Today's dynamic contexts, discriminated on decision_mode. The first
@@ -485,6 +488,8 @@ export type NearbyConstraints = {
 export type OpenConstraints = {
   decision_mode: "open";
   ways: { cook: boolean; buy: boolean };
+  /** A proper meal was asked for: no snack cards. Independent of `ways`. */
+  meal_only: boolean;
   allergies: string[];
   dietary: DietaryConstraint;
   cook: {

@@ -14,7 +14,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { readSituation } from "@/lib/interpret/read";
-import { isEmptyInterpretation, validateInterpretText, type Interpretation, type InterpretErrorCode } from "@/lib/interpret/schema";
+import { isEmptyInterpretation, parseAdjusting, validateInterpretText, type Interpretation, type InterpretErrorCode } from "@/lib/interpret/schema";
 import { recordEvent } from "@/lib/events/record";
 import { createClient } from "@/lib/supabase/server";
 import { refuseCrossSite } from "@/lib/sameOrigin";
@@ -72,7 +72,8 @@ export async function POST(request: Request) {
 
   let interpretation: Interpretation;
   try {
-    interpretation = await readSituation(checked.text, apiKey);
+    // `adjusting` is only the WAY the request on screen is in (an enum) — never any of its answers.
+    interpretation = await readSituation(checked.text, apiKey, undefined, parseAdjusting(typeof body === "object" && body !== null ? (body as { adjusting?: unknown }).adjusting : undefined));
   } catch (failure) {
     const timedOut = failure instanceof Anthropic.APIConnectionTimeoutError;
     // The error's message can echo the request; the class and status are enough.

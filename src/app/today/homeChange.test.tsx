@@ -111,6 +111,11 @@ const button = (label: string | RegExp) =>
     return names.some((n) => (typeof label === "string" ? n === label : label.test(n)));
   });
 const click = (label: string | RegExp) => act(async () => { const b = button(label); if (!b) throw new Error(`no button ${label}`); b.click(); await new Promise((r) => setTimeout(r, 0)); });
+/** "Change" used to be one button; it is now Adjust → the edit link inside the panel. */
+const change = async () => {
+  await click("Adjust");
+  await click(/^Edit (my sentence|answers step by step)$/);
+};
 const box = () => container.querySelector<HTMLTextAreaElement>("#situation");
 const type = (text: string) =>
   act(async () => {
@@ -135,7 +140,7 @@ describe("a decision that started from a typed sentence", () => {
     await answer("A");
     expect(container.querySelector('section[aria-label="What I understood"]')).not.toBeNull();
 
-    await click("Change");
+    await change();
     expect(h1h2()).toBe("What should I eat?");
     expect(box()?.value).toBe("Tired, order something around $15");
     expect(container.textContent).not.toContain("How are you getting food?");
@@ -147,7 +152,7 @@ describe("a decision that started from a typed sentence", () => {
     await send();
     await answer("A");
 
-    await click("Change");
+    await change();
     nextRead = { ...EMPTY_READ, mode: "order", method: "delivery", meal_budget: "25_to_40" };
     await type("Tired, order something around $30");
     await send();
@@ -164,7 +169,7 @@ describe("a decision that started from a typed sentence", () => {
     mount();
     await type("Tired, order something around $15");
     await send(); // request 0 is still running
-    await click("Change"); // back to the sentence, mid-request
+    await change(); // back to the sentence, mid-request
     nextRead = { ...EMPTY_READ, mode: "order", method: "delivery", meal_budget: "25_to_40" };
     await type("Tired, order something around $30");
     await send(); // request 1 supersedes request 0
@@ -179,7 +184,7 @@ describe("a decision that started from a typed sentence", () => {
     await type("Tired, order something around $15");
     await send();
     await answer("A");
-    await click("Change");
+    await change();
     expect(button(/^Get food/)).toBeDefined(); // the step-by-step path is right there
     await click(/^Get food/);
     expect(h1h2()).not.toBe("What should I eat?");
@@ -191,7 +196,7 @@ describe("a decision that started from a typed sentence", () => {
     await type("secret-craving-xyz order something");
     await send();
     await answer("A");
-    await click("Change");
+    await change();
     expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain("secret-craving-xyz");
     expect(Object.keys(window.localStorage)).toEqual([]);
     expect(Object.keys(window.sessionStorage)).toEqual([]);
@@ -239,7 +244,7 @@ describe("a decision that started from the questions", () => {
     await click(/Find something to order/);
     await answer("S");
     expect(container.querySelector('section[aria-label="What I understood"]')).toBeNull();
-    await click("Change");
+    await change();
     expect(h1h2()).toBe("How are you getting food?");
     expect(box()).toBeNull();
   });
@@ -256,7 +261,7 @@ describe("a decision that started from the questions", () => {
     await click(/Find something to order/);
     await answer("C");
     expect(container.querySelector('section[aria-label="What I understood"]')).toBeNull();
-    await click("Change");
+    await change();
     expect(box()).toBeNull(); // questions, not the old sentence
   });
 });

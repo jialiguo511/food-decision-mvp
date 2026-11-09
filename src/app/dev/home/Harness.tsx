@@ -14,6 +14,29 @@ const returning = typeof window !== "undefined" && new URLSearchParams(window.lo
 
 /** A deliberately dumb stand-in for the reader: keywords → fields. It mirrors
  *  what the real model is asked to do for the three example sentences. */
+function fakeAdjust(text: string, adjusting: string) {
+  // A stand-in for the reader when it is told the way of the request on screen: only what the message CHANGES.
+  const t = text.toLowerCase();
+  const i: Record<string, unknown> = {};
+  if (/no (more )?snacks?|不吃零食|proper meal|正餐|dinner/.test(t + text)) i.meal_type = "meal";
+  if (/i'?ll cook|cook (a|it|myself)|自己做/.test(t + text)) {
+    i.mode = "cook";
+    i.ways = ["cook"];
+  } else if (/don'?t want to cook|not cooking|不想做饭|ready-?made|现成/.test(t + text)) i.ways = ["buy"];
+  if (/just a snack|只要零食/.test(t + text)) {
+    i.mode = "store_snack";
+    i.meal_type = "snack";
+  }
+  const money = (t + text).match(/\$ ?(\d+)/);
+  if (money) {
+    const n = Number(money[1]);
+    if (adjusting === "order") i.meal_budget = n <= 15 ? "under_15" : n <= 25 ? "15_to_25" : "25_to_40";
+    else i.extra_spend_usd = n;
+  }
+  if (/don'?t care how long|no time limit|不在乎时间/.test(t + text)) i.clear = ["minutes"];
+  return i;
+}
+
 function fakeRead(text: string) {
   const t = text.toLowerCase();
   const i: Record<string, unknown> = {};
@@ -87,12 +110,12 @@ if (typeof window !== "undefined" && !window.__harness) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     if (url.endsWith("/api/recommend/interpret")) {
-      window.__sent!.push({ url: "interpret", body: { chars: String(body?.text).length } }); // never the text
+      window.__sent!.push({ url: "interpret", body: { chars: String(body?.text).length, adjusting: body?.adjusting ?? null } }); // never the text
       await new Promise((r) => setTimeout(r, 700));
       if (/fail/i.test(body.text)) return Response.json({ error: "unavailable" }, { status: 502 });
-      const interpretation = fakeRead(body.text);
+      const interpretation = body.adjusting ? fakeAdjust(body.text, body.adjusting) : fakeRead(body.text);
       if (Object.keys(interpretation).length === 0) return Response.json({ error: "nothing_found" }, { status: 422 });
-      return Response.json({ interpretation: { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null, ...interpretation } });
+      return Response.json({ interpretation: { mode: null, hunger: null, minutes: null, effort: null, shopping: null, foods: [], extra_spend_usd: null, meal_budget: null, method: null, distance: null, craving: null, craving_category: null, snack_craving: null, ways: [], leave_to_us: null, after_exercise: null, protein_focus: null, meal_type: null, clear: [], ...interpretation } });
     }
     if (url.endsWith("/api/image")) {
       window.__sent!.push({ url: "image", body });
@@ -123,7 +146,7 @@ if (typeof window !== "undefined" && !window.__harness) {
         { decision_mode: "store_snack", role: "lowest_effort", title: "Greek yogurt cup", reason: "Fixture.", what_to_look_for: "Plain, single-serve.", backup: null, watch: null, estimated_calories: 150, estimated_protein_g: 15 },
         idea("alternative", "Chicken rice bowl"),
       ];
-      const recommendations = mode === "open" ? (body.context.ways?.cook === false ? [idea("best_match", "Chicken burrito bowl"), mixed[1], idea("alternative", "Poke bowl")] : mixed) : mode === "cook" ? [recipe("best_match", "Egg fried rice"), recipe("lowest_effort", "Rice and soft eggs"), recipe("alternative", "Egg and rice bowl")] : mode === "order" ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : [{ decision_mode: "store_snack", role: "best_match", title: "Dark chocolate squares", reason: "Fixture.", what_to_look_for: "70% cacao.", backup: null, watch: null, estimated_calories: 180, estimated_protein_g: 3 }];
+      const recommendations = mode === "open" ? (body.context.meal_only ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : body.context.ways?.cook === false ? [idea("best_match", "Chicken burrito bowl"), mixed[1], idea("alternative", "Poke bowl")] : mixed) : mode === "cook" ? [recipe("best_match", "Egg fried rice"), recipe("lowest_effort", "Rice and soft eggs"), recipe("alternative", "Egg and rice bowl")] : mode === "order" ? [idea("best_match", "Chicken burrito bowl"), idea("lowest_effort", "Teriyaki rice bowl"), idea("alternative", "Poke bowl")] : [{ decision_mode: "store_snack", role: "best_match", title: "Dark chocolate squares", reason: "Fixture.", what_to_look_for: "70% cacao.", backup: null, watch: null, estimated_calories: 180, estimated_protein_g: 3 }];
       return Response.json({ recommendations, insufficient_inventory: false, nutrition_is_estimate: true, constraints: {}, model: "fixture", session_id: `fixture-${window.__sent!.length}` });
     }
     return real(input, init);

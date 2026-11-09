@@ -64,6 +64,7 @@ function openSummary(c: OpenContext): string[] {
   const parts: (string | null)[] = [
     HUNGER_PHRASES[c.hunger],
     c.ways.cook ? "Cook or buy" : "Buying, not cooking",
+    c.meal_only ? "A proper meal" : null,
     c.minutes === null ? null : `${c.minutes} min`,
     c.effort === null ? null : EFFORT_PHRASES[c.effort],
     c.extra_spend_usd === null ? null : `~$${c.extra_spend_usd} to spend`,

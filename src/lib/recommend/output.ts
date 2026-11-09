@@ -217,10 +217,12 @@ export function buildOutputSchema(mode: DecisionMode, options: { allowFewer?: bo
  * request that rules out cooking can't come back with a recipe. It is ONE model
  * call: the three ways are not generated separately and stitched together.
  */
-export function buildOpenOutputSchema(ways: { cook: boolean; buy: boolean }) {
+export function buildOpenOutputSchema(ways: { cook: boolean; buy: boolean }, options: { mealOnly?: boolean } = {}) {
   const variants = [
     ...(ways.cook ? [cookRecommendationFields.extend({ way: z.literal("cook") })] : []),
-    ...(ways.buy ? [orderRecommendationFields.extend({ way: z.literal("order") }), storeSnackRecommendationFields.extend({ way: z.literal("store_snack") })] : []),
+    ...(ways.buy ? [orderRecommendationFields.extend({ way: z.literal("order") })] : []),
+    // A proper meal was asked for: no snack cards (a snack is a kind of meal-size, not a way of getting food).
+    ...(ways.buy && !options.mealOnly ? [storeSnackRecommendationFields.extend({ way: z.literal("store_snack") })] : []),
   ];
   const slot = (variants.length > 1 ? z.union(variants as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]]) : variants[0]) as z.ZodType<{ way: "cook" | "order" | "store_snack" } & Record<string, unknown>>;
   return z.object({ best_match: slot, lowest_effort: slot, alternative: slot });
@@ -470,7 +472,7 @@ function findCookConstraintViolations(recommendations: readonly CookRecommendati
 /** An open set, parsed from the model's JSON: three cards, each tagged with the way
  *  it is, validated by the SAME checks its way gets everywhere else. */
 function parseOpenRecommendations(json: unknown, constraints: Extract<ActiveConstraints, { decision_mode: "open" }>): ParseResult {
-  const parsed = buildOpenOutputSchema(constraints.ways).safeParse(json);
+  const parsed = buildOpenOutputSchema(constraints.ways, { mealOnly: constraints.meal_only }).safeParse(json);
   if (!parsed.success) {
     const details = parsed.error.issues.slice(0, 8).map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);
     return { ok: false, code: "malformed_output", details };
@@ -500,6 +502,7 @@ function findOpenConstraintViolations(recommendations: readonly Recommendation[]
   const problems: string[] = [];
   for (const r of recommendations) {
     if (r.decision_mode === "cook" && !constraints.ways.cook) problems.push(`${r.role}: is a recipe, but the user doesn't want to cook.`);
+    if (r.decision_mode === "store_snack" && constraints.meal_only) problems.push(`${r.role}: is a snack, but the user asked for a proper meal.`);
     if ((r.decision_mode === "order" || r.decision_mode === "store_snack") && !constraints.ways.buy) problems.push(`${r.role}: is something to buy, but only cooking was allowed.`);
   }
   const cooks = recommendations.filter((r): r is CookRecommendation => r.decision_mode === "cook");

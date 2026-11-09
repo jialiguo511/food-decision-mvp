@@ -22,7 +22,7 @@ import type { FormValues } from "./QuestionFlow";
 import { EFFORT_PHRASES, HUNGER_PHRASES, label, summaryParts, type SummaryField } from "./summary";
 import { stepsFor, type Step } from "./steps";
 
-export type Said = SummaryField | "foods" | "craving" | "ways" | "exercise" | "protein" | "easy";
+export type Said = SummaryField | "foods" | "craving" | "ways" | "exercise" | "protein" | "easy" | "meal";
 
 /** What a request is still missing — the only things worth asking. */
 export type ClarifyStep = "time_effort" | "shopping" | "budget" | "ingredients" | "method";
@@ -57,7 +57,12 @@ export function applyInterpretation(i: Interpretation, forms: FormValues, rememb
     else if (cook && !mode) mode = "cook"; // only cooking is allowed: that is a Cook request
     // Cooking ruled out AND a way of getting food named ("something nearby", delivery, pick-up): that is
     // one way — Eat out — not an open request. ("I don't want to cook" alone stays open, buying only.)
-    else if (buy && !cook && !mode && i.method) mode = "order";
+    // What KIND of eating they want decides the rest when they only said how they will NOT eat:
+    // a snack is a Snack request. (A proper meal that is bought, with no method named, stays OPEN: buying only, no snack cards.)
+    else if (buy && !cook && !mode) {
+      if (i.meal_type === "snack") mode = "store_snack";
+      else if (i.method) mode = "order";
+    } else if (!cook && !buy && !mode && i.meal_type === "snack") mode = "store_snack";
   }
   if (!mode) return openFrom(i);
   const said = new Set<Said>();
@@ -95,6 +100,11 @@ export function applyInterpretation(i: Interpretation, forms: FormValues, rememb
     cook.ingredients_on_hand = i.foods;
     cook.craving = i.craving;
     cook.minimize_purchases = false;
+    // Conditions the person said to drop are DROPPED — not refilled from an earlier answer or a remembered default.
+    const clear = new Set(i.clear);
+    if (clear.has("minutes") && i.minutes === null) cook.cook_minutes = null;
+    if (clear.has("effort") && !i.effort) cook.effort = null;
+    if (clear.has("budget") && i.extra_spend_usd === null) cook.budget_override_usd = null;
     if (i.foods.length > 0) said.add("foods");
     if (i.craving) said.add("craving");
 
@@ -121,6 +131,10 @@ export function applyInterpretation(i: Interpretation, forms: FormValues, rememb
     }
     if (i.craving_category) order.craving_category = i.craving_category;
     order.craving_note = i.craving;
+    const clear = new Set(i.clear);
+    if (clear.has("budget") && !i.meal_budget) order.meal_budget = "no_preference";
+    if (clear.has("distance") && !i.distance) order.travel_willingness = "no_preference";
+    if (clear.has("craving") && !i.craving_category) order.craving_category = "no_preference";
     if (i.craving) said.add("craving");
     return finish(mode, { ...forms, order }, said, missingOrder(!!i.method || remembered.order));
   }
@@ -134,6 +148,7 @@ export function applyInterpretation(i: Interpretation, forms: FormValues, rememb
     snack.craving_type = i.snack_craving;
     said.add("craving_type");
   }
+  if (i.clear.includes("craving") && !i.snack_craving) snack.craving_type = "anything";
   return finish(mode, { ...forms, store_snack: snack }, said, []);
 }
 
@@ -160,33 +175,36 @@ function openFrom(i: Interpretation): Applied {
     hunger: i.hunger ?? "normal",
     // Said nothing → both are fine. Said only "buy" → no cooking. (Only "cook" never gets here.)
     ways: { cook: !onlyBuy, buy: true },
-    minutes: i.minutes,
-    effort: i.effort,
-    extra_spend_usd: i.extra_spend_usd,
+    // Cooking-only answers mean nothing when cooking is ruled out: they are not carried into a buy-only request.
+    minutes: onlyBuy ? null : i.minutes,
+    effort: onlyBuy ? null : i.effort,
+    extra_spend_usd: onlyBuy ? null : i.extra_spend_usd,
     meal_budget: i.meal_budget ?? "no_preference",
-    ingredients_on_hand: i.foods,
+    ingredients_on_hand: onlyBuy ? [] : i.foods,
     craving: i.craving,
     after_exercise: i.after_exercise === true,
     protein_focus: i.protein_focus === true,
     easy_pick: i.leave_to_us === true,
+    meal_only: i.meal_type === "meal",
   };
   const said: Said[] = [];
   if (i.hunger) said.push("hunger");
   if (i.ways.length > 0) said.push("ways");
-  if (i.minutes !== null) said.push("time");
-  if (i.effort) said.push("effort");
-  if (i.extra_spend_usd !== null) said.push("budget");
+  if (context.minutes !== null) said.push("time");
+  if (context.effort) said.push("effort");
+  if (context.extra_spend_usd !== null) said.push("budget");
   if (i.meal_budget && i.meal_budget !== "no_preference") said.push("meal_budget");
-  if (i.foods.length > 0) said.push("foods");
+  if (context.ingredients_on_hand.length > 0) said.push("foods");
   if (i.craving) said.push("craving");
   if (context.after_exercise) said.push("exercise");
   if (context.protein_focus) said.push("protein");
+  if (context.meal_only) said.push("meal");
   return { status: "open", context, said };
 }
 
 /** What an open request was understood as, for "What I understood": each part marked as
  *  said, or assumed (the app's own reading — "easy options" for "just something"). */
-export function describeOpenUnderstanding(text: string, c: OpenContext, said: Said[]): Understood {
+export function describeOpenUnderstanding(text: string, c: OpenContext, said: Said[], adjusted = false): Understood {
   const stated = new Set<Said>(said);
   // Hunger is shown only when the person said it: an unstated "normal" is a system
   // fallback, not something to present as their condition (see "Preferences have provenance").
@@ -199,10 +217,11 @@ export function describeOpenUnderstanding(text: string, c: OpenContext, said: Sa
   if (c.effort) parts.push({ text: EFFORT_PHRASES[c.effort], said: true, field: "effort" });
   if (c.extra_spend_usd !== null) parts.push({ text: `~$${c.extra_spend_usd} to spend`, said: true, field: "budget" });
   if (c.meal_budget !== "no_preference") parts.push({ text: label(MEAL_BUDGETS, c.meal_budget) ?? c.meal_budget, said: true, field: "meal_budget" });
+  if (c.meal_only) parts.push({ text: "A proper meal", said: stated.has("meal"), field: "meal" });
   if (c.after_exercise) parts.push({ text: "After exercise", said: true, field: "exercise" });
   if (c.protein_focus) parts.push({ text: "Wants protein", said: true, field: "protein" });
   if (c.easy_pick) parts.push({ text: "Easy options", said: false, field: "easy" });
-  return { text, parts, foods: c.ingredients_on_hand, craving: c.craving };
+  return { ...(adjusted ? { adjusted: true } : {}), text, parts, foods: c.ingredients_on_hand, craving: c.craving };
 }
 
 function finish(mode: DecisionMode, forms: FormValues, said: Set<Said>, missing: ClarifyStep[]): Applied {
@@ -226,12 +245,16 @@ export type Understood = {
   parts: { text: string; said: boolean; field?: Said }[];
   foods: string[];
   craving: string | null;
+  /** The text is a CHANGE the person asked for on results already on screen, not the whole situation:
+   *  the panel says so, and Change then reopens the answers (not a box that holds only the change). */
+  adjusted?: boolean;
 };
 
-export function describeUnderstanding(text: string, mode: DecisionMode, forms: FormValues, said: Said[]): Understood {
+export function describeUnderstanding(text: string, mode: DecisionMode, forms: FormValues, said: Said[], adjusted = false): Understood {
   const form = forms[mode];
   const stated = new Set<Said>(said);
   return {
+    ...(adjusted ? { adjusted: true } : {}),
     text,
     parts: summaryParts(form).map((p) => ({ text: p.text, said: stated.has(p.field), field: p.field })),
     foods: form.decision_mode === "cook" ? form.ingredients_on_hand : [],
@@ -275,5 +298,5 @@ export function stepIndexForField(mode: DecisionMode, forms: FormValues, field: 
  *  from the questions returns to the questions. Editing one answer from "What I
  *  understood" is a different, narrower action and doesn't use this. */
 export function changeTarget(understood: Understood | null): "sentence" | "questions" {
-  return understood ? "sentence" : "questions";
+  return understood && !understood.adjusted ? "sentence" : "questions";
 }

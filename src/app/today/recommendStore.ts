@@ -54,7 +54,7 @@ type PreviousRecommendations = ActiveSession["recommendations"];
 
 /** How a decision started — sent only so the server can note it in its product
  *  event; it never reaches the recommender. "more" is "Show me 3 more". */
-export type Entry = "sentence" | "steps" | "again" | "more";
+export type Entry = "sentence" | "steps" | "again" | "more" | "adjust";
 
 /** What Home says after the user's nutrition targets changed under a set of
  *  cards: they were re-scored ("updated" when the order moved, "checked" when

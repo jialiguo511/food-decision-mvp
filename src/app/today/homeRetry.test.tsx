@@ -112,6 +112,11 @@ const button = (label: string | RegExp) =>
 const click = async (label: string | RegExp) => {
   await act(async () => { const b = button(label); if (!b) throw new Error(`no button ${label}`); b.click(); await new Promise((r) => setTimeout(r, 0)); });
 };
+/** "Change" used to be one button; it is now Adjust → the edit link inside the panel. */
+const change = async () => {
+  await click("Adjust");
+  await click(/^Edit (my sentence|answers step by step)$/);
+};
 const answer = async (index: number, status: number, json: unknown) => {
   calls[index].respond(status, json);
   await flush();
@@ -120,13 +125,13 @@ const answer = async (index: number, status: number, json: unknown) => {
 const option = (label: RegExp) => [...container.querySelectorAll("button,[role=radio]")].find((b) => label.test(b.textContent ?? ""));
 /** From the results: Change → through the questions as they are → send again (the SAME answers). */
 const resend = async () => {
-  await click("Change");
+  await change();
   for (let n = 0; n < 8 && !button(/Find something to order/); n++) await click("Continue");
   await click(/Find something to order/);
 };
 /** Same, but with one answer changed, so it is a DIFFERENT request from the one before. */
 const resendDifferent = async () => {
-  await click("Change");
+  await change();
   await click("Continue"); // → hunger
   await act(async () => { (option(/Starving/) as HTMLElement | undefined)?.click(); await new Promise((r) => setTimeout(r, 0)); });
   for (let n = 0; n < 8 && !button(/Find something to order/); n++) await click("Continue");

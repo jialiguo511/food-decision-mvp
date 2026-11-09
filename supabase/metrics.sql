@@ -55,6 +55,7 @@ select
   count(*) filter (where name = 'entry_selected' and props ->> 'entry' = 'sentence') as sentences_sent,
   count(*) filter (where name = 'entry_selected' and props ->> 'entry' = 'steps')    as step_by_step_started,
   count(*) filter (where name = 'entry_selected' and props ->> 'entry' = 'again')    as last_time_used,
+  count(*) filter (where name = 'entry_selected' and props ->> 'entry' = 'adjust')   as adjusted_results,
   count(*) filter (where name = 'interpret_done' and (props ->> 'ok')::boolean)      as sentences_read_ok,
   count(*) filter (where name = 'interpret_done' and not (props ->> 'ok')::boolean)  as sentences_failed,
   count(*) filter (where name = 'clarify_shown')                                     as needed_a_followup

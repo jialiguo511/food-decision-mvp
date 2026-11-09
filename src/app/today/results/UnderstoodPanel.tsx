@@ -85,7 +85,9 @@ export default function UnderstoodPanel({
           </Button>
         )}
       </div>
-      <p className="line-clamp-2 text-sm italic text-ink/80">“{understood.text}”</p>
+      <p className="line-clamp-2 text-sm italic text-ink/80">
+        {understood.adjusted ? "You asked to change it: " : ""}“{understood.text}”
+      </p>
       <ul className="mt-3 flex flex-wrap gap-1.5">
         {understood.parts.map((part) => (
           <li key={part.text}>
@@ -105,7 +107,7 @@ export default function UnderstoodPanel({
       </ul>
       {assumed && <p className="mt-2 text-xs text-muted">Dotted ones weren&apos;t in your sentence — we filled them in.</p>}
       {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
-      {editable && <p className="mt-1 text-xs text-muted">Tap an item to change just that, or use Change (top right) to reword your sentence.</p>}
+      {editable && <p className="mt-1 text-xs text-muted">Tap an item to change just that, or use Adjust (top right) to say what should be different.</p>}
     </section>
   );
 }

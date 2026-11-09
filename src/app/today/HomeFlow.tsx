@@ -13,19 +13,21 @@ import { createAdvanceScheduler } from "./flow/advance";
 import EquipmentScreen from "./flow/EquipmentScreen";
 import ClarifyScreen from "./flow/ClarifyScreen";
 import { homeReducer, initialScreen, modeToChange } from "./flow/homeReducer";
+import { adjustRequest, ALL_SAID, QUICK_ADJUSTS, quickDelta, wayOf, type QuickAdjust } from "./flow/adjust";
 import { applyInterpretation, changeTarget, describeOpenUnderstanding, describeUnderstanding, stepIndexForField, type ClarifyStep, type Said, type Understood } from "./flow/interpret";
 import QuestionFlow, { type FormValues } from "./flow/QuestionFlow";
 import StartScreen, { ModeScreen } from "./flow/StartScreen";
 import { ingredientsStepIndex, orderSteps, searchesNearby } from "./flow/steps";
 import { contextSummary, ctaLabel } from "./flow/summary";
 import { useHomeForms } from "./flow/useHomeForms";
-import { interpretErrorCopy, interpretText } from "./interpretClient";
+import { adjustErrorCopy, interpretErrorCopy, interpretText } from "./interpretClient";
 import type { Entry } from "./recommendStore";
 import { track } from "./track";
 import type { FeedbackData } from "./MealFeedback";
 import NutritionStep from "./onboarding/NutritionStep";
 import Onboarding from "./onboarding/Onboarding";
 import type { PlaceFeedbackState } from "./PlaceFeedback";
+import type { AdjustState } from "./results/AdjustPanel";
 import ResultsScreen from "./results/ResultsScreen";
 import { useRecommend } from "./useRecommend";
 
@@ -121,11 +123,47 @@ export default function HomeFlow({
   const [understood, setUnderstood] = useState<Understood | null>(null);
   const readId = useRef(0);
 
+  // "Adjust": change the request on screen, across ways, without starting over. The text lives only
+  // here, in memory, until the change has produced results — a failed one keeps it, and keeps the old
+  // results on screen (labelled as the earlier request's). `adjustSent` is set once a request has
+  // actually gone out for it, holding the session it started from, so only a DIFFERENT session ending the
+  // request clears the box.
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustText, setAdjustText] = useState("");
+  const [adjustBusy, setAdjustBusy] = useState(false);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
+  const [adjustSent, setAdjustSent] = useState<{ from: string | null; started: boolean } | null>(null);
+
   // Nearby places restored without their wording (the user left before it
   // arrived): ask for it once.
   useEffect(() => {
     if (session && request.kind === "idle") ensureEnriched(session);
   }, [session, request.kind, ensureEnriched]);
+
+  // A change that was sent: new results replace the old and the box empties; a failure keeps the text,
+  // reopens the box beside the (earlier) results that are still on screen, and says nothing more here —
+  // the results screen already explains whose results those are.
+  useEffect(() => {
+    if (!adjustSent) return;
+    // Wait until this change's own request has been seen running: a leftover "error" or "idle" from an
+    // earlier request must not be mistaken for its outcome.
+    if (request.kind === "loading" || request.kind === "locating") {
+      if (!adjustSent.started) setAdjustSent({ ...adjustSent, started: true });
+      return;
+    }
+    if (!adjustSent.started) return;
+    if (request.kind === "idle" && session && session.session_id !== adjustSent.from) {
+      setAdjustSent(null);
+      setAdjustText("");
+      setAdjustOpen(false);
+      setAdjustError(null);
+      setAdjustNotice(null);
+    } else if (request.kind === "error") {
+      setAdjustSent(null);
+      setAdjustOpen(true);
+    }
+  }, [adjustSent, request.kind, session]);
 
   // The user's nutrition targets changed since these cards were made — details
   // just saved from the nudge, or edited in Me: re-score the cards on screen
@@ -175,6 +213,7 @@ export default function HomeFlow({
     setDescribing(false);
     setPending(null);
     setUnderstood(sentence);
+    if (entry === "adjust") setAdjustSent({ from: session?.session_id ?? null, started: false });
     if (mode === "cook") {
       const cooked = toMealContext({ ...source.cook, craving: source.cook.craving === null ? null : normalizeCraving(source.cook.craving) });
       // Unreachable from the screens (Continue is disabled until answered) —
@@ -222,38 +261,83 @@ export default function HomeFlow({
 
   /** What was read → the next screen. The merged answers become this mode's
    *  answers, so Edit and Change start from them. */
-  function proceed(text: string, interpretation: Interpretation, forcedMode?: DecisionMode, equipmentOk = equipmentSaved) {
+  function proceed(text: string, interpretation: Interpretation, forcedMode?: DecisionMode, equipmentOk = equipmentSaved, adjusted = false) {
     const applied = applyInterpretation(interpretation, forms, used, forcedMode);
+    // A change to results already on screen: every answer on them is the person's own (they asked for the request).
+    const said = adjusted ? ([...ALL_SAID] as Said[]) : applied.said;
     // Open to more than one way, or left to us: not a missing mode. Nothing blocks an
     // answer, so it goes straight to the cards — one request, up to three cards, each
     // one way of eating.
-    if (applied.status === "open") return sendOpen(text, applied.context, applied.said);
+    if (applied.status === "open") return sendOpen(text, applied.context, said, adjusted);
     setForm(applied.mode, applied.forms[applied.mode] as never);
     const missing = applied.status === "needs_answers" ? applied.missing : [];
-    setPending({ text, interpretation, mode: applied.mode, said: applied.said, missing });
+    setPending({ text, interpretation, mode: applied.mode, said, missing, adjusted });
     // Cook needs to know what they can cook with, once; ask, then carry on.
     if (applied.mode === "cook" && !equipmentOk) return dispatch({ type: "askEquipment" });
     if (missing.length > 0) {
       track({ name: "clarify_shown", props: { mode: applied.mode, asked: Math.min(missing.length, 6) } });
       return dispatch({ type: "clarify" });
     }
-    sendSentence(text, applied.mode, applied.forms, applied.said);
+    sendSentence(text, applied.mode, applied.forms, said, adjusted);
   }
 
   /** The cross-way request: shown back as understood, then ONE recommend call. */
-  function sendOpen(text: string, context: OpenContext, said: Said[]) {
+  function sendOpen(text: string, context: OpenContext, said: Said[], adjusted = false) {
     readId.current++;
     setDescribing(false);
     setPending(null);
-    setDraft("");
-    setUnderstood(describeOpenUnderstanding(text, context, said));
+    if (!adjusted) setDraft("");
+    setUnderstood(describeOpenUnderstanding(text, context, said, adjusted));
+    if (adjusted) setAdjustSent({ from: session?.session_id ?? null, started: false });
     dispatch({ type: "showResults" });
-    void run(context, undefined, "sentence");
+    void run(context, undefined, adjusted ? "adjust" : "sentence");
   }
 
-  function sendSentence(text: string, mode: DecisionMode, source: FormValues, said: Said[]) {
-    setDraft("");
-    find(mode, false, source, describeUnderstanding(text, mode, source, said));
+  function sendSentence(text: string, mode: DecisionMode, source: FormValues, said: Said[], adjusted = false) {
+    if (!adjusted) setDraft("");
+    find(mode, false, source, describeUnderstanding(text, mode, source, said, adjusted), adjusted ? "adjust" : undefined);
+  }
+
+  // ---- "Adjust" ------------------------------------------------------------
+
+  /** The request an adjustment starts from: the results on screen, else the request that just failed. */
+  const adjustBase = session?.context ?? requested;
+
+  /** What the person asked to change → the request, in whatever way that now is. Nothing is sent when it
+   *  changes nothing this request uses; a way it can't go without is asked for (and only that). */
+  function applyAdjustment(text: string, delta: Interpretation) {
+    if (!adjustBase) return;
+    const out = adjustRequest(adjustBase, delta, forms, used);
+    if (out.kind === "unchanged") {
+      return setAdjustNotice("That doesn't change anything this request uses (a budget, for a snack, for instance). Try saying what you'd like to be different.");
+    }
+    setAdjustNotice(null);
+    proceed(text, out.merged, undefined, equipmentSaved, true);
+  }
+
+  /** "Update": the model reads the typed change ONCE, only now. A newer read or a trip elsewhere makes an
+   *  older answer arrive to nothing. A failure keeps the text and the results on screen. */
+  async function submitAdjust() {
+    const text = adjustText.trim();
+    if (!text || adjustBusy || !adjustBase) return;
+    const id = ++readId.current;
+    setAdjustBusy(true);
+    setAdjustError(null);
+    setAdjustNotice(null);
+    track({ name: "entry_selected", props: { entry: "adjust", ...(sessionMode ? { mode: sessionMode } : {}) } });
+    const result = await interpretText(text, wayOf(adjustBase));
+    if (id !== readId.current) return;
+    setAdjustBusy(false);
+    if (!result.ok) return setAdjustError(adjustErrorCopy(result.error));
+    applyAdjustment(text, result.interpretation);
+  }
+
+  /** A one-tap change: a fixed change, no model and no text to read. */
+  function quickAdjust(kind: QuickAdjust) {
+    if (adjustBusy || !adjustBase) return;
+    readId.current++;
+    track({ name: "entry_selected", props: { entry: "adjust", ...(sessionMode ? { mode: sessionMode } : {}) } });
+    applyAdjustment(QUICK_ADJUSTS.find((q) => q.kind === kind)?.label ?? "Change", quickDelta(kind));
   }
 
   /** "Show me 3 more": the session's own context, with its cards sent as
@@ -284,6 +368,7 @@ export default function HomeFlow({
    *  in the box, editable, sent again like a new one. A decision from the
    *  questions goes back to the questions. */
   function change() {
+    setAdjustOpen(false);
     if (changeTarget(understood) === "sentence" && understood) {
       readId.current++; // any read still running is for the old text
       setDescribing(false);
@@ -378,7 +463,7 @@ export default function HomeFlow({
         onDone={() => {
           setEquipmentSaved(true);
           // A sentence was waiting on this answer: carry on with it.
-          if (pending?.mode === "cook") return proceed(pending.text, pending.interpretation, "cook", true);
+          if (pending?.mode === "cook") return proceed(pending.text, pending.interpretation, "cook", true, pending.adjusted);
           dispatch({ type: "pickMode", mode: "cook", hasMemory: used.cook });
         }}
       />
@@ -397,7 +482,7 @@ export default function HomeFlow({
         kitchenStaples={kitchenStaples}
         budgetUsual={defaults.budgetUsual}
         // What the person answered here is theirs, just like what they typed.
-        onFind={(answered) => sendSentence(pending.text, mode, forms, [...pending.said, ...answered.flatMap(fieldsOf)])}
+        onFind={(answered) => sendSentence(pending.text, mode, forms, [...pending.said, ...answered.flatMap(fieldsOf)], pending.adjusted)}
         onBack={back}
       />
     );
@@ -436,6 +521,28 @@ export default function HomeFlow({
   }
 
   if (screen.name === "results" && (session || request.kind !== "idle")) {
+    const adjustState: AdjustState = {
+      open: adjustOpen,
+      setOpen: (open) => {
+        setAdjustOpen(open);
+        if (open) setAdjustNotice(null);
+      },
+      value: adjustText,
+      setValue: (text) => {
+        setAdjustText(text);
+        if (adjustError) setAdjustError(null);
+        if (adjustNotice) setAdjustNotice(null);
+      },
+      submit: () => void submitAdjust(),
+      quick: quickAdjust,
+      // Reading a change, or a request already running: Update waits (one request at a time).
+      busy: adjustBusy || request.kind === "loading" || request.kind === "locating",
+      error: adjustError,
+      notice: adjustNotice,
+      way: adjustBase ? wayOf(adjustBase) : "open",
+      editLabel: understood && !understood.adjusted ? "Edit my sentence" : "Edit answers step by step",
+      onEdit: change,
+    };
     const isRestored = !!session && !!initialSession && session.session_id === initialSession.session_id;
     return (
       <ResultsScreen
@@ -459,7 +566,18 @@ export default function HomeFlow({
         onWiderDistance={widerDistance}
         onEditDetails={() => dispatch({ type: "customize", mode: modeToChange(sessionMode, lastMode) })}
         onEditField={editField}
-        onStartOver={() => dispatch({ type: "start" })}
+        onStartOver={() => {
+          // "Start over" clears this situation altogether (the secondary way out).
+          readId.current++;
+          setAdjustOpen(false);
+          setAdjustText("");
+          setAdjustError(null);
+          setAdjustNotice(null);
+          setAdjustBusy(false);
+          setAdjustSent(null);
+          dispatch({ type: "start" });
+        }}
+        adjust={adjustState}
         nutritionNudge={
           nutritionProfile && !nutritionDone ? { onOpen: () => dispatch({ type: "openNutrition" }), onDismiss: dismissNutrition } : undefined
         }
@@ -510,6 +628,8 @@ type Pending = {
   mode: DecisionMode;
   said: Said[];
   missing: ClarifyStep[];
+  /** A change to results already on screen, not a new situation. */
+  adjusted?: boolean;
 };
 
 /** The summary fields a clarify question covers — they were answered by the

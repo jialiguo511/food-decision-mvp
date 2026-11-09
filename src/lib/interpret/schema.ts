@@ -91,7 +91,26 @@ export const interpretationSchema = z.object({
   // Situation they SAID — context for the recommendation, never a measurement.
   after_exercise: z.boolean().nullable().catch(null).default(null),
   protein_focus: z.boolean().nullable().catch(null).default(null),
+  // What KIND of eating, apart from HOW they get it: a proper meal, or just a snack. A meal can be
+  // cooked or bought; cooking is not "a meal", and a meal is not "cooking".
+  meal_type: z.enum(["meal", "snack"]).nullable().catch(null).default(null),
+  // Conditions the person said to DROP ("no time limit now", "forget the budget", "I don't mind how far").
+  // Only ever filled when they said so — an unmentioned condition is never cleared.
+  clear: z
+    .array(z.unknown())
+    .catch([])
+    .transform((items) => [...new Set(items.filter((x): x is Clearable => typeof x === "string" && (CLEARABLE as readonly string[]).includes(x)))]),
 });
+
+export const CLEARABLE = ["minutes", "effort", "budget", "foods", "craving", "distance"] as const;
+export type Clearable = (typeof CLEARABLE)[number];
+
+/** The way an existing request is currently being made — all the reader is told about it. No answers, no text. */
+export const ADJUSTING_WAYS = ["cook", "order", "store_snack", "open"] as const;
+export type AdjustingWay = (typeof ADJUSTING_WAYS)[number];
+export function parseAdjusting(raw: unknown): AdjustingWay | null {
+  return typeof raw === "string" && (ADJUSTING_WAYS as readonly string[]).includes(raw) ? (raw as AdjustingWay) : null;
+}
 
 export type Interpretation = z.infer<typeof interpretationSchema>;
 
@@ -121,7 +140,9 @@ export function isEmptyInterpretation(i: Interpretation): boolean {
     i.ways.length === 0 &&
     i.leave_to_us !== true &&
     i.after_exercise !== true &&
-    i.protein_focus !== true
+    i.protein_focus !== true &&
+    !i.meal_type &&
+    (i.clear ?? []).length === 0
   );
 }
 

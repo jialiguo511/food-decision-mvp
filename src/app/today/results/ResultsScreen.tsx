@@ -13,6 +13,7 @@ import MealFeedback, { type FeedbackData } from "../MealFeedback";
 import type { PlaceFeedbackState } from "../PlaceFeedback";
 import type { NutritionNotice } from "../recommendStore";
 import type { RequestStatus, Selection } from "../useRecommend";
+import AdjustPanel, { type AdjustState } from "./AdjustPanel";
 import Carousel from "./Carousel";
 import IdeaCard from "./IdeaCard";
 import PlaceCard from "./PlaceCard";
@@ -52,6 +53,7 @@ export default function ResultsScreen({
   onWiderDistance,
   onEditDetails,
   onEditField,
+  adjust,
 }: {
   session: ActiveSession | null;
   selection: Selection;
@@ -85,6 +87,8 @@ export default function ResultsScreen({
   onEditDetails: () => void;
   /** Open just the question behind one "What I understood" item. */
   onEditField: (field: NonNullable<Understood["parts"][number]["field"]>) => void;
+  /** "Adjust": change what was asked, across ways, without starting over. */
+  adjust: AdjustState;
 }) {
   // The raw reason stays available to whoever is debugging, never on screen.
   useEffect(() => {
@@ -95,11 +99,13 @@ export default function ResultsScreen({
   const header = (
     <div className="flex items-center justify-between">
       <BackButton onClick={onStartOver} label="Start over" />
-      <Button variant="quiet" onClick={onChange} className="-mr-3">
-        Change
+      <Button variant="quiet" onClick={() => adjust.setOpen(!adjust.open)} aria-expanded={adjust.open} className="-mr-3 font-semibold">
+        Adjust
       </Button>
     </div>
   );
+  // Over the cards (or the error that kept the old ones): the same box whatever the request did.
+  const adjustPanel = adjust.open ? <AdjustPanel state={adjust} /> : null;
 
   if (request.kind === "locating" || request.kind === "loading") {
     // Derived from the request itself (not from which button started it), so
@@ -109,6 +115,7 @@ export default function ResultsScreen({
     return (
       <div>
         {header}
+        {adjustPanel && <div className="pt-3">{adjustPanel}</div>}
         <div className="pt-3">
           <LoadingState phase={phase} lines={requested ? loadingLines(requested, { avoidsFoods }) : []} startedAt={request.startedAt} />
         </div>
@@ -120,6 +127,7 @@ export default function ResultsScreen({
     return (
       <div>
         {header}
+        {adjustPanel && <div className="pt-3">{adjustPanel}</div>}
         <div className="pt-3">
           {request.kind === "error" && (
             <ErrorState error={request.error} reference={request.requestId} onRetry={onRetry} onIdeasByType={onIdeasByType} onChange={onChange} />
@@ -144,6 +152,7 @@ export default function ResultsScreen({
   return (
     <div className="space-y-4">
       {header}
+      {adjustPanel}
       {previous && (
         <ErrorState compact error={request.error} reference={request.requestId} onRetry={onRetry} onIdeasByType={mode === "order" ? onIdeasByType : undefined} onChange={onChange} />
       )}
@@ -161,7 +170,7 @@ export default function ResultsScreen({
             <h2 className="text-2xl font-semibold tracking-tight">
               {nearby ? "Places near you" : crossWay ? "Three ways to eat right now" : mode === "cook" ? "Here's what to make" : mode === "order" ? "Here's what to get" : "Snacks to grab"}
             </h2>
-            {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} readOnly={crossWay} hint={crossWay ? "Not what you meant? Use Change (top right) to reword it, or start over and pick Make something, Get food or Grab a snack." : undefined} /> : <p className="mt-1 text-sm text-muted">{sessionSummary(session.context).join(" · ")}</p>}
+            {understood ? <UnderstoodPanel understood={understood} onEdit={onEditDetails} onEditField={onEditField} readOnly={crossWay} hint={crossWay ? "Not what you meant? Use Adjust (top right) to change it, or start over and pick Make something, Get food or Grab a snack." : undefined} /> : <p className="mt-1 text-sm text-muted">{sessionSummary(session.context).join(" · ")}</p>}
             <NutritionLine session={session} targets={nutritionTargets} notice={notice} />
           </>
         )}
@@ -280,6 +289,10 @@ export default function ResultsScreen({
             <p className="text-sm text-muted">None of these?</p>
             <Button variant="secondary" className="mt-2" onClick={onShowMore}>
               Show me 3 more
+            </Button>
+            <p className="mt-1 text-xs text-muted">Same request, different options.</p>
+            <Button variant="quiet" className="mt-1" onClick={() => adjust.setOpen(true)}>
+              Or adjust what you asked
             </Button>
           </div>
         )
