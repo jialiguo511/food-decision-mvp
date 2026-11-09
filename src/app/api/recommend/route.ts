@@ -517,6 +517,9 @@ function fail(timer: Timer, code: RecommendErrorCode, message: string, details?:
     code,
     status: STATUS[code],
     ...(reasons.length > 0 ? { broke: reasons.join(",") } : {}),
+    // A rejected request body: WHICH fields (paths + "expected X" — schema words, never the person's values),
+    // so "something about those answers didn't work" can be traced from the Reference id alone.
+    ...(code === "invalid_context" && details ? { invalid: details.slice(0, 6) } : {}),
     last_stage: Object.keys(stages).at(-1) ?? "start",
     stages,
     total_ms: timer.elapsed(),

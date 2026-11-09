@@ -55,6 +55,16 @@ describe("the failure line", () => {
     vi.unstubAllEnvs();
   });
 
+  it("a rejected request body names the fields that were wrong — never the values", async () => {
+    const bad = { decision_mode: "store_snack", hunger: "xylophone-starving-7731", craving_type: "anything" };
+    const res = await POST(new Request("http://localhost/api/recommend", { method: "POST", headers: { "X-Request-Id": "req-bad" }, body: JSON.stringify({ context: bad }) }));
+    expect(res.status).toBe(400);
+    const line = failedLine() as unknown as { code: string; invalid: string[] };
+    expect(line.code).toBe("invalid_context");
+    expect(line.invalid.join(" ")).toContain("context.hunger");
+    expect(JSON.stringify(line)).not.toContain("xylophone");
+  });
+
   it("records one line per failed request with its own id", async () => {
     generate.mockResolvedValue({ ok: false, code: "malformed_output", message: "bad" });
     await send("one");
