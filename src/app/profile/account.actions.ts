@@ -44,8 +44,12 @@ export async function resetMyData(): Promise<AccountResult> {
 /**
  * Permanently deletes the account. Order matters for partial failure:
  *   1. the admin key must exist (otherwise refuse before touching anything);
- *   2. all app data is removed and verified (a failure here leaves the login
- *      intact, so the user can retry);
+ *   2. all app data is removed and verified through the USER'S OWN client — the
+ *      same path as Reset, RLS-scoped, using the grants schema.sql gives the
+ *      signed-in role. (The admin client is not used for tables: on a newer
+ *      Supabase project service_role has no blanket grants on `public`, which made
+ *      this step fail at the first table.) A failure here leaves the login
+ *      intact, so the user can retry;
  *   3. shared Storage files this user happens to own (a generated recipe
  *      picture is uploaded with their session) are RELEASED — Supabase refuses to
  *      delete a user who still owns any object. The picture stays; it belongs to
@@ -71,7 +75,7 @@ export async function deleteAccount(): Promise<AccountResult> {
 
   // Explicit, not reliant on ON DELETE CASCADE: a database that drifted from
   // schema.sql would otherwise keep orphaned data.
-  const wiped = await wipeUserData(admin, user.id);
+  const wiped = await wipeUserData(supabase, user.id);
   if (!wiped.ok) {
     console.error("[account] delete: data wipe failed; auth user kept", { failedAt: wiped.failedAt });
     return { ok: false, error: "Couldn't delete everything. Your account is still active — please try again." };

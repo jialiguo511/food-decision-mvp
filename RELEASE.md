@@ -85,8 +85,13 @@ anywhere else until you have read the SQL — `schema.sql` is plain text.
 Storage files ([docs](https://supabase.com/docs/guides/auth/managing-user-data)). A generated recipe picture is uploaded with the signed-in user's own
 session, so anyone who caused a picture to be generated could no longer delete their account (found on the first Preview that generated real pictures).
 The function releases those shared files (the picture stays; its owner becomes null) just before the auth user is removed; only the service role can call it.
-If delete says *"Deleting an account isn't set up on this server yet"*, the service-role key is missing on that Vercel environment; if it says *"Your data was
-cleared, but the account couldn't be removed"*, check the Vercel log for `[account] delete` (it names this migration when the function is missing).
+What delete can say, and what each means:
+
+| message | cause | look at |
+|---|---|---|
+| *Deleting an account isn't set up on this server yet.* | `SUPABASE_SERVICE_ROLE_KEY` isn't visible to that deployment (missing, not ticked for Preview, or added without a redeploy). Nothing was touched. | log `[account] delete refused` |
+| *Couldn't delete everything. Your account is still active* | clearing the data tables failed; the login is intact. The data is now cleared with the **user's own** client (like Reset) — the first version used the admin client, and on a project with no blanket table grants `service_role` was refused at the first table. | log `[account] couldn't clear <table> { code, message }` |
+| *Your data was cleared, but the account couldn't be removed* | the auth user couldn't be deleted — typically the Storage-ownership case above | log `[account] delete: auth user removal failed` / the migration hint |
 
 The web-beta migration adds two tables and one function. `usage_counters` is deliberately **not** wiped by "Reset my data" (that would
 refund a day's allowance) and cascades with the account on delete; `product_events` **is** wiped by reset.

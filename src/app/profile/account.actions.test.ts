@@ -24,6 +24,9 @@ let db = createFakeDb();
 let currentUser: string | null = "u1";
 const signOut = vi.fn(async () => ({ error: null }));
 const deleteUser = vi.fn<(id: string) => Promise<{ error: { message: string } | null }>>(async () => ({ error: null }));
+/** Every table access made through the ADMIN client. Account deletion must not make any: on a newer
+ *  Supabase project service_role has no grants on the public tables (that failed the wipe at the first table). */
+const adminTableAccess = vi.fn();
 /** release_user_storage(): the user's shared Storage files stop blocking the auth deletion. */
 const releaseStorage = vi.fn<(args: { p_user: string }) => Promise<{ data: unknown; error: { code: string; message: string } | null }>>(async () => ({ data: 0, error: null }));
 let adminConfigured = true;
@@ -40,7 +43,7 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => {
     if (!adminConfigured) return null;
     const c = db.clientFor("service-role");
-    return { ...c, rpc: (fn: string, args: { p_user: string }) => (fn === "release_user_storage" ? releaseStorage(args) : c.rpc(fn, args)), auth: { ...c.auth, admin: { deleteUser } } };
+    return { ...c, from: (table: string) => (adminTableAccess(table), { select: () => Promise.resolve({ data: null, error: { code: "42501", message: `permission denied for table ${table}` } }), delete: () => ({ eq: () => Promise.resolve({ error: { code: "42501", message: `permission denied for table ${table}` } }) }) }) as never, rpc: (fn: string, args: { p_user: string }) => (fn === "release_user_storage" ? releaseStorage(args) : c.rpc(fn, args)), auth: { ...c.auth, admin: { deleteUser } } };
   },
 }));
 
@@ -91,6 +94,7 @@ beforeEach(() => {
   currentUser = "u1";
   adminConfigured = true;
   releaseStorage.mockClear();
+  adminTableAccess.mockClear();
   signOut.mockClear();
   deleteUser.mockClear();
   deleteUser.mockResolvedValue({ error: null });
@@ -221,6 +225,15 @@ describe("Delete my account", () => {
     deleteUser.mockImplementationOnce(async (id) => (order.push(`delete:${id}`), { error: null }));
     expect(await deleteAccount()).toEqual({ ok: true });
     expect(order).toEqual(["release:u1", "delete:u1"]);
+  });
+
+  it("clears the data through the USER's own client — it works even when the admin role has no grants on the tables", async () => {
+    await useTheApp();
+    // The admin client in this test refuses every table (42501), like service_role on a project with no blanket grants.
+    expect(await deleteAccount()).toEqual({ ok: true });
+    expect(adminTableAccess).not.toHaveBeenCalled();
+    expect(rowsFor("u1")).toEqual([]);
+    expect(deleteUser).toHaveBeenCalledWith("u1");
   });
 
   it("only ever releases the signed-in user's files", async () => {
