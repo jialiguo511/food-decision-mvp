@@ -66,6 +66,7 @@ async function useTheApp(user = "u1") {
   db.seed("recipes", { user_id: user, raw: "x" });
   db.seed("pantry_items", { user_id: user, name: "Chicken" });
   await trackEvent({ name: "entry_selected", props: { entry: "sentence" } }); // the usage log is the user's data too
+  db.seed("feedback", { user_id: user, kind: "bug", message: "Something broke", contact: "me@example.com" }); // what they sent through the feedback form
 }
 
 const rowsFor = (user: string) =>

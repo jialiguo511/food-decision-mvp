@@ -209,7 +209,7 @@ export function validateProfileForm(input: ProfileFormValues): ValidatedProfile 
   return {
     ok: true,
     row: {
-      display_name: input.display_name?.trim() || null,
+      display_name: input.display_name?.trim().slice(0, 60) || null,
       ...set,
       protein_target_g: input.protein_target_g === null ? null : clamp(input.protein_target_g, 40, 300),
       daily_calorie_target_kcal: calories,
@@ -233,8 +233,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+/** Free-form list entries (cuisines…): trimmed, one short line each, at most 40 — the prompt and the
+ *  database are not places for unbounded text. */
 function dedupe(values: string[]): string[] {
-  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).slice(0, 40);
+  return Array.from(new Set(values.map((v) => v.trim().replace(/\s+/g, " ").slice(0, 60).trim()).filter(Boolean))).slice(0, 40);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

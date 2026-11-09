@@ -41,6 +41,7 @@ export const USER_TABLES: readonly UserTable[] = [
   { table: "meal_feedback", column: "user_id" }, // "did you eat it" — also cascades from decision_sessions
   { table: "place_feedback", column: "user_id" }, // "not for me" on places
   { table: "product_events", column: "user_id" }, // first-party usage events (names + enumerated props only — never text, health data or location)
+  { table: "feedback", column: "user_id" }, // the "Send feedback" form: message, optional contact, page path, app version
   { table: "saved_recipes", column: "user_id" }, // Saved
   { table: "saved_places", column: "user_id" }, // Saved
   { table: "decision_sessions", column: "user_id" }, // every request: its context, the 3 cards, the pick — also what "Last time" is read from

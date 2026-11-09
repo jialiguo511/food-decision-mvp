@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   // keeps its neutral placeholder (404 reads as "no photo").
   const usage = await consumeUsage(supabase, "place_photo");
   if (!usage.allowed) {
-    if (usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "place_photo" } });
+    if (usage.reason === "limit" || usage.reason === "global_limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "place_photo" } });
     return NOT_FOUND();
   }
 

@@ -143,4 +143,6 @@ export type InterpretErrorCode =
   | "nothing_found"
   | "unavailable"
   | "timeout"
-  | "limit_reached";
+  | "limit_reached"
+  /** Switched off by the owner, or the whole beta is out of today's capacity. */
+  | "paused";

@@ -82,6 +82,58 @@ describe("the daily allowance holds BEFORE any paid call", () => {
   });
 });
 
+describe("the whole app's ceiling and the owner's off switch", () => {
+  it("many accounts together stop at the app-wide ceiling, whatever each person's own limit is", async () => {
+    vi.stubEnv("USAGE_LIMIT_RECOMMEND", "10");
+    vi.stubEnv("USAGE_GLOBAL_RECOMMEND", "4");
+    const statuses: number[] = [];
+    for (const user of ["u1", "u2", "u3", "u4", "u5", "u6"]) {
+      currentUser = user;
+      statuses.push((await call(COOK)).status);
+    }
+    expect(statuses.filter((s) => s === 200)).toHaveLength(4);
+    expect(statuses.filter((s) => s === 503)).toHaveLength(2);
+    expect(generate).toHaveBeenCalledTimes(4); // the model was never reached for the other two
+    expect(db.globalUsageOf("recommend")).toBe(4);
+  });
+
+  it("an app-wide refusal is 'unavailable right now', not 'you used your limit' — and it is not charged to the person", async () => {
+    vi.stubEnv("USAGE_GLOBAL_RECOMMEND", "1");
+    await call(COOK);
+    currentUser = "user-2";
+    const refused = await call(COOK);
+    expect(refused.status).toBe(503);
+    expect((await refused.json()).error.code).toBe("service_paused");
+    expect(db.usageOf("user-2", "recommend")).toBe(0);
+  });
+
+  it("the owner's switch in the database stops suggestions at once, with no deploy — and nothing is called or counted", async () => {
+    db.setPausedKinds("recommend");
+    const res = await call(COOK);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("service_paused");
+    expect(generate).not.toHaveBeenCalled();
+    expect(db.usageOf("user-1", "recommend")).toBe(0);
+    db.setPausedKinds("");
+    expect((await call(COOK)).status).toBe(200);
+  });
+
+  it("PAUSED_KINDS in the environment does the same, before the database is even asked", async () => {
+    vi.stubEnv("PAUSED_KINDS", "recommend");
+    expect((await call(COOK)).status).toBe(503);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("pausing nearby leaves food ideas by type working, and says so in nearby's own code", async () => {
+    vi.stubEnv("PAUSED_KINDS", "nearby");
+    const res = await call(NEARBY, { location: LOCATION });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("nearby_paused");
+    expect(searchNearby).not.toHaveBeenCalled(); // Google Places was not searched
+    expect((await call(ORDER)).status).toBe(200);
+  });
+});
+
 describe("nearby searches are metered on their own, and checked first", () => {
   it("running out of nearby searches still leaves food ideas by type — and costs a nearby search nothing it doesn't use", async () => {
     expect((await call(NEARBY, { location: LOCATION })).status).toBe(200);

@@ -15,12 +15,16 @@
 // warning, so local work isn't blocked on it.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { limitFor, type UsageKind } from "./limits";
+import { globalLimitFor, isPausedByEnv, limitFor, type UsageKind } from "./limits";
 
 export type UsageResult =
   | { allowed: true; used: number; limit: number }
-  /** Over the daily limit. */
+  /** Over the person's own daily limit. */
   | { allowed: false; reason: "limit"; used: number; limit: number }
+  /** The whole app is out of today's allowance for this kind (every account together). */
+  | { allowed: false; reason: "global_limit" }
+  /** Switched off by the owner (PAUSED_KINDS, or the app_flags row). */
+  | { allowed: false; reason: "paused" }
   /** The allowance couldn't be checked (migration not run, database down). */
   | { allowed: false; reason: "unavailable" };
 
@@ -35,10 +39,14 @@ export async function consumeUsage(
 ): Promise<UsageResult> {
   const env = options.env ?? process.env;
   const limit = limitFor(kind, env);
+  // The environment's off switch is checked first: nothing is counted, nothing is called.
+  if (isPausedByEnv(kind, env)) return { allowed: false, reason: "paused" };
   try {
-    const { data, error } = await supabase.rpc("consume_usage", { p_kind: kind, p_limit: limit });
+    const { data, error } = await supabase.rpc("consume_usage", { p_kind: kind, p_limit: limit, p_global_limit: globalLimitFor(kind, env) });
     if (error) {
       const missing = error.code === "PGRST202" || error.code === "42883";
+      // Production refuses (below) — including when the database still has the old
+      // two-argument function and this code is calling the new one: run the 2026-11-09 migration first.
       if (missing && env.NODE_ENV !== "production") {
         if (!warnedMissing) {
           warnedMissing = true;
@@ -49,13 +57,18 @@ export async function consumeUsage(
       console.error("[usage] couldn't check the daily allowance", { kind, code: error.code, message: error.message });
       return { allowed: false, reason: "unavailable" };
     }
-    const row = Array.isArray(data) ? (data[0] as { allowed?: unknown; used?: unknown } | undefined) : undefined;
+    const row = Array.isArray(data) ? (data[0] as { allowed?: unknown; used?: unknown; refused_by?: unknown } | undefined) : undefined;
     if (!row || typeof row.allowed !== "boolean") {
       console.error("[usage] unexpected answer from consume_usage", { kind });
       return { allowed: false, reason: "unavailable" };
     }
     const used = typeof row.used === "number" ? row.used : 0;
-    return row.allowed ? { allowed: true, used, limit } : { allowed: false, reason: "limit", used, limit };
+    if (row.allowed) return { allowed: true, used, limit };
+    // Who said no. An answer from an older version of the function has no refused_by: it was the person's limit.
+    if (row.refused_by === "global") return { allowed: false, reason: "global_limit" };
+    if (row.refused_by === "paused") return { allowed: false, reason: "paused" };
+    if (row.refused_by === "invalid") return { allowed: false, reason: "unavailable" };
+    return { allowed: false, reason: "limit", used, limit };
   } catch (failure) {
     console.error("[usage] allowance check threw", { kind, error: failure instanceof Error ? failure.name : "unknown" });
     return { allowed: false, reason: "unavailable" };

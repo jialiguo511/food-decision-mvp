@@ -178,3 +178,13 @@ describe("recommender input and prompt", () => {
     expect(buildSystemPrompt(input)).not.toContain("`recent_choices`");
   });
 });
+
+describe("behavioral hints are off for the public beta", () => {
+  it("only an explicit BEHAVIORAL_HINTS=on turns the inferred-memory read-back on", async () => {
+    const { behavioralHintsEnabled } = await import("./behaviorQuery");
+    expect(behavioralHintsEnabled({})).toBe(false);
+    for (const v of ["", "off", "true", "1", "yes"]) expect(behavioralHintsEnabled({ BEHAVIORAL_HINTS: v }), v).toBe(false);
+    expect(behavioralHintsEnabled({ BEHAVIORAL_HINTS: "on" })).toBe(true);
+    expect(behavioralHintsEnabled({ BEHAVIORAL_HINTS: " ON " })).toBe(true);
+  });
+});

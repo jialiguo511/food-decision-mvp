@@ -90,7 +90,12 @@ export default function StartScreen({
         </p>
         {describeError && (
           <p role="alert" className="mt-2 px-1 text-sm text-red-700">
-            {describeError}
+            {describeError}{" "}
+            {describeError.startsWith("You've been signed out") && (
+              <a href="/login" target="_blank" rel="noopener" className="font-semibold underline">
+                Sign in (new tab)
+              </a>
+            )}
           </p>
         )}
         <Button type="submit" className="mt-3" disabled={empty || describing}>

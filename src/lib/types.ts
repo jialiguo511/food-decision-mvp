@@ -564,7 +564,11 @@ export type RecommendErrorCode =
   /** Today's allowance of nearby searches is used up (food ideas by type still work). */
   | "nearby_limit"
   /** The allowance couldn't be checked, so paid calls are held back. */
-  | "usage_unavailable";
+  | "usage_unavailable"
+  /** Suggestions are switched off, or the whole beta is out of today's capacity. Not the person's doing. */
+  | "service_paused"
+  /** Same, for nearby search only (food ideas by type still work). */
+  | "nearby_paused";
 
 /** Which of the person's rules a rejected set broke — an enumeration, never text, so it is
  *  safe to show and to log. Derived from the validator's findings (violationKinds). */

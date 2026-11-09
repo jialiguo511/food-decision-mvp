@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     // cache hit, or a card asked about twice costs nothing against the allowance.
     allowGeneration: async () => {
       const usage = await consumeUsage(supabase, "image");
-      if (!usage.allowed && usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "image" } });
+      if (!usage.allowed && (usage.reason === "limit" || usage.reason === "global_limit")) void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "image" } });
       return usage.allowed;
     },
   });

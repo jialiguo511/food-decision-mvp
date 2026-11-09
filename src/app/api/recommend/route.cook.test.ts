@@ -57,6 +57,8 @@ beforeEach(() => {
   maxConcurrent = 0;
   generate.mockReset();
   vi.stubEnv("ANTHROPIC_API_KEY", "test");
+  // Behavioral hints are off for the public beta; these tests are about the path that reads them.
+  vi.stubEnv("BEHAVIORAL_HINTS", "on");
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   generate.mockImplementation(async (_c: unknown, _i: unknown, _cands: unknown, timer?: { record: (n: string, ms: number) => void }) => {
@@ -64,6 +66,17 @@ beforeEach(() => {
     timer?.record("model", 5400);
     timer?.record("parse", 25);
     return { ok: true, recommendations: [recipe({ title: "Rice Bowl" })], insufficientInventory: false, model: "m" };
+  });
+});
+
+describe("Cook request — inferred memory is off unless switched on", () => {
+  it("by default no history is read back into the request at all", async () => {
+    vi.stubEnv("BEHAVIORAL_HINTS", "");
+    const res = await request(COOK);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Server-Timing") ?? "").not.toContain("hints;dur=");
+    const input = JSON.stringify(generate.mock.calls[0][1]);
+    expect(input).not.toContain("behavioral_hints");
   });
 });
 

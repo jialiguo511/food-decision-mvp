@@ -28,6 +28,9 @@ export function createFakeDb() {
    *  clock, so one "day". Mirrors the SQL (supabase/migrations/2026-11-07_*):
    *  add one only while under the limit; refused calls change nothing. */
   const usage = new Map<string, number>();
+  /** The whole app's count per kind, and the owner's paused-kinds switch (app_flags). */
+  const globalUsage = new Map<string, number>();
+  let pausedKinds = "";
   /** Set to make every rpc fail like a database that never ran the migration. */
   let rpcError: { code: string; message: string } | null = null;
   const rpc = async (userId: string | null, fn: string, args: Record<string, unknown>) => {
@@ -35,12 +38,22 @@ export function createFakeDb() {
     if (fn !== "consume_usage") return { data: null, error: { code: "PGRST202", message: `no function ${fn}` } };
     const limit = args.p_limit as number;
     const kind = args.p_kind as string;
-    if (!userId || !Number.isInteger(limit) || limit < 1 || !/^[a-z_]{1,32}$/.test(kind)) return { data: [{ allowed: false, used: 0 }], error: null };
+    const globalLimit = args.p_global_limit === undefined || args.p_global_limit === null ? null : (args.p_global_limit as number);
+    if (!userId || !Number.isInteger(limit) || limit < 1 || !/^[a-z_]{1,32}$/.test(kind) || (globalLimit !== null && !(globalLimit >= 1))) {
+      return { data: [{ allowed: false, used: 0, refused_by: "invalid" }], error: null };
+    }
+    const paused = pausedKinds.toLowerCase().replace(/\s+/g, "").split(",").filter(Boolean);
+    if (paused.includes("all") || paused.includes(kind)) return { data: [{ allowed: false, used: 0, refused_by: "paused" }], error: null };
     const key = `${userId}:${kind}`;
     const used = usage.get(key) ?? 0;
-    if (used >= limit) return { data: [{ allowed: false, used }], error: null };
+    if (used >= limit) return { data: [{ allowed: false, used, refused_by: "user" }], error: null };
+    if (globalLimit !== null) {
+      const total = globalUsage.get(kind) ?? 0;
+      if (total >= globalLimit) return { data: [{ allowed: false, used, refused_by: "global" }], error: null };
+      globalUsage.set(kind, total + 1);
+    }
     usage.set(key, used + 1);
-    return { data: [{ allowed: true, used: used + 1 }], error: null };
+    return { data: [{ allowed: true, used: used + 1, refused_by: null }], error: null };
   };
   const rows = (table: string) => (tables[table] ??= []);
 
@@ -163,6 +176,10 @@ export function createFakeDb() {
     count: (table: string) => rows(table).length,
     /** How many paid calls of `kind` this user has used (consume_usage). */
     usageOf: (userId: string, kind: string) => usage.get(`${userId}:${kind}`) ?? 0,
+    /** The whole app's use of `kind` today, across every user. */
+    globalUsageOf: (kind: string) => globalUsage.get(kind) ?? 0,
+    /** The owner's switch: "all", or a comma list of kinds ("recommend,image"). */
+    setPausedKinds: (value: string) => void (pausedKinds = value),
     /** Pretend the usage migration was never run (every rpc errors). */
     failRpc: (error: { code: string; message: string } | null) => void (rpcError = error),
     clientFor: (userId: string | null) => ({

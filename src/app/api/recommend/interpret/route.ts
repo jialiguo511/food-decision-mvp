@@ -30,6 +30,7 @@ const STATUS: Record<InterpretErrorCode, number> = {
   unavailable: 502,
   timeout: 504,
   limit_reached: 429,
+  paused: 503,
 };
 
 const fail = (error: InterpretErrorCode) => NextResponse.json({ error }, { status: STATUS[error] });
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
       void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "interpret" } });
       return fail("limit_reached");
     }
-    return fail("unavailable");
+    if (usage.reason === "global_limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "interpret" } });
+    return fail(usage.reason === "paused" || usage.reason === "global_limit" ? "paused" : "unavailable");
   }
 
   const startedAt = Date.now();

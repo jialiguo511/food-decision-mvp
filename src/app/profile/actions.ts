@@ -53,9 +53,12 @@ export async function saveEquipment(items: string[]): Promise<SaveResult> {
   return result;
 }
 
-function dedupe(values: string[]): string[] {
-  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).slice(0, 40);
+function dedupe(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.filter((v): v is string => typeof v === "string").map((v) => v.trim().replace(/\s+/g, " ").slice(0, 60).trim()).filter(Boolean))).slice(0, 40);
 }
+
+const COULDNT_SAVE = "Couldn't save that. Please try again.";
 
 /**
  * The whole Kitchen staples list, replaced in one call — the same "read the
@@ -82,7 +85,10 @@ export async function setKitchenStaples(names: string[]): Promise<SaveResult> {
     .from("kitchen_staples")
     .select("id, name")
     .eq("user_id", user.id);
-  if (readError) return { ok: false, error: readError.message };
+  if (readError) {
+    console.error("[staples] couldn't read", { code: readError.code });
+    return { ok: false, error: COULDNT_SAVE };
+  }
 
   const existingNames = new Set((existing ?? []).map((row) => row.name as string));
   const wantedNames = new Set(wanted);
@@ -91,14 +97,20 @@ export async function setKitchenStaples(names: string[]): Promise<SaveResult> {
   const toDelete = (existing ?? []).filter((row) => !wantedNames.has(row.name as string)).map((row) => row.id);
 
   if (toDelete.length > 0) {
-    const { error } = await supabase.from("kitchen_staples").delete().in("id", toDelete);
-    if (error) return { ok: false, error: error.message };
+    const { error } = await supabase.from("kitchen_staples").delete().in("id", toDelete).eq("user_id", user.id);
+    if (error) {
+      console.error("[staples] couldn't remove", { code: error.code });
+      return { ok: false, error: COULDNT_SAVE };
+    }
   }
   if (toInsert.length > 0) {
     const { error } = await supabase
       .from("kitchen_staples")
       .insert(toInsert.map((name) => ({ user_id: user.id, name })));
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      console.error("[staples] couldn't add", { code: error.code });
+      return { ok: false, error: COULDNT_SAVE };
+    }
   }
 
   revalidatePath("/profile");

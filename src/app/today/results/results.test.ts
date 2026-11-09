@@ -41,7 +41,8 @@ describe("error copy", () => {
 
   it("can't-retry cases don't offer Try again", () => {
     expect(errorCopy("places_not_configured").retry).toBe(false);
-    expect(errorCopy("unauthenticated").retry).toBe(false);
+    // Signed out is different: sign-in opens in a new tab so the answers survive, and Try again then works.
+    expect(errorCopy("unauthenticated").retry).toBe(true);
   });
 
   it("raw action errors are logged and replaced; the app's own copy passes through", () => {

@@ -36,7 +36,9 @@ export function interpretErrorCopy(error: InterpretErrorCode | "network"): strin
     case "nothing_found":
       return "I couldn't pick anything out of that. Add a few words about what you need, or choose step by step.";
     case "unauthenticated":
-      return "You've been signed out. Refresh the page and sign in again — your text will be lost, so copy it first.";
+      return "You've been signed out. Sign in again in a new tab, then come back here — your text is still in the box.";
+    case "paused":
+      return "Reading a typed sentence is unavailable right now. Your text is still here — you can choose step by step instead.";
     case "limit_reached":
       return "You've used today's quota for describing your situation. You can still choose step by step.";
     default:

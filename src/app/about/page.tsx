@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import { DEFAULT_LIMITS } from "@/lib/usage/limits";
+import { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 
 export const metadata: Metadata = { title: "About, privacy and estimates" };
 
@@ -18,10 +19,11 @@ export default function AboutPage() {
       <Link href="/today" className="text-sm font-semibold text-accent">
         ← Back
       </Link>
-      <h1 className="mt-4 text-[28px] font-semibold leading-tight tracking-tight">About this beta</h1>
+      <p className="mt-4 w-fit rounded-full border border-accent/30 bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">{BRAND.stage}</p>
+      <h1 className="mt-3 text-[28px] font-semibold leading-tight tracking-tight">About this beta</h1>
       <p className="mt-2 text-muted">
         {BRAND.name} is a small, early web app that helps you decide what to eat right now. It gives you three options at a time, fitted to what you tell it.
-        It&apos;s a personal project in a closed beta, so things will change and break.
+        It&apos;s a personal project in a public beta — anyone can try it, and things will change and break.
       </p>
 
       <Section title="What it is not">
@@ -62,10 +64,20 @@ export default function AboutPage() {
             numbers only — never what you typed, never foods, health details, or your location.
           </li>
           <li>The food you list as having “right now” is part of that request&apos;s record; it isn&apos;t kept as a pantry or reused for the next meal.</li>
+          <li>
+            If you use <em>Send feedback</em>: your message, the kind you chose, the contact you typed (if any), the page you were on (its path only) and this app&apos;s
+            version. No screenshot, and not what you typed on Home.
+          </li>
+          <li>A count of how many suggestions, searches and pictures you used today, to apply the daily limits below.</li>
         </ul>
         <p className="mt-2">
-          The sentence you type in “Tell me what&apos;s going on” is read once and <strong>not stored</strong> by us. In <em>Me → Account &amp; data</em> you can
-          reset your data (everything above, keeping your login) or delete your account.
+          The sentence you type in “Tell me what&apos;s going on” is read once and <strong>not stored</strong> by us. In <em>Me → Account &amp; data</em> you can{" "}
+          <strong>reset your data</strong> (everything in the list above except the daily counts, keeping your login) or <strong>delete your account</strong> (all of
+          it, and your login). Shared dish pictures that were generated while you used the app stay — they show a dish, not you.
+        </p>
+        <p className="mt-2">
+          The app doesn&apos;t build a hidden profile of what you pick: today it only remembers your last answers per mode so “Last time” can offer them, and you can
+          see and change them on the screen.
         </p>
       </Section>
 
@@ -90,14 +102,15 @@ export default function AboutPage() {
         </ul>
         <p className="mt-2">
           Each of those services has its own terms and privacy policy. There are no ads and no third-party analytics or tracking scripts in this app; it uses a
-          sign-in cookie and nothing else in your browser.
+          sign-in cookie and nothing else in your browser.{TURNSTILE_SITE_KEY ? " On the sign-in page, a Cloudflare Turnstile check may run to tell people from scripts; it is Cloudflare's service and is covered by their privacy policy." : ""}
         </p>
       </Section>
 
       <Section title="Daily limits">
         <p>
           To keep the beta affordable, each person has a daily allowance for the things that cost money — currently up to {DEFAULT_LIMITS.recommend} sets of
-          suggestions, {DEFAULT_LIMITS.nearby} nearby searches and {DEFAULT_LIMITS.interpret} typed sentences a day. It resets every day (UTC).
+          suggestions, {DEFAULT_LIMITS.nearby} nearby searches and {DEFAULT_LIMITS.interpret} typed sentences a day. It resets every day (UTC). The beta also has an overall
+          daily capacity, and may be paused; if so, the app says so and nothing is counted against you.
         </p>
       </Section>
 

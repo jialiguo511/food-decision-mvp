@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     // rule-written reasons, exactly as when the model fails.
     const usage = await timer.stage("usage", () => consumeUsage(supabase, "enrich"));
     if (!usage.allowed) {
-      if (usage.reason === "limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "enrich" } });
+      if (usage.reason === "limit" || usage.reason === "global_limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "enrich" } });
       return NextResponse.json({ recommendations, enriched: false });
     }
 

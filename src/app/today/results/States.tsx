@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import Button, { buttonClass } from "@/components/ui/Button";
 import type { RecommendUiError } from "@/lib/types";
@@ -100,15 +99,20 @@ export function ErrorState({
           </Button>
         )}
         {error.code === "unauthenticated" && (
-          <Link href="/login" className={buttonClass("primary")}>
-            Sign in
-          </Link>
+          // A new tab on purpose: this page keeps the answers; the sign-in cookie is shared, so Try again works afterwards.
+          <a href="/login" target="_blank" rel="noopener" className={buttonClass("primary")}>
+            Sign in (opens a new tab)
+          </a>
         )}
         {copy.change && !compact && (
           <Button variant="quiet" className="w-full" onClick={onChange}>
             Change my answers
           </Button>
         )}
+        {/* New tab: this page keeps the answers. */}
+        <a href="/feedback?from=/today" target="_blank" rel="noopener" className="block py-1 text-center text-xs text-muted underline">
+          Report a problem
+        </a>
       </div>
     </section>
   );

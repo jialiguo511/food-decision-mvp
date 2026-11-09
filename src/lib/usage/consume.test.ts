@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { consumeUsage, resetUsageWarning } from "./consume";
-import { DEFAULT_LIMITS, limitFor, USAGE_KINDS } from "./limits";
+import { DEFAULT_GLOBAL_LIMITS, DEFAULT_LIMITS, globalLimitFor, isPausedByEnv, limitFor, USAGE_KINDS } from "./limits";
 
 const rpc = vi.fn();
 const client = { rpc } as unknown as Parameters<typeof consumeUsage>[0];
@@ -15,7 +15,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("limitFor — one place for the numbers", () => {
   it("has a positive whole-number default for every kind of paid call", () => {
-    expect(USAGE_KINDS.sort()).toEqual(["enrich", "image", "interpret", "nearby", "place_photo", "recommend"]);
+    expect([...USAGE_KINDS].sort()).toEqual(["enrich", "feedback", "image", "interpret", "nearby", "place_photo", "recommend"]);
     for (const kind of USAGE_KINDS) expect(Number.isInteger(DEFAULT_LIMITS[kind]) && DEFAULT_LIMITS[kind] > 0).toBe(true);
   });
 
@@ -23,6 +23,12 @@ describe("limitFor — one place for the numbers", () => {
     expect(limitFor("recommend", { USAGE_LIMIT_RECOMMEND: "75" })).toBe(75);
     for (const bad of ["0", "-5", "abc", "1.5", "", "99999999", " "]) expect(limitFor("recommend", { USAGE_LIMIT_RECOMMEND: bad })).toBe(DEFAULT_LIMITS.recommend);
     expect(limitFor("image", { USAGE_LIMIT_RECOMMEND: "75" })).toBe(DEFAULT_LIMITS.image);
+  });
+
+  it("the app-wide ceiling has a sensible default for every kind and is never below one person's allowance", () => {
+    for (const kind of USAGE_KINDS) expect(DEFAULT_GLOBAL_LIMITS[kind], kind).toBeGreaterThanOrEqual(DEFAULT_LIMITS[kind]);
+    expect(globalLimitFor("recommend", { USAGE_GLOBAL_RECOMMEND: "x" })).toBe(DEFAULT_GLOBAL_LIMITS.recommend);
+    expect(globalLimitFor("recommend", { USAGE_GLOBAL_RECOMMEND: "0" })).toBe(DEFAULT_GLOBAL_LIMITS.recommend);
   });
 
   it("nearby search is metered tighter than the general allowance it is part of", () => {
@@ -34,7 +40,35 @@ describe("consumeUsage", () => {
   it("passes the kind and its limit to the database function", async () => {
     rpc.mockResolvedValue({ data: [{ allowed: true, used: 4 }], error: null });
     expect(await consumeUsage(client, "image", { env: { USAGE_LIMIT_IMAGE: "9" } })).toEqual({ allowed: true, used: 4, limit: 9 });
-    expect(rpc).toHaveBeenCalledWith("consume_usage", { p_kind: "image", p_limit: 9 });
+    expect(rpc).toHaveBeenCalledWith("consume_usage", { p_kind: "image", p_limit: 9, p_global_limit: DEFAULT_GLOBAL_LIMITS.image });
+  });
+
+  it("sends the app-wide ceiling too, and honours an override of it", async () => {
+    rpc.mockResolvedValue({ data: [{ allowed: true, used: 1, refused_by: null }], error: null });
+    await consumeUsage(client, "recommend", { env: { USAGE_GLOBAL_RECOMMEND: "50" } });
+    expect(rpc).toHaveBeenCalledWith("consume_usage", expect.objectContaining({ p_global_limit: 50 }));
+  });
+
+  it("tells the person's own limit from the whole app's ceiling and from the owner's off switch", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ allowed: false, used: 7, refused_by: "global" }], error: null });
+    expect(await consumeUsage(client, "recommend", { env: {} })).toEqual({ allowed: false, reason: "global_limit" });
+    rpc.mockResolvedValueOnce({ data: [{ allowed: false, used: 0, refused_by: "paused" }], error: null });
+    expect(await consumeUsage(client, "recommend", { env: {} })).toEqual({ allowed: false, reason: "paused" });
+    rpc.mockResolvedValueOnce({ data: [{ allowed: false, used: 30, refused_by: "user" }], error: null });
+    expect(await consumeUsage(client, "recommend", { env: {} })).toMatchObject({ allowed: false, reason: "limit", used: 30 });
+    // signed out / nonsense arguments are never reported as "the person is over their limit"
+    rpc.mockResolvedValueOnce({ data: [{ allowed: false, used: 0, refused_by: "invalid" }], error: null });
+    expect(await consumeUsage(client, "recommend", { env: {} })).toEqual({ allowed: false, reason: "unavailable" });
+  });
+
+  it("PAUSED_KINDS stops a paid call before the database is even asked — all kinds, or just the named ones", async () => {
+    expect(await consumeUsage(client, "image", { env: { PAUSED_KINDS: "all" } })).toEqual({ allowed: false, reason: "paused" });
+    expect(await consumeUsage(client, "image", { env: { PAUSED_KINDS: "recommend, Image" } })).toEqual({ allowed: false, reason: "paused" });
+    expect(rpc).not.toHaveBeenCalled();
+    rpc.mockResolvedValue({ data: [{ allowed: true, used: 1, refused_by: null }], error: null });
+    expect(await consumeUsage(client, "nearby", { env: { PAUSED_KINDS: "recommend,image" } })).toMatchObject({ allowed: true });
+    expect(isPausedByEnv("nearby", { PAUSED_KINDS: "" })).toBe(false);
+    expect(isPausedByEnv("nearby", {})).toBe(false);
   });
 
   it("reports the limit, with how much was used", async () => {

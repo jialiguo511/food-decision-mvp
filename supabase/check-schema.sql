@@ -17,13 +17,15 @@ with
 tables(name) as (values
   ('profiles'), ('kitchen_staples'), ('decision_sessions'), ('meal_feedback'),
   ('place_feedback'), ('saved_recipes'), ('saved_places'), ('recipe_images'),
-  ('usage_counters'), ('product_events')),
+  ('usage_counters'), ('product_events'),
+  ('global_usage'), ('app_flags'), ('feedback')),
 profile_columns(name) as (values
   ('daily_calorie_target_kcal'), ('allergies'), ('sex'), ('age_years'), ('height_cm'),
   ('weight_kg'), ('activity_level'), ('health_conditions'), ('nutrition_priorities')),
 rls_tables(name) as (values
   ('profiles'), ('kitchen_staples'), ('decision_sessions'), ('meal_feedback'),
-  ('place_feedback'), ('saved_recipes'), ('saved_places'), ('usage_counters'), ('product_events'))
+  ('place_feedback'), ('saved_recipes'), ('saved_places'), ('usage_counters'), ('product_events'),
+  ('global_usage'), ('app_flags'), ('feedback'))
 select 'table ' || t.name as item,
        case when exists (select 1 from pg_tables p where p.schemaname = 'public' and p.tablename = t.name) then 'ok' else 'MISSING' end as status
 from tables t
@@ -38,8 +40,9 @@ select 'row level security on ' || r.name,
             then 'ok' else 'MISSING' end
 from rls_tables r
 union all
-select 'function consume_usage',
-       case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage') then 'ok' else 'MISSING' end
+-- the three-argument version (whole-app ceiling + off switch); the old two-argument one reads MISSING
+select 'function consume_usage(text, integer, integer)',
+       case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage' and f.pronargs = 3) then 'ok' else 'MISSING' end
 union all
 select 'function release_user_storage',
        case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'release_user_storage') then 'ok' else 'MISSING' end

@@ -21,7 +21,7 @@ import { effectiveTravel, searchRadiusMeters } from "@/lib/places/travel";
 import { resolvePlacesProvider } from "@/lib/places";
 import { PlacesError } from "@/lib/places/provider";
 import { toProfileFormValues } from "@/lib/profile";
-import { loadBehaviorHints } from "@/lib/recommend/behaviorQuery";
+import { behavioralHintsEnabled, loadBehaviorHints } from "@/lib/recommend/behaviorQuery";
 import {
   recommendRequestSchema,
   resolveRecommendationInput,
@@ -73,6 +73,8 @@ const STATUS: Record<RecommendErrorCode, number> = {
   daily_limit: 429,
   nearby_limit: 429,
   usage_unavailable: 503,
+  service_paused: 503,
+  nearby_paused: 503,
 };
 
 const MODE_LABEL = { cook: "Cook", order: "Get food", store_snack: "Snack", open: "Open" } as const;
@@ -225,7 +227,7 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
         ? timer.part("preferences", "staples", async () => supabase.from("kitchen_staples").select("name").eq("user_id", user.id))
         : Promise.resolve(null),
       // Behavioral hints are per mode; a cross-way request has no single mode to read them from.
-      context.decision_mode === "open"
+      context.decision_mode === "open" || !behavioralHintsEnabled()
         ? Promise.resolve(null)
         : timer.part("preferences", "hints", () => loadBehaviorHints(supabase, user.id, context.decision_mode)),
     ]),
@@ -303,8 +305,15 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
 
 /** A paid call refused for today (or held back because the allowance couldn't
  *  be checked). The limit event is a note, not part of the answer. */
-function refuseUsage(timer: Timer, supabase: ServerSupabase, userId: string, kind: "recommend" | "nearby", reason: "limit" | "unavailable") {
+function refuseUsage(timer: Timer, supabase: ServerSupabase, userId: string, kind: "recommend" | "nearby", reason: "limit" | "global_limit" | "paused" | "unavailable") {
   if (reason === "unavailable") return fail(timer, "usage_unavailable", "Suggestions are paused for a moment. Please try again shortly.");
+  // Switched off, or the whole beta is out of today's capacity: nothing the person did, and nothing to count against them.
+  if (reason === "paused" || reason === "global_limit") {
+    if (reason === "global_limit") void recordEvent(supabase, userId, { name: "limit_hit", props: { kind } });
+    return kind === "nearby"
+      ? fail(timer, "nearby_paused", "Nearby search is unavailable right now.")
+      : fail(timer, "service_paused", "Suggestions are unavailable right now.");
+  }
   void recordEvent(supabase, userId, { name: "limit_hit", props: { kind } });
   return kind === "nearby"
     ? fail(timer, "nearby_limit", "You've used today's nearby searches.")

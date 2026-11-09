@@ -10,11 +10,16 @@ import { createRealDb, readSql, type RealDb } from "@/test/realDb";
 let real: RealDb;
 const U1 = "00000000-0000-0000-0000-000000000001";
 const U2 = "00000000-0000-0000-0000-000000000002";
-const consume = (user: string | null, kind = "recommend", limit = 3) => real.clientFor(user).rpc("consume_usage", { p_kind: kind, p_limit: limit });
-const row = async (res: ReturnType<typeof consume>) => ((await res).data as { allowed: boolean; used: number }[])[0];
+const consume = (user: string | null, kind = "recommend", limit = 3, global: number | null = null) =>
+  real.clientFor(user).rpc("consume_usage", { p_kind: kind, p_limit: limit, p_global_limit: global });
+// {allowed, used} only: refused_by is asserted where it matters.
+const row = async (res: ReturnType<typeof consume>) => {
+  const r = ((await res).data as { allowed: boolean; used: number }[])[0];
+  return { allowed: r.allowed, used: r.used };
+};
 
 beforeAll(async () => {
-  real = await createRealDb({ sql: [readSql("supabase/migrations/2026-11-07_usage_and_events.sql")] });
+  real = await createRealDb({ sql: [readSql("supabase/migrations/2026-11-07_usage_and_events.sql"), readSql("supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql")] });
   await real.addUser(U1);
   await real.addUser(U2);
 });
@@ -52,6 +57,79 @@ describe("consume_usage — the limit", () => {
     expect((await row(consume(U1, "recommend", 0))).allowed).toBe(false);
     expect((await row(consume(U1, "Bad Kind!", 5))).allowed).toBe(false);
     expect((await row(consume(U1, "x".repeat(40), 5))).allowed).toBe(false);
+  });
+});
+
+describe("consume_usage — the whole app's daily ceiling and the owner's off switch", () => {
+  const U3 = "00000000-0000-0000-0000-000000000003";
+  const U4 = "00000000-0000-0000-0000-000000000004";
+  const refusedBy = async (res: ReturnType<typeof consume>) => ((await res).data as { refused_by: string | null }[])[0].refused_by;
+  const globalCount = async (kind: string) => (await real.admin<{ count: number }>("select count from public.global_usage where kind = $1", [kind]))[0]?.count ?? 0;
+  beforeAll(async () => {
+    await real.addUser(U3);
+    await real.addUser(U4);
+  });
+
+  it("many accounts together cannot pass the app-wide ceiling, whatever each one's own limit is", async () => {
+    // Four people, each allowed 10, but the whole app only 5 today.
+    const outcomes = [];
+    for (const u of [U1, U2, U3, U4, U1, U2, U3, U4]) outcomes.push((await consume(u, "wide", 10, 5)).data as { allowed: boolean; refused_by: string | null }[]);
+    expect(outcomes.filter((o) => o[0].allowed).length).toBe(5);
+    expect(outcomes.filter((o) => !o[0].allowed).every((o) => o[0].refused_by === "global")).toBe(true);
+    expect(await globalCount("wide")).toBe(5);
+  });
+
+  it("a refusal by the app ceiling gives the person's unit back — they were not charged for a call that never happened", async () => {
+    const [stored] = await real.admin<{ n: number }>("select coalesce(sum(count), 0)::int as n from public.usage_counters where kind = 'wide'");
+    expect(stored.n).toBe(5); // 5 allowed calls, not 8
+  });
+
+  it("holds under concurrency: 60 simultaneous calls from 4 accounts against a ceiling of 12 allow exactly 12", async () => {
+    const users = [U1, U2, U3, U4];
+    const results = await Promise.all(Array.from({ length: 60 }, (_, i) => consume(users[i % 4], "stampede", 30, 12)));
+    expect(results.map((r) => (r.data as { allowed: boolean }[])[0].allowed).filter(Boolean).length).toBe(12);
+    expect(await globalCount("stampede")).toBe(12);
+  });
+
+  it("a person over their OWN limit is told so (not blamed on the app) and never touches the app counter", async () => {
+    await consume(U3, "own", 1, 100);
+    const second = consume(U3, "own", 1, 100);
+    expect(await refusedBy(second)).toBe("user");
+    expect(await globalCount("own")).toBe(1);
+  });
+
+  it("the off switch: app_flags.paused_kinds stops the named kinds at once — and 'all' stops everything — without a deploy", async () => {
+    expect(await refusedBy(consume(U1, "switch", 9, 9))).toBeNull();
+    await real.admin("update public.app_flags set value = 'switch, other' where key = 'paused_kinds'");
+    expect(await refusedBy(consume(U1, "switch", 9, 9))).toBe("paused");
+    expect(await refusedBy(consume(U1, "unrelated", 9, 9))).toBeNull();
+    await real.admin("update public.app_flags set value = 'ALL' where key = 'paused_kinds'");
+    expect(await refusedBy(consume(U1, "unrelated", 9, 9))).toBe("paused");
+    // Paused calls are not counted against anyone.
+    const [c] = await real.admin<{ n: number }>("select count(*)::int as n from public.usage_counters where kind = 'switch' and user_id = $1", [U1]);
+    expect(c.n).toBe(1);
+    await real.admin("update public.app_flags set value = '' where key = 'paused_kinds'");
+    expect(await refusedBy(consume(U1, "switch", 9, 9))).toBeNull();
+  });
+
+  it("a signed-in user cannot read or change the app counters or the switchboard", async () => {
+    const as = real.clientFor(U1);
+    expect((await as.from("global_usage").select("*")).error).not.toBeNull();
+    expect((await as.from("global_usage").update({ count: 0 }).eq("kind", "wide")).error).not.toBeNull();
+    expect((await as.from("app_flags").select("*")).error).not.toBeNull();
+    expect((await as.from("app_flags").update({ value: "" }).eq("key", "paused_kinds")).error).not.toBeNull();
+    expect((await real.clientFor(null).from("app_flags").select("*")).error).not.toBeNull();
+  });
+
+  it("a nonsense ceiling is refused as invalid, not treated as 'no ceiling'", async () => {
+    expect(await refusedBy(consume(U1, "bad", 5, 0))).toBe("invalid");
+    expect(await refusedBy(consume(U1, "bad", 5, -3))).toBe("invalid");
+  });
+
+  it("the two-argument call the already-deployed code makes still works (the ceiling is optional)", async () => {
+    const res = await real.clientFor(U1).rpc("consume_usage", { p_kind: "legacy", p_limit: 2 });
+    expect(res.error).toBeNull();
+    expect((res.data as { allowed: boolean }[])[0].allowed).toBe(true);
   });
 });
 

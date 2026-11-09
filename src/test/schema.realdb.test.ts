@@ -124,6 +124,18 @@ describe("supabase/check-schema.sql", () => {
   it("a database that stops at the last release (everything but the web-beta migration) is told exactly that", async () => {
     const before = await fresh([SCHEMA.slice(0, SCHEMA.indexOf("-- Web beta: per-user daily usage limits"))]);
     const gaps = await missing(before);
-    expect(gaps.sort()).toEqual(["function consume_usage", "function release_user_storage", "table product_events", "table usage_counters"].sort());
+    expect(gaps.sort()).toEqual(
+      ["function consume_usage(text, integer, integer)", "function release_user_storage", "table product_events", "table usage_counters", "table global_usage", "table app_flags", "table feedback"].sort(),
+    );
+  });
+
+  it("a database that stopped at the previous web-beta migration is told the cost guards and the feedback table are missing — and is fixed by the new migration alone", async () => {
+    const previous = await fresh([SCHEMA.slice(0, SCHEMA.indexOf("-- Web beta: per-user daily usage limits")), readSql("supabase/migrations/2026-11-07_usage_and_events.sql"), readSql("supabase/migrations/2026-11-08_release_user_storage.sql")]);
+    expect((await missing(previous)).sort()).toEqual(["function consume_usage(text, integer, integer)", "table app_flags", "table feedback", "table global_usage"].sort());
+    await previous.db.exec(readSql("supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql"));
+    expect(await missing(previous)).toEqual([]);
+    // …and running it a second time is harmless.
+    await previous.db.exec(readSql("supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql"));
+    expect(await missing(previous)).toEqual([]);
   });
 });

@@ -50,8 +50,8 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
   },
   unauthenticated: {
     title: "You're signed out.",
-    body: "Sign in again to get recommendations.",
-    retry: false,
+    body: "Sign in again in a new tab, then come back here and press Try again — your answers are kept.",
+    retry: true,
     byType: false,
     change: false,
   },
@@ -125,6 +125,19 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
   nearby_limit: {
     title: "You've used today's nearby searches.",
     body: "You can still get food ideas by type, or look again tomorrow.",
+    ...NEARBY,
+    retry: false,
+  },
+  service_paused: {
+    title: "Suggestions are unavailable right now.",
+    body: "The beta is paused or has used its capacity for today. This isn't something you did, and nothing was used from your allowance. Please try again later.",
+    retry: true,
+    byType: false,
+    change: false,
+  },
+  nearby_paused: {
+    title: "Nearby search is unavailable right now.",
+    body: "It's paused or out of capacity for today. You can still get food ideas by type.",
     ...NEARBY,
     retry: false,
   },

@@ -11,7 +11,7 @@
 //
 // The day is a UTC day (supabase/migrations/2026-11-07_usage_and_events.sql).
 
-export type UsageKind = "recommend" | "nearby" | "interpret" | "enrich" | "image" | "place_photo";
+export type UsageKind = "recommend" | "nearby" | "interpret" | "enrich" | "image" | "place_photo" | "feedback";
 
 export const DEFAULT_LIMITS: Record<UsageKind, number> = {
   /** Every request for three suggestions, any mode, including "Show me 3 more". */
@@ -26,6 +26,26 @@ export const DEFAULT_LIMITS: Record<UsageKind, number> = {
   image: 40,
   /** Fetching a place photo from Google (billed per photo). */
   place_photo: 60,
+  /** The feedback form. Not a paid call, but it writes a row from a public sign-up, so it is metered the same way. */
+  feedback: 5,
+};
+
+/** The WHOLE APP's ceiling per UTC day for each kind, across every account — so ten
+ *  thousand sign-ups still can't spend more than this. Rough worst-case dollars if a
+ *  ceiling is hit for one day (my estimates from PLAN.md's per-call notes, not
+ *  measurements): recommend 600 × ~$0.02 ≈ $12, nearby 150 × a few cents ≈ $5,
+ *  interpret 1500 × a fraction of a cent, image 300 × ~$0.005 ≈ $1.5.
+ *  This is the application's own line, enforced in Postgres. It is NOT a replacement
+ *  for the spend caps at Anthropic / OpenAI / Google (RELEASE.md §6).
+ *  Override a number with USAGE_GLOBAL_<KIND>. */
+export const DEFAULT_GLOBAL_LIMITS: Record<UsageKind, number> = {
+  recommend: 600,
+  nearby: 150,
+  interpret: 1500,
+  enrich: 600,
+  image: 300,
+  place_photo: 1000,
+  feedback: 200,
 };
 
 export const USAGE_KINDS = Object.keys(DEFAULT_LIMITS) as UsageKind[];
@@ -36,4 +56,19 @@ export function limitFor(kind: UsageKind, env: Record<string, string | undefined
   const raw = env[`USAGE_LIMIT_${kind.toUpperCase()}`]?.trim();
   const override = raw && /^\d{1,6}$/.test(raw) ? Number(raw) : NaN;
   return Number.isInteger(override) && override >= 1 ? override : DEFAULT_LIMITS[kind];
+}
+
+/** The app-wide daily ceiling for a kind (see DEFAULT_GLOBAL_LIMITS). Same rule as limitFor. */
+export function globalLimitFor(kind: UsageKind, env: Record<string, string | undefined> = process.env): number {
+  const raw = env[`USAGE_GLOBAL_${kind.toUpperCase()}`]?.trim();
+  const override = raw && /^\d{1,7}$/.test(raw) ? Number(raw) : NaN;
+  return Number.isInteger(override) && override >= 1 ? override : DEFAULT_GLOBAL_LIMITS[kind];
+}
+
+/** The off switch in the environment: PAUSED_KINDS="all" or a comma list ("recommend,image").
+ *  It needs a redeploy to change; the database flag in app_flags (see the 2026-11-09
+ *  migration) is the instant one, and is checked inside consume_usage. */
+export function isPausedByEnv(kind: UsageKind, env: Record<string, string | undefined> = process.env): boolean {
+  const list = (env.PAUSED_KINDS ?? "").toLowerCase().replace(/\s+/g, "").split(",").filter(Boolean);
+  return list.includes("all") || list.includes(kind);
 }

@@ -13,6 +13,9 @@ export const BRAND = {
   name: "What Should I Eat",
   /** Under the icon on a phone's home screen (short labels get cut off). */
   short: "What to Eat",
+  /** The release stage, shown on the sign-in page, Me and About. Public beta = anyone can sign up; it is
+   *  not "finished". Change it here when the stage changes. */
+  stage: "Public Beta",
   /** What it does, in one sentence. */
   tagline: "Three meal ideas for right now, fitted to your real constraints.",
 } as const;

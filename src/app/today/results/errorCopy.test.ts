@@ -8,7 +8,7 @@ import { brokenRules, errorCopy } from "./errorCopy";
 const SERVER: Record<RecommendErrorCode, true> = {
   llm_not_configured: true, places_not_configured: true, places_unavailable: true, invalid_location: true, unauthenticated: true, invalid_context: true,
   profile_unavailable: true, malformed_output: true, constraint_violation: true, model_refused: true, truncated_output: true, rate_limited: true,
-  upstream_timeout: true, upstream_error: true, session_save_failed: true, daily_limit: true, nearby_limit: true, usage_unavailable: true,
+  upstream_timeout: true, upstream_error: true, session_save_failed: true, daily_limit: true, nearby_limit: true, usage_unavailable: true, service_paused: true, nearby_paused: true,
 };
 const BROWSER: Record<LocationErrorCode | TransportErrorCode, true> = {
   location_unsupported: true, location_denied: true, location_unavailable: true, location_timeout: true, network_error: true, bad_response: true,

@@ -48,7 +48,10 @@ export default async function ProfilePage() {
     >
       <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} allergyStatus={allergyStatus(data)} />
       <AccountDataSection />
-      <p className="mt-6 text-center text-xs text-muted">
+      <p className="mt-6 flex flex-col items-center gap-2 text-center text-xs text-muted">
+        <Link href="/feedback?from=/profile" className="text-sm font-semibold text-accent">
+          Send feedback or report a problem
+        </Link>
         <Link href="/about" className="underline">
           About this beta, privacy and estimates
         </Link>

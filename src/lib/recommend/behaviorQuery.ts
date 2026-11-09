@@ -7,6 +7,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RecommendationRole } from "../types";
 import { summarizeBehavior, type BehaviorHints, type BehaviorScope, type ChosenRow } from "./behavior";
 
+/**
+ * OFF unless BEHAVIORAL_HINTS=on. These hints are inferred memory — the recommender is told
+ * what you recently chose — and PERSONALIZATION.md principle 7 says inferred memory ships only
+ * with a way for the person to see and reset it. There is a reset (Reset my data clears the
+ * history they are read from) but no place to SEE them, so for the public beta they are
+ * disabled rather than quietly shaping results. Turning them back on is this one switch.
+ */
+export const behavioralHintsEnabled = (env: Record<string, string | undefined> = process.env) => env.BEHAVIORAL_HINTS?.trim().toLowerCase() === "on";
+
 const LOOKBACK_DAYS = 60;
 const MAX_ROWS = 60;
 const ROLES: readonly string[] = ["best_match", "lowest_effort", "alternative"];

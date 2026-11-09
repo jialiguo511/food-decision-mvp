@@ -17,6 +17,14 @@ import { patchProfile, writeProfile } from "@/lib/profileStore";
 import { createClient } from "@/lib/supabase/server";
 import type { PlaceFeedbackAction, PlaceFeedbackReason, ProfileFormValues, Recommendation, SavedState } from "@/lib/types";
 
+/** An id from the browser: letters, digits, "-" and "_", short. Anything else is not one of ours. */
+const isId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+/** A feedback note is one of the fixed option values ("too_expensive", "ordered_it", …), never free text. */
+const isNoteToken = (value: unknown): value is string => typeof value === "string" && /^[a-z_]{1,40}$/.test(value);
+
+/** What the browser is told when the database says no: the reason is for the log, not for a screen. */
+const GENERIC_FAILURE = "Couldn't save that. Please try again.";
+
 export type ChooseResult =
   | { ok: true; chosenIndex: 0 | 1 | 2 }
   | { ok: false; error: string };
@@ -35,6 +43,7 @@ export async function chooseRecommendation(
   sessionId: string,
   chosenIndex: 0 | 1 | 2,
 ): Promise<ChooseResult> {
+  if (!isId(sessionId) || (chosenIndex !== 0 && chosenIndex !== 1 && chosenIndex !== 2)) return { ok: false, error: "That recommendation session could not be found." };
   const supabase = await createClient();
   const {
     data: { user },
@@ -50,7 +59,10 @@ export async function chooseRecommendation(
     .select("chosen_index")
     .maybeSingle();
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[choose] couldn't record the choice", { code: error.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
   if (data) {
     await noteChoice(supabase, user.id, sessionId, chosenIndex);
     return { ok: true, chosenIndex: data.chosen_index as 0 | 1 | 2 };
@@ -65,7 +77,10 @@ export async function chooseRecommendation(
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (readError) return { ok: false, error: readError.message };
+  if (readError) {
+    console.error("[choose] couldn't read the session", { code: readError.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
   if (!existing) return { ok: false, error: "That recommendation session could not be found." };
   if (existing.chosen_index === chosenIndex) return { ok: true, chosenIndex };
   return { ok: false, error: "A different option was already chosen for this session." };
@@ -93,6 +108,7 @@ export async function recordMealFeedback(
   mealTitle: string,
   didEat: boolean,
 ): Promise<FeedbackResult> {
+  if (!isId(sessionId) || typeof mealTitle !== "string" || typeof didEat !== "boolean") return { ok: false, error: GENERIC_FAILURE };
   const supabase = await createClient();
   const {
     data: { user },
@@ -105,15 +121,28 @@ export async function recordMealFeedback(
     .eq("session_id", sessionId)
     .eq("user_id", user.id)
     .maybeSingle();
-  if (readError) return { ok: false, error: readError.message };
+  if (readError) {
+    console.error("[feedback] couldn't read earlier feedback", { code: readError.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
   if (existing) return { ok: true, id: existing.id, didEat: existing.did_eat, note: existing.note };
+
+  // The session must be the caller's own: Row Level Security only checks that the NEW ROW is
+  // the caller's, not that the session it points at is. (A foreign id would just be a dangling
+  // reference on their own row — but a stored row should mean what it says.)
+  const { data: ownSession, error: sessionError } = await supabase.from("decision_sessions").select("id").eq("id", sessionId).eq("user_id", user.id).maybeSingle();
+  if (sessionError || !ownSession) return { ok: false, error: "That recommendation session could not be found." };
 
   const { data, error } = await supabase
     .from("meal_feedback")
-    .insert({ user_id: user.id, session_id: sessionId, meal_title: mealTitle, did_eat: didEat })
+    // The title is kept short: it is a label, and nothing here should be a way to store a lot of text.
+    .insert({ user_id: user.id, session_id: sessionId, meal_title: mealTitle.slice(0, 200), did_eat: didEat })
     .select("id, did_eat, note")
     .single();
-  if (error || !data) return { ok: false, error: error?.message ?? "Couldn't save your answer." };
+  if (error || !data) {
+    if (error) console.error("[feedback] couldn't save the answer", { code: error.code });
+    return { ok: false, error: "Couldn't save your answer." };
+  }
   return { ok: true, id: data.id, didEat: data.did_eat, note: data.note };
 }
 
@@ -127,6 +156,7 @@ export type SetNoteResult = { ok: true } | { ok: false; error: string };
  * duplicate call is a harmless no-op rather than overwriting an answer.
  */
 export async function setMealFeedbackNote(feedbackId: string, note: string): Promise<SetNoteResult> {
+  if (!isId(feedbackId) || !isNoteToken(note)) return { ok: false, error: GENERIC_FAILURE };
   const supabase = await createClient();
   const {
     data: { user },
@@ -139,7 +169,10 @@ export async function setMealFeedbackNote(feedbackId: string, note: string): Pro
     .eq("id", feedbackId)
     .eq("user_id", user.id)
     .is("note", null);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[feedback] couldn't save the note", { code: error.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
   return { ok: true };
 }
 
@@ -171,7 +204,10 @@ export async function recordPlaceFeedback(placeId: string, reason: string): Prom
     { user_id: user.id, provider: PLACE_PROVIDER, place_id: placeId, action, reason },
     { onConflict: "user_id,provider,place_id" },
   );
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[place_feedback] couldn't save", { code: error.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
 
   // A hard exclusion outranks a save: a place the user never wants suggested
   // leaves Saved (soft downranking leaves it alone). Undoing the exclusion
@@ -210,7 +246,10 @@ export async function clearPlaceFeedback(placeId: string): Promise<{ ok: true } 
     .eq("user_id", user.id)
     .eq("provider", PLACE_PROVIDER)
     .eq("place_id", placeId);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[place_feedback] couldn't clear", { code: error.code });
+    return { ok: false, error: GENERIC_FAILURE };
+  }
   return { ok: true };
 }
 
