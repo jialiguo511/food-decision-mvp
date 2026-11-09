@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   // The daily allowance, spent before the model is called (and counted whether
   // or not the read then works). Reading a sentence is cheap, but unmetered is
   // unmetered.
-  const usage = await consumeUsage(supabase, "interpret");
+  const usage = await consumeUsage(user.id, "interpret");
   if (!usage.allowed) {
     if (usage.reason === "limit") {
       void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "interpret" } });

@@ -13,6 +13,8 @@ const generate = vi.fn();
 const searchNearby = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => db.clientFor(currentUser) }));
+// The server's service-role client: where the allowance is spent (and where pictures are stored).
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db.adminClient() }));
 vi.mock("./claude", () => ({ generateRecommendations: (...args: unknown[]) => generate(...args) }));
 vi.mock("@/lib/places", () => ({ resolvePlacesProvider: () => ({ searchNearby }) }));
 

@@ -5,13 +5,14 @@
 // is not usable signed-out.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createRealDb, readSql, type RealDb } from "@/test/realDb";
+import { createRealDb, readSql, SERVICE_ROLE, type RealDb } from "@/test/realDb";
 
 let real: RealDb;
 const U1 = "00000000-0000-0000-0000-000000000001";
 const U2 = "00000000-0000-0000-0000-000000000002";
+// The server's call: service role, user id from the verified session, limits from its own configuration.
 const consume = (user: string | null, kind = "recommend", limit = 3, global: number | null = null) =>
-  real.clientFor(user).rpc("consume_usage", { p_kind: kind, p_limit: limit, p_global_limit: global });
+  real.clientFor(SERVICE_ROLE).rpc("consume_usage", { p_user: user, p_kind: kind, p_limit: limit, p_global_limit: global });
 // {allowed, used} only: refused_by is asserted where it matters.
 const row = async (res: ReturnType<typeof consume>) => {
   const r = ((await res).data as { allowed: boolean; used: number }[])[0];
@@ -19,7 +20,7 @@ const row = async (res: ReturnType<typeof consume>) => {
 };
 
 beforeAll(async () => {
-  real = await createRealDb({ sql: [readSql("supabase/migrations/2026-11-07_usage_and_events.sql"), readSql("supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql")] });
+  real = await createRealDb({ sql: [readSql("supabase/migrations/2026-10-02_recipe_images.sql"), readSql("supabase/migrations/2026-11-07_usage_and_events.sql"), readSql("supabase/migrations/2026-11-09_abuse_guards_and_feedback.sql"), readSql("supabase/migrations/2026-11-10_server_only_writes.sql")] });
   await real.addUser(U1);
   await real.addUser(U2);
 });
@@ -126,10 +127,24 @@ describe("consume_usage — the whole app's daily ceiling and the owner's off sw
     expect(await refusedBy(consume(U1, "bad", 5, -3))).toBe("invalid");
   });
 
-  it("the two-argument call the already-deployed code makes still works (the ceiling is optional)", async () => {
-    const res = await real.clientFor(U1).rpc("consume_usage", { p_kind: "legacy", p_limit: 2 });
-    expect(res.error).toBeNull();
-    expect((res.data as { allowed: boolean }[])[0].allowed).toBe(true);
+});
+
+describe("consume_usage — a browser cannot call it at all", () => {
+  const args = { p_user: U1, p_kind: "recommend", p_limit: 1_000_000, p_global_limit: 1_000_000 };
+  it("a signed-in user cannot pick their own limits, spend for someone else, or push the app counter", async () => {
+    for (const actor of [U1, U2]) {
+      const res = await real.clientFor(actor).rpc("consume_usage", args);
+      expect(res.error, `as ${actor}`).not.toBeNull();
+    }
+    const [c] = await real.admin<{ n: number }>("select count(*)::int as n from public.usage_counters where kind = 'recommend' and count > 100");
+    expect(c.n).toBe(0);
+  });
+  it("a signed-out caller cannot either", async () => {
+    expect((await real.clientFor(null).rpc("consume_usage", args)).error).not.toBeNull();
+  });
+  it("the old signatures (kind, limit) and (kind, limit, ceiling) are gone, not merely hidden", async () => {
+    const fns = await real.admin<{ args: string }>("select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'consume_usage'");
+    expect(fns.map((f) => f.args)).toEqual(["p_user uuid, p_kind text, p_limit integer, p_global_limit integer"]);
   });
 });
 

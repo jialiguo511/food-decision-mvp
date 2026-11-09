@@ -20,7 +20,7 @@ export async function submitFeedback(input: FeedbackInput): Promise<FeedbackResu
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "You are signed out. Please sign in again — your message is still in the box." };
 
-  const usage = await consumeUsage(supabase, "feedback");
+  const usage = await consumeUsage(user.id, "feedback");
   if (!usage.allowed) {
     return {
       ok: false,

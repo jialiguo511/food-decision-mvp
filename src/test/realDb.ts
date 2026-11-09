@@ -19,6 +19,9 @@ import { PGlite } from "@electric-sql/pglite";
 type Row = Record<string, unknown>;
 type DbError = { code: string; message: string; details: string | null; hint: string | null };
 type Result = { data: unknown; error: DbError | null; count?: number | null };
+/** Who a statement runs as: a signed-in user id, null (signed out → anon), or the server's service role. */
+export type Actor = string | null | "service_role";
+export const SERVICE_ROLE = "service_role" as const;
 
 const AUTH_STUB = `
   create schema if not exists auth;
@@ -30,6 +33,8 @@ const AUTH_STUB = `
     if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
     if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if;
   end $$;
+  -- Supabase's service_role bypasses Row Level Security (it is what the server's admin client uses).
+  alter role service_role bypassrls;
   grant usage on schema auth to authenticated, anon;
   grant execute on function auth.uid() to authenticated, anon;
   grant select on auth.users to authenticated;
@@ -51,6 +56,13 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
   const db = new PGlite();
   await db.exec(AUTH_STUB);
   for (const sql of options.sql ?? []) await db.exec(sql);
+  // As Supabase's default privileges give it: the service role can use whatever exists.
+  await db.exec(`
+    grant usage on schema public, storage to service_role;
+    grant all on all tables in schema public to service_role;
+    grant all on all sequences in schema public to service_role;
+    grant all on all tables in schema storage to service_role;
+  `);
 
   const quote = (id: string) => `"${id.replace(/"/g, '""')}"`;
   const toError = (e: unknown): DbError => {
@@ -61,12 +73,13 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
   };
   const param = (v: unknown) => (v !== null && typeof v === "object" ? JSON.stringify(v) : v);
 
-  /** Runs one statement as `userId` (null = no JWT, i.e. role anon). */
-  async function asUser(userId: string | null, sql: string, params: unknown[]): Promise<Result> {
+  /** Runs one statement as `userId` (null = no JWT, i.e. role anon; "service_role" = the server's key). */
+  async function asUser(userId: Actor, sql: string, params: unknown[]): Promise<Result> {
     try {
       const out = await db.transaction(async (tx) => {
-        await tx.exec(`set local role ${userId ? "authenticated" : "anon"}`);
-        await tx.query(`select set_config('request.jwt.claim.sub', $1, true)`, [userId ?? ""]);
+        const service = userId === SERVICE_ROLE;
+        await tx.exec(`set local role ${service ? "service_role" : userId ? "authenticated" : "anon"}`);
+        await tx.query(`select set_config('request.jwt.claim.sub', $1, true)`, [service ? "" : (userId ?? "")]);
         return tx.query<Row>(sql, params);
       });
       return { data: out.rows, error: null, count: out.rows.length };
@@ -90,7 +103,7 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
     private returning = false;
     constructor(
       private table: string,
-      private userId: string | null,
+      private userId: Actor,
     ) {}
 
     private bind(value: unknown) {
@@ -202,7 +215,7 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
     }
   }
   /** A PostgREST-style rpc: calls a public function as `userId`, passing named args. */
-  async function rpc(userId: string | null, fn: string, args: Record<string, unknown>): Promise<Result> {
+  async function rpc(userId: Actor, fn: string, args: Record<string, unknown>): Promise<Result> {
     const names = Object.keys(args);
     const sql = `select * from public.${quote(fn)}(${names.map((n, i) => `${quote(n)} := $${i + 1}`).join(", ")})`;
     const result = await asUser(userId, sql, names.map((n) => param(args[n])));
@@ -216,9 +229,9 @@ export async function createRealDb(options: { sql?: string[] } = {}) {
     admin: async <T extends Row = Row>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows,
     /** Create the auth.users row a user must have for the FK to hold. */
     addUser: async (id: string) => void (await db.query("insert into auth.users (id) values ($1) on conflict do nothing", [id])),
-    /** A supabase-js-shaped client acting as `userId` (null = signed out → role anon). */
-    clientFor: (userId: string | null) => ({
-      auth: { getUser: async () => ({ data: { user: userId ? { id: userId } : null }, error: null }) },
+    /** A supabase-js-shaped client acting as `userId` (null = signed out → role anon; "service_role" = the server's admin key). */
+    clientFor: (userId: Actor) => ({
+      auth: { getUser: async () => ({ data: { user: userId && userId !== SERVICE_ROLE ? { id: userId } : null }, error: null }) },
       from: (table: string) => new Query(table, userId),
       rpc: (fn: string, args: Record<string, unknown> = {}) => rpc(userId, fn, args),
     }),

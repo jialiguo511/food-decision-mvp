@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildImagePrompt, createOpenAIImageGenerator, IMAGE_SETTINGS, resolveImageGenerator, resolveImageSettings, type ImageGenerator } from "./generated";
 import type { ImageProvider } from "./provider";
 import { cookingMethod, majorIngredients, normalizeTitle, recipeImageKey } from "./recipeKey";
-import { imageStats, resetImageStats, resolveRecipeImage, type GeneratedImageCache } from "./recipeImage";
+import { createSupabaseImageCache, imageStats, MAX_IMAGE_BYTES, resetImageStats, resolveRecipeImage, storagePathFor, type GeneratedImageCache } from "./recipeImage";
 import { recipe } from "@/test/savedFixtures";
 
 const R = recipe({ title: "Peanut Noodle Bowl", ingredients_on_hand: ["Noodles", "Soy sauce", "Salt"], ingredients_needed: ["Peanut butter", "Scallions"], steps: ["Boil the noodles.", "Whisk the sauce.", "Toss."], image_query: "peanut noodle bowl" });
@@ -174,5 +174,31 @@ describe("resolveRecipeImage — photo → cache → generate, never blocking, n
     expect(fast).toEqual({ source: "generated", url: "https://cdn.example/toast.webp" });
     release();
     expect((await slow)?.source).toBe("generated");
+  });
+});
+
+describe("storagePathFor / createSupabaseImageCache — only the server writes, and only a well-formed picture", () => {
+  const KEY = "a".repeat(64);
+  const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50, 9, 9]);
+  it("accepts a real-looking image under a hash key, nothing else", () => {
+    expect(storagePathFor(KEY, { bytes: webp, contentType: "image/webp" })).toBe(`${KEY}.webp`);
+    expect(storagePathFor("../../x", { bytes: webp, contentType: "image/webp" })).toBeNull(); // not a key
+    expect(storagePathFor(KEY.toUpperCase(), { bytes: webp, contentType: "image/webp" })).toBeNull();
+    expect(storagePathFor(KEY, { bytes: webp, contentType: "text/html" })).toBeNull(); // wrong type
+    expect(storagePathFor(KEY, { bytes: new Uint8Array([60, 104, 116, 109, 108, 62, 1, 1, 1, 1, 1, 1, 1, 1]), contentType: "image/webp" })).toBeNull(); // says webp, isn't
+    expect(storagePathFor(KEY, { bytes: new Uint8Array(0), contentType: "image/webp" })).toBeNull();
+    const big = new Uint8Array(MAX_IMAGE_BYTES + 1);
+    big.set(webp);
+    expect(storagePathFor(KEY, { bytes: big, contentType: "image/webp" })).toBeNull(); // over the cap
+  });
+
+  it("with no server writer nothing is stored, and a refused image never reaches Storage", async () => {
+    const upload = vi.fn();
+    const writer = { storage: { from: () => ({ upload, getPublicUrl: () => ({ data: { publicUrl: "u" } }) }) }, from: vi.fn() } as never;
+    const reader = { storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "u" } }) }) }, from: vi.fn() } as never;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await createSupabaseImageCache(reader, null).save(KEY, { bytes: webp, contentType: "image/webp", model: "m" }, "t")).toBeNull();
+    expect(await createSupabaseImageCache(reader, writer).save("nothash", { bytes: webp, contentType: "image/webp", model: "m" }, "t")).toBeNull();
+    expect(upload).not.toHaveBeenCalled();
   });
 });

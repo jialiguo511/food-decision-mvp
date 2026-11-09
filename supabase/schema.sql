@@ -347,11 +347,11 @@ drop policy if exists "recipe images are readable" on public.recipe_images;
 create policy "recipe images are readable" on public.recipe_images
   for select to authenticated using (true);
 
+-- Writes are server-only (service_role bypasses RLS): no insert policy, no insert grant.
+-- See supabase/migrations/2026-11-10_server_only_writes.sql for why.
 drop policy if exists "recipe images can be added" on public.recipe_images;
-create policy "recipe images can be added" on public.recipe_images
-  for insert to authenticated with check (true);
-
-grant select, insert on public.recipe_images to authenticated;
+revoke insert, update, delete on public.recipe_images from anon, authenticated;
+grant select on public.recipe_images to authenticated;
 
 -- The bucket. Public read; no update, no delete for anyone but the owner role.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -362,10 +362,8 @@ drop policy if exists "recipe images are public" on storage.objects;
 create policy "recipe images are public" on storage.objects
   for select using (bucket_id = 'recipe-images');
 
+-- No insert policy for signed-in users: the server uploads with the service role, after validating type, size and path.
 drop policy if exists "signed-in users add recipe images" on storage.objects;
-create policy "signed-in users add recipe images" on storage.objects
-  for insert to authenticated
-  with check (bucket_id = 'recipe-images' and name ~ '^[0-9a-f]{64}\.(webp|jpg|png)$');
 
 -- ---------------------------------------------------------------------------
 -- keep profiles.updated_at honest
@@ -498,23 +496,24 @@ revoke all on public.app_flags from anon, authenticated;
 insert into public.app_flags (key, value) values ('paused_kinds', '') on conflict (key) do nothing;
 
 -- ---------------------------------------------------------------------------
--- consume_usage(kind, per-person limit, optional whole-app limit)
+-- consume_usage(user, kind, per-person limit, optional whole-app limit) — server-only
 --   allowed     — true: one unit was spent and the paid call may start
 --   used        — the person's count today (after this call if it was allowed)
 --   refused_by  — null when allowed; otherwise 'user' (their own limit), 'global'
 --                 (the app's daily ceiling), 'paused' (switched off in app_flags) or
---                 'invalid' (signed out / nonsense arguments)
+--                 'invalid' (no user / nonsense arguments)
 -- ---------------------------------------------------------------------------
 drop function if exists public.consume_usage(text, integer);
+drop function if exists public.consume_usage(text, integer, integer);
 
-create or replace function public.consume_usage(p_kind text, p_limit integer, p_global_limit integer default null)
+create or replace function public.consume_usage(p_user uuid, p_kind text, p_limit integer, p_global_limit integer default null)
 returns table (allowed boolean, used integer, refused_by text)
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_user   uuid := auth.uid();
+  v_user   uuid := p_user;
   v_day    date := (now() at time zone 'utc')::date;
   v_count  integer;
   v_global integer;
@@ -579,8 +578,9 @@ begin
 end;
 $$;
 
-revoke all on function public.consume_usage(text, integer, integer) from public, anon;
-grant execute on function public.consume_usage(text, integer, integer) to authenticated;
+-- SERVER-ONLY: a browser could otherwise pass its own limits. Only service_role may call it.
+revoke all on function public.consume_usage(uuid, text, integer, integer) from public, anon, authenticated;
+grant execute on function public.consume_usage(uuid, text, integer, integer) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- feedback — "Send feedback". The kind, the message, an optional contact the person

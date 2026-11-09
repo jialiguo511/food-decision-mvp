@@ -61,44 +61,45 @@ describe("the generated-image cache (2026-10-02_recipe_images.sql)", () => {
   });
   afterAll(() => db.db.close());
 
-  it("any signed-in user can add and read an entry; it is shared, and not user data", async () => {
-    const add = await db.clientFor(A).from("recipe_images").upsert({ cache_key: KEY, storage_path: `${KEY}.webp`, model: "gpt-image-2", prompt_version: 1, title: "Noodle Bowl" }, { onConflict: "cache_key", ignoreDuplicates: true });
+  const server = () => db.clientFor("service_role");
+  it("the server stores an entry; any signed-in user can read it; it is shared, and not user data", async () => {
+    const add = await server().from("recipe_images").upsert({ cache_key: KEY, storage_path: `${KEY}.webp`, model: "gpt-image-2", prompt_version: 1, title: "Noodle Bowl" }, { onConflict: "cache_key", ignoreDuplicates: true });
     expect(add.error).toBeNull();
     const seenByB = await db.clientFor(B).from("recipe_images").select("storage_path").eq("cache_key", KEY).maybeSingle();
     expect(seenByB.data).toEqual({ storage_path: `${KEY}.webp` });
   });
 
-  it("a second writer for the same key is a harmless no-op, and nobody can update or delete", async () => {
-    const again = await db.clientFor(B).from("recipe_images").upsert({ cache_key: KEY, storage_path: `${KEY}.webp`, model: "other", prompt_version: 1, title: "x" }, { onConflict: "cache_key", ignoreDuplicates: true });
-    expect(again.error).toBeNull();
-    expect((await db.admin("select model from public.recipe_images"))[0]).toEqual({ model: "gpt-image-2" });
+  it("a signed-in user cannot write the cache at all: no insert, no pre-seeding, no update, no delete", async () => {
+    const row = (cache_key: string) => ({ cache_key, storage_path: `${cache_key}.webp`, model: "evil", prompt_version: 1, title: "pre-seeded" });
+    expect((await db.clientFor(A).from("recipe_images").insert(row("c".repeat(64)))).error?.code).toBe("42501");
+    expect((await db.clientFor(B).from("recipe_images").upsert(row(KEY), { onConflict: "cache_key", ignoreDuplicates: true })).error?.code).toBe("42501");
     expect((await db.clientFor(B).from("recipe_images").update({ model: "evil" }).eq("cache_key", KEY)).error?.code).toBe("42501");
     expect((await db.clientFor(B).from("recipe_images").delete().eq("cache_key", KEY)).error?.code).toBe("42501");
+    expect((await db.admin("select model from public.recipe_images"))[0]).toEqual({ model: "gpt-image-2" });
   });
 
-  it("only well-formed keys and paths are accepted", async () => {
+  it("even the server can only store well-formed keys and paths", async () => {
     const row = (cache_key: string, storage_path: string) => ({ cache_key, storage_path, model: "m", prompt_version: 1, title: "t" });
-    expect((await db.clientFor(A).from("recipe_images").insert(row("not-a-hash", "not-a-hash.webp"))).error?.code).toBe("23514");
-    expect((await db.clientFor(A).from("recipe_images").insert(row("b".repeat(64), "../../etc/passwd"))).error?.code).toBe("23514");
+    expect((await server().from("recipe_images").insert(row("not-a-hash", "not-a-hash.webp"))).error?.code).toBe("23514");
+    expect((await server().from("recipe_images").insert(row("b".repeat(64), "../../etc/passwd"))).error?.code).toBe("23514");
   });
 
-  it("the bucket is public-read, signed-in users may add files named after a key, nothing else", async () => {
+  it("the bucket is public-read; only the server may add files; the browser may add none", async () => {
     expect(await db.admin("select public, file_size_limit from storage.buckets where id = 'recipe-images'")).toEqual([{ public: true, file_size_limit: 1048576 }]);
-    const asUser = async (user: string | null, name: string, bucket = "recipe-images") => {
+    const asRole = async (role: "service_role" | "authenticated" | "anon", name: string) => {
       try {
         await db.db.transaction(async (tx) => {
-          await tx.exec(`set local role ${user ? "authenticated" : "anon"}`);
-          await tx.query("insert into storage.objects (bucket_id, name) values ($1, $2)", [bucket, name]);
+          await tx.exec(`set local role ${role}`);
+          await tx.query("insert into storage.objects (bucket_id, name) values ('recipe-images', $1)", [name]);
         });
         return "ok";
       } catch (e) {
         return (e as { code?: string }).code;
       }
     };
-    expect(await asUser(A, `${KEY}.webp`)).toBe("ok");
-    expect(await asUser(A, "anything.webp")).toBe("42501"); // not named after a key
-    expect(await asUser(A, `${KEY}.webp`, "other-bucket")).toBe("42501");
-    expect(await asUser(null, `${KEY}.webp`)).toBe("42501"); // signed out
+    expect(await asRole("service_role", `${KEY}.webp`)).toBe("ok");
+    expect(await asRole("authenticated", `${"d".repeat(64)}.webp`)).toBe("42501"); // even a well-formed key name
+    expect(await asRole("anon", `${"e".repeat(64)}.webp`)).toBe("42501");
   });
 
   it("is not in the list of user-owned tables: it has no user_id at all", async () => {

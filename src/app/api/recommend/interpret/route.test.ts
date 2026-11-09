@@ -12,6 +12,7 @@ let currentUser: string | null = "user-1";
 const read = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => db.clientFor(currentUser) }));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db.adminClient() }));
 vi.mock("@/lib/interpret/read", () => ({ readSituation: (...args: unknown[]) => read(...args) }));
 
 import { POST } from "./route";

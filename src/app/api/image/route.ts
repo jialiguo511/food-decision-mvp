@@ -20,6 +20,7 @@ import { resolveIdeaImage } from "@/lib/images/ideaImage";
 import { createSupabaseImageCache, resolveRecipeImageOutcome } from "@/lib/images/recipeImage";
 import { storedRecommendationSchema } from "@/lib/recommend/output";
 import { recordEvent } from "@/lib/events/record";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { refuseCrossSite } from "@/lib/sameOrigin";
 import { consumeUsage } from "@/lib/usage/consume";
@@ -67,14 +68,17 @@ export async function POST(request: Request) {
   }
   if (parsed.data.decision_mode !== "cook") return NextResponse.json(EMPTY);
 
+  // Pictures are stored by the server only (service role). Without that key a generation could be
+  // paid for and not kept — and the next request would pay again — so none is started.
+  const admin = createAdminClient();
   const outcome = await resolveRecipeImageOutcome(parsed.data, {
     photos: resolveImageProvider(),
-    cache: createSupabaseImageCache(supabase),
-    generator: resolveImageGenerator(),
+    cache: createSupabaseImageCache(supabase, admin),
+    generator: admin ? resolveImageGenerator() : null,
     // The one paid step: spent right before a generation starts, so a photo, a
     // cache hit, or a card asked about twice costs nothing against the allowance.
     allowGeneration: async () => {
-      const usage = await consumeUsage(supabase, "image");
+      const usage = await consumeUsage(user.id, "image");
       if (!usage.allowed && (usage.reason === "limit" || usage.reason === "global_limit")) void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "image" } });
       return usage.allowed;
     },

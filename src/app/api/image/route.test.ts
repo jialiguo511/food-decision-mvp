@@ -14,6 +14,8 @@ let generatorConfigured = true;
 const cacheStore = new Map<string, string>();
 
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => db.clientFor(currentUser) }));
+// The server's service-role client: where the allowance is spent (and where pictures are stored).
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db.adminClient() }));
 vi.mock("@/lib/images", () => ({ resolveImageProvider: () => ({ resolve: async () => null }) }));
 vi.mock("@/lib/images/generated", async (original) => ({
   ...(await original<typeof import("@/lib/images/generated")>()),

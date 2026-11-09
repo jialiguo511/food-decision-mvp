@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     // The model call below is paid: spend the daily allowance first. Out of it
     // (or unable to check) is not an error — the cards simply keep their
     // rule-written reasons, exactly as when the model fails.
-    const usage = await timer.stage("usage", () => consumeUsage(supabase, "enrich"));
+    const usage = await timer.stage("usage", () => consumeUsage(user.id, "enrich"));
     if (!usage.allowed) {
       if (usage.reason === "limit" || usage.reason === "global_limit") void recordEvent(supabase, user.id, { name: "limit_hit", props: { kind: "enrich" } });
       return NextResponse.json({ recommendations, enriched: false });

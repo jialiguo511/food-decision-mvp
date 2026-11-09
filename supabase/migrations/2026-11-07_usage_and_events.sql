@@ -1,12 +1,11 @@
 -- Migration: per-user daily usage limits + first-party product events (web beta).
--- Safe to run more than once. Touches only the two new tables and one new
--- function; nothing existing is altered. Run it BEFORE deploying the code that
+-- Safe to run more than once. Touches only the two new tables; nothing existing is altered. Run it BEFORE deploying the code that
 -- calls it (in production the app refuses paid requests without it — see
 -- src/lib/usage/consume.ts).
 --
 -- usage_counters — one row per (user, UTC day, kind of paid call). The ONLY way
--- to change it is public.consume_usage(), a SECURITY DEFINER function that takes
--- the user from auth.uid() and can only add one: the table has RLS on, no
+-- to change it is public.consume_usage() (now defined in 2026-11-10_server_only_writes.sql, callable
+-- by the server only), a SECURITY DEFINER function that can only add one: the table has RLS on, no
 -- policy and no grant, so a signed-in user cannot read it, reset it or edit it
 -- through the API — "Reset my data" must not refund a day's allowance, and
 -- this is why. The increment is one atomic statement, so concurrent requests
@@ -35,49 +34,9 @@ create table if not exists public.usage_counters (
 alter table public.usage_counters enable row level security;
 revoke all on public.usage_counters from anon, authenticated;
 
-create or replace function public.consume_usage(p_kind text, p_limit integer)
-returns table (allowed boolean, used integer)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_user  uuid := auth.uid();
-  v_day   date := (now() at time zone 'utc')::date;
-  v_count integer;
-begin
-  if v_user is null or p_limit is null or p_limit < 1 or p_kind is null or p_kind !~ '^[a-z_]{1,32}$' then
-    return query select false, 0;
-    return;
-  end if;
-
-  -- Keep the table small: this user's rows older than a week are of no use.
-  delete from public.usage_counters c where c.user_id = v_user and c.day < v_day - 7;
-
-  -- One atomic statement: add one only while under the limit. When the row is
-  -- already at the limit the WHERE is false, nothing is updated, and nothing is
-  -- returned — that is the "refused" case.
-  insert into public.usage_counters as u (user_id, day, kind, count)
-  values (v_user, v_day, p_kind, 1)
-  on conflict (user_id, day, kind)
-  do update set count = u.count + 1
-  where u.count < p_limit
-  returning u.count into v_count;
-
-  if v_count is null then
-    select u.count into v_count
-    from public.usage_counters u
-    where u.user_id = v_user and u.day = v_day and u.kind = p_kind;
-    return query select false, coalesce(v_count, 0);
-    return;
-  end if;
-
-  return query select true, v_count;
-end;
-$$;
-
-revoke all on function public.consume_usage(text, integer) from public, anon;
-grant execute on function public.consume_usage(text, integer) to authenticated;
+-- consume_usage() is NOT defined here any more: it is server-only and lives in
+-- 2026-11-10_server_only_writes.sql. (The original, browser-callable version let a user choose
+-- their own limit.) Run that file to get it.
 
 -- ---------------------------------------------------------------------------
 -- product_events

@@ -116,10 +116,12 @@ describe("private functions and counters", () => {
     expect((await real.clientFor(null).rpc("release_user_storage", { p_user: A })).error).not.toBeNull();
   });
 
-  it("consume_usage only ever spends the CALLER's allowance — there is no argument to name another user", async () => {
-    await real.clientFor(A).rpc("consume_usage", { p_kind: "recommend", p_limit: 5, p_global_limit: 100 });
-    const rows = await real.admin<{ user_id: string }>("select user_id from public.usage_counters where kind = 'recommend'");
-    expect(rows.map((r) => r.user_id)).toEqual([A]);
+  it("consume_usage cannot be called by a user at all — not for themselves, not for someone else", async () => {
+    for (const actor of [A, B, null]) {
+      const res = await real.clientFor(actor).rpc("consume_usage", { p_user: A, p_kind: "recommend", p_limit: 5, p_global_limit: 100 });
+      expect(res.error, String(actor)).not.toBeNull();
+    }
+    expect(await real.admin("select * from public.usage_counters")).toEqual([]);
   });
 
   it("usage and cost tables are invisible to users", async () => {
@@ -130,9 +132,14 @@ describe("private functions and counters", () => {
 });
 
 describe("the shared picture cache holds no private data and cannot be overwritten", () => {
-  it("a signed-in user can add or read a cache row, but cannot edit or delete one", async () => {
+  it("a signed-in user can read the cache but cannot add, edit or delete a row — only the server writes", async () => {
     const key = "a".repeat(64);
-    expect((await real.clientFor(A).from("recipe_images").insert({ cache_key: key, storage_path: `${key}.webp`, model: "m", prompt_version: 1, title: "Lemon rice" })).error).toBeNull();
+    // The server (service role) stores one.
+    expect((await real.clientFor("service_role").from("recipe_images").insert({ cache_key: key, storage_path: `${key}.webp`, model: "m", prompt_version: 1, title: "Lemon rice" })).error).toBeNull();
+    expect((await real.clientFor(B).from("recipe_images").select("cache_key").eq("cache_key", key)).data).toEqual([{ cache_key: key }]);
+    // A user cannot pre-seed a picture for another dish, nor deface or remove one.
+    const other = "b".repeat(64);
+    expect((await real.clientFor(A).from("recipe_images").insert({ cache_key: other, storage_path: `${other}.webp`, model: "m", prompt_version: 1, title: "Pre-seeded" })).error).not.toBeNull();
     expect((await real.clientFor(B).from("recipe_images").update({ title: "defaced" }).eq("cache_key", key)).error).not.toBeNull();
     expect((await real.clientFor(B).from("recipe_images").delete().eq("cache_key", key)).error).not.toBeNull();
     expect((await real.clientFor(null).from("recipe_images").select("*")).error).not.toBeNull();
@@ -143,8 +150,8 @@ describe("the shared picture cache holds no private data and cannot be overwritt
     expect(cols.map((c) => c.column_name)).toEqual(["cache_key", "created_at", "model", "prompt_version", "storage_path", "title"]);
   });
 
-  it("Storage: a user can add a picture under the hash-name rule, and no one can overwrite or delete one", async () => {
+  it("Storage: the browser can only read pictures — no insert, update or delete policy for it", async () => {
     const policies = await real.admin<{ cmd: string; policyname: string }>("select cmd, policyname from pg_policies where schemaname = 'storage' and tablename = 'objects' order by 1, 2");
-    expect(policies.map((p) => p.cmd).sort()).toEqual(["INSERT", "SELECT"]);
+    expect(policies.map((p) => p.cmd)).toEqual(["SELECT"]);
   });
 });

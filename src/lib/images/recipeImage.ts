@@ -27,21 +27,51 @@ export interface GeneratedImageCache {
   save(key: string, image: { bytes: Uint8Array; contentType: string; model: string }, title: string): Promise<string | null>;
 }
 
-export function createSupabaseImageCache(supabase: SupabaseClient): GeneratedImageCache {
-  const publicUrl = (path: string) => supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+/** What a stored picture may be. The bucket enforces the same 1 MB / types; this is checked BEFORE upload too. */
+export const MAX_IMAGE_BYTES = 1_000_000;
+const SIGNATURES: Record<string, (b: Uint8Array) => boolean> = {
+  "image/webp": (b) => b.length > 12 && String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP",
+  "image/jpeg": (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/png": (b) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+};
+const EXTENSIONS: Record<string, string> = { "image/webp": "webp", "image/jpeg": "jpg", "image/png": "png" };
+
+/** The path to store under, or null if this isn't a cache key / an allowed, correctly-typed, small-enough image. */
+export function storagePathFor(key: string, image: { bytes: Uint8Array; contentType: string }): string | null {
+  if (!/^[0-9a-f]{64}$/.test(key)) return null;
+  const extension = EXTENSIONS[image.contentType];
+  if (!extension) return null;
+  if (image.bytes.length === 0 || image.bytes.length > MAX_IMAGE_BYTES) return null;
+  if (!SIGNATURES[image.contentType](image.bytes)) return null;
+  return `${key}.${extension}`;
+}
+
+/**
+ * Reads go through the caller's own session (the table is readable to signed-in users);
+ * WRITES go through `writer`, which must be the server's service-role client. No browser
+ * credential can write to this cache, so a person cannot pre-seed a picture for a dish —
+ * the only thing that ever reaches `save` is an image this server just generated for a
+ * card it read from the person's own stored session. With no `writer`, nothing is kept.
+ */
+export function createSupabaseImageCache(reader: SupabaseClient, writer: SupabaseClient | null): GeneratedImageCache {
+  const publicUrl = (path: string) => reader.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
   return {
     async lookup(key) {
-      const { data, error } = await supabase.from("recipe_images").select("storage_path").eq("cache_key", key).maybeSingle();
+      const { data, error } = await reader.from("recipe_images").select("storage_path").eq("cache_key", key).maybeSingle();
       if (error) {
-        console.warn("[images] cache read failed", { code: error.code, message: error.message });
+        console.warn("[images] cache read failed", { code: error.code });
         return null;
       }
       return typeof data?.storage_path === "string" ? publicUrl(data.storage_path) : null;
     },
     async save(key, image, title) {
-      const extension = image.contentType === "image/jpeg" ? "jpg" : image.contentType === "image/png" ? "png" : "webp";
-      const path = `${key}.${extension}`;
-      const upload = await supabase.storage.from(IMAGE_BUCKET).upload(path, image.bytes, {
+      if (!writer) return null;
+      const path = storagePathFor(key, image);
+      if (!path) {
+        console.warn("[images] refused to store an image: wrong key, type or size", { bytes: image.bytes.length, contentType: image.contentType });
+        return null;
+      }
+      const upload = await writer.storage.from(IMAGE_BUCKET).upload(path, image.bytes, {
         contentType: image.contentType,
         cacheControl: "31536000",
         upsert: false,
@@ -49,14 +79,14 @@ export function createSupabaseImageCache(supabase: SupabaseClient): GeneratedIma
       // "Already exists" means another request got there first: that file is the cache entry.
       const exists = (upload.error as { statusCode?: string } | null)?.statusCode === "409";
       if (upload.error && !exists) {
-        console.warn("[images] couldn't store the generated image", { message: upload.error.message });
+        console.warn("[images] couldn't store the generated image");
         return null;
       }
-      const { error } = await supabase
+      const { error } = await writer
         .from("recipe_images")
         .upsert({ cache_key: key, storage_path: path, model: image.model, prompt_version: IMAGE_PROMPT_VERSION, title: title.slice(0, 120) }, { onConflict: "cache_key", ignoreDuplicates: true });
       if (error) {
-        console.warn("[images] couldn't record the generated image", { code: error.code, message: error.message });
+        console.warn("[images] couldn't record the generated image", { code: error.code });
         return null;
       }
       return publicUrl(path);

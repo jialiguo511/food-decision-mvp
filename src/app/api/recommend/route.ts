@@ -193,10 +193,10 @@ async function handle(request: Request, timer: Timer, requestId: string | null, 
   // search is metered on its own as well, since Places is billed per search —
   // and is checked first, so being out of those still leaves food ideas by type.
   if (wantsNearby) {
-    const nearbyUsage = await timer.stage("usage", () => consumeUsage(supabase, "nearby"));
+    const nearbyUsage = await timer.stage("usage", () => consumeUsage(user.id, "nearby"));
     if (!nearbyUsage.allowed) return refuseUsage(timer, supabase, user.id, "nearby", nearbyUsage.reason);
   }
-  const usage = await timer.stage("usage", () => consumeUsage(supabase, "recommend"));
+  const usage = await timer.stage("usage", () => consumeUsage(user.id, "recommend"));
   if (!usage.allowed) return refuseUsage(timer, supabase, user.id, "recommend", usage.reason);
 
   if (wantsNearby && context.decision_mode === "order" && places && location) {

@@ -40,9 +40,25 @@ select 'row level security on ' || r.name,
             then 'ok' else 'MISSING' end
 from rls_tables r
 union all
--- the three-argument version (whole-app ceiling + off switch); the old two-argument one reads MISSING
-select 'function consume_usage(text, integer, integer)',
-       case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage' and f.pronargs = 3) then 'ok' else 'MISSING' end
+-- the four-argument, server-only version; an older one (2 or 3 arguments) reads MISSING
+select 'function consume_usage(uuid, text, integer, integer)',
+       case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage' and f.pronargs = 4) then 'ok' else 'MISSING' end
+union all
+select 'consume_usage is NOT callable by the browser (anon/authenticated)',
+       case when not exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'consume_usage' and f.pronargs = 4) then 'MISSING'
+            when has_function_privilege('authenticated', 'public.consume_usage(uuid,text,integer,integer)', 'execute')
+              or has_function_privilege('anon', 'public.consume_usage(uuid,text,integer,integer)', 'execute') then 'EXPOSED'
+            else 'ok' end
+union all
+select 'recipe_images: no insert for the browser',
+       case when to_regclass('public.recipe_images') is null then 'MISSING'
+            when has_table_privilege('authenticated', 'public.recipe_images', 'insert')
+              or exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'recipe_images' and cmd in ('INSERT', 'ALL', 'UPDATE', 'DELETE')) then 'EXPOSED'
+            else 'ok' end
+union all
+select 'recipe-images bucket: no write policy for the browser',
+       case when exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and cmd in ('INSERT', 'ALL', 'UPDATE', 'DELETE') and (qual::text ilike '%recipe-images%' or with_check::text ilike '%recipe-images%')) then 'EXPOSED'
+            else 'ok' end
 union all
 select 'function release_user_storage',
        case when exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace where n.nspname = 'public' and f.proname = 'release_user_storage') then 'ok' else 'MISSING' end

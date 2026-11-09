@@ -182,6 +182,10 @@ export function createFakeDb() {
     setPausedKinds: (value: string) => void (pausedKinds = value),
     /** Pretend the usage migration was never run (every rpc errors). */
     failRpc: (error: { code: string; message: string } | null) => void (rpcError = error),
+    /** The server's service-role client: only rpc, and the user id comes from the call's own `p_user` (as in the real function). */
+    adminClient: () => ({
+      rpc: (fn: string, args: Record<string, unknown> = {}) => rpc((args.p_user as string | null) ?? null, fn, args),
+    }),
     clientFor: (userId: string | null) => ({
       auth: { getUser: async () => ({ data: { user: userId ? { id: userId } : null } }) },
       from: (table: string) => (queries.push(table), new Query(table)),
