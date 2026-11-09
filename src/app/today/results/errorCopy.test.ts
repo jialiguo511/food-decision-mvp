@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LocationErrorCode, RecommendErrorCode, TransportErrorCode } from "@/lib/types";
 import { transportError } from "../recommendStore";
-import { errorCopy } from "./errorCopy";
+import { brokenRules, errorCopy } from "./errorCopy";
 
 // Compile-time exhaustive: adding an error code anywhere without listing it here is a type error,
 // so a new failure can't silently fall through to the generic message.
@@ -55,5 +55,17 @@ describe("transportError — a reply that isn't the app's own", () => {
 
   it("keeps the HTTP status for whoever reads the logs", () => {
     expect(transportError(502).message).toContain("502");
+  });
+});
+
+describe("which rule a rejected set broke", () => {
+  it("is said in the person's words, once each, and only when known", () => {
+    expect(brokenRules(["allergy", "time"])).toBe("It broke: an allergy you listed; your time limit.");
+    expect(brokenRules([])).toBeNull();
+    expect(brokenRules(undefined)).toBeNull();
+  });
+  it("the general copy no longer claims the set 'mentioned something you avoid'", () => {
+    expect(errorCopy("constraint_violation").body).not.toMatch(/mention something you avoid/);
+    expect(errorCopy("constraint_violation").retry).toBe(true);
   });
 });

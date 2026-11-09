@@ -566,8 +566,12 @@ export type RecommendErrorCode =
   /** The allowance couldn't be checked, so paid calls are held back. */
   | "usage_unavailable";
 
+/** Which of the person's rules a rejected set broke — an enumeration, never text, so it is
+ *  safe to show and to log. Derived from the validator's findings (violationKinds). */
+export type ViolationKind = "allergy" | "diet" | "equipment" | "no_cook" | "time" | "budget" | "inventory" | "ways";
+
 export type RecommendFailure = {
-  error: { code: RecommendErrorCode; message: string; details?: string[] };
+  error: { code: RecommendErrorCode; message: string; details?: string[]; /** constraint_violation only. */ reasons?: ViolationKind[] };
 };
 
 /** Raised in the browser, before any request, when the device can't give us a
@@ -590,6 +594,7 @@ export type RecommendUiError = {
   code: RecommendErrorCode | LocationErrorCode | TransportErrorCode;
   message: string;
   details?: string[];
+  reasons?: ViolationKind[];
 };
 
 /** A location for one nearby search. Held in memory for the request only. */

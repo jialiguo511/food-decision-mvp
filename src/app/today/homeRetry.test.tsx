@@ -179,6 +179,22 @@ describe("a failure never lingers next to a newer success", () => {
   });
 });
 
+describe("a rejected set says which of your rules it broke", () => {
+  it("names the rule(s) in plain words, beside the reference", async () => {
+    mount();
+    await generate();
+    await answer(0, 502, { error: { code: "constraint_violation", message: "internal", reasons: ["allergy", "no_cook"] } });
+    expect(alerts().join(" ")).toMatch(/It broke: an allergy you listed; heat or cooking/);
+    expect(alerts().join(" ")).not.toMatch(/internal/);
+  });
+  it("without reasons it just doesn't claim any", async () => {
+    mount();
+    await generate();
+    await answer(0, 502, failure("constraint_violation"));
+    expect(alerts().join(" ")).not.toMatch(/It broke/);
+  });
+});
+
 describe("an older request can't overwrite a newer one", () => {
   it("the old one fails LATE, after the new one succeeded: no error appears", async () => {
     mount();

@@ -33,8 +33,8 @@ const OPEN: OpenContext = {
   easy_pick: false,
 };
 
-async function recommend(label: string, context: OpenContext, profile: ProfileInput = DEFAULT_PROFILE) {
-  const input = resolveRecommendationInput(profile, context, undefined, []);
+async function recommend(label: string, context: OpenContext, profile: ProfileInput = DEFAULT_PROFILE, previous?: Recommendation[]) {
+  const input = resolveRecommendationInput(profile, context, previous, []);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY as string, timeout: 90_000, maxRetries: 1 });
   const started = Date.now();
   const result = await generateRecommendations(client, input, [], undefined);
@@ -99,5 +99,20 @@ describe.skipIf(!run)("open recommendations — real model", () => {
   it("a vegetarian pattern holds across every way", async () => {
     const recs = await recommend("vegetarian", { ...OPEN, protein_focus: true }, { ...DEFAULT_PROFILE, dietary_patterns: ["vegetarian"] });
     expect(allText(recs)).not.toMatch(/\b(chicken|beef|pork|bacon|ham|turkey|tuna|salmon|shrimp|steak|sausage|jerky)\b/i);
+  });
+
+  it("'Show me 3 more' (three rounds in a row): every round is accepted and none repeats an earlier title", async () => {
+    // Unknown equipment, the motivating situation — the case a person actually hit.
+    const profile = { ...DEFAULT_PROFILE, equipment: [] };
+    const context = { ...OPEN, hunger: "light" as const, after_exercise: true, protein_focus: true };
+    let previous: Recommendation[] | undefined;
+    const seen = new Set<string>();
+    for (let round = 1; round <= 3; round++) {
+      const recs = await recommend(`more round ${round}`, context, profile, previous);
+      expect(recs).toHaveLength(3);
+      for (const r of recs) expect(seen.has(r.title.toLowerCase()), `round ${round} repeated "${r.title}"`).toBe(false);
+      for (const r of recs) seen.add(r.title.toLowerCase());
+      previous = recs;
+    }
   });
 });

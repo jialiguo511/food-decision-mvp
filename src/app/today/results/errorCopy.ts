@@ -2,7 +2,7 @@
 // model message — those go to the console for whoever is debugging. Every
 // state says what to do next.
 
-import type { RecommendUiError } from "@/lib/types";
+import type { RecommendUiError, ViolationKind } from "@/lib/types";
 
 export type ErrorCopy = {
   title: string;
@@ -88,7 +88,7 @@ const COPY: Partial<Record<RecommendUiError["code"], ErrorCopy>> = {
   },
   constraint_violation: {
     title: "None of the options passed your rules.",
-    body: "Options that mention something you avoid — allergies, foods, or equipment you don't have — are never shown, and this set had one. We don't loosen those rules to get a result. You can try again, or change your answers.",
+    body: "Every set is checked against your rules, and one option in this set broke one. We don't loosen those rules to get a result. You can try again, or change your answers.",
     retry: true,
     byType: false,
     change: true,
@@ -144,6 +144,24 @@ const FALLBACK: ErrorCopy = {
   byType: false,
   change: true,
 };
+
+/** What each broken rule is called to the person. */
+const BROKEN: Record<ViolationKind, string> = {
+  allergy: "an allergy you listed",
+  diet: "your dietary pattern",
+  equipment: "equipment you haven't said you have",
+  no_cook: "heat or cooking when you can't, or don't want to, cook",
+  time: "your time limit",
+  budget: "your spending limit",
+  inventory: "food you didn't say you have",
+  ways: "a way of eating you ruled out",
+};
+
+/** "It broke: an allergy you listed; your time limit." — or null when nothing is known. */
+export function brokenRules(reasons: readonly ViolationKind[] | undefined): string | null {
+  const named = (reasons ?? []).map((r) => BROKEN[r]).filter(Boolean);
+  return named.length > 0 ? `It broke: ${named.join("; ")}.` : null;
+}
 
 export function errorCopy(code: RecommendUiError["code"]): ErrorCopy {
   return COPY[code] ?? FALLBACK;

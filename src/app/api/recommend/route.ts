@@ -28,6 +28,7 @@ import {
   toProfileInput,
 } from "@/lib/recommend/input";
 import { pickNearby } from "@/lib/recommend/nearbyPicks";
+import { violationKinds } from "@/lib/recommend/output";
 import { withoutExcludedPlaces } from "@/lib/recommend/placeExclusions";
 import { recordEvent } from "@/lib/events/record";
 import { consumeUsage } from "@/lib/usage/consume";
@@ -490,7 +491,10 @@ async function handleNearby(args: {
 }
 
 function fail(timer: Timer, code: RecommendErrorCode, message: string, details?: string[]) {
-  const body: RecommendFailure = { error: { code, message, ...(details ? { details } : {}) } };
+  // A rejected set says WHICH of the person's rules it broke — an enumeration, safe to show and
+  // to log (the findings themselves quote food names, so they are not logged with the request id).
+  const reasons = code === "constraint_violation" ? violationKinds(details) : [];
+  const body: RecommendFailure = { error: { code, message, ...(details ? { details } : {}), ...(reasons.length > 0 ? { reasons } : {}) } };
   // One line per failure, greppable by the id the browser shows next to the error:
   // which request, which code, which HTTP status, how far it got and how long each
   // stage took. Names, codes and milliseconds only — no answers, no profile, no keys,
@@ -500,6 +504,7 @@ function fail(timer: Timer, code: RecommendErrorCode, message: string, details?:
     requestId: timer.requestId() ?? "none",
     code,
     status: STATUS[code],
+    ...(reasons.length > 0 ? { broke: reasons.join(",") } : {}),
     last_stage: Object.keys(stages).at(-1) ?? "start",
     stages,
     total_ms: timer.elapsed(),

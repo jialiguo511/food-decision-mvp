@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import Button, { buttonClass } from "@/components/ui/Button";
 import type { RecommendUiError } from "@/lib/types";
-import { errorCopy } from "./errorCopy";
+import { brokenRules, errorCopy } from "./errorCopy";
 
 /** While the recommender (or the location prompt) works: a calm list of what
  *  is being taken into account, then three slim placeholders for the three
@@ -82,6 +82,11 @@ export function ErrorState({
     <section role="alert" className={`rounded-3xl border border-line bg-card ${compact ? "p-4" : "p-5"} animate-fade-in`}>
       <p className="text-base font-semibold">{copy.title}</p>
       <p className="mt-1 text-sm text-muted">{copy.body}</p>
+      {error.code === "constraint_violation" && brokenRules(error.reasons) && (
+        <p className="mt-1 text-sm text-ink/80" data-testid="broken-rules">
+          {brokenRules(error.reasons)}
+        </p>
+      )}
       {reference && (
         <p className="mt-2 select-all text-[11px] text-muted/80" data-testid="error-reference">
           Reference {reference} · {error.code}

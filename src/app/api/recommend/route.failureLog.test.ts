@@ -68,4 +68,27 @@ describe("the failure line", () => {
     const logged = JSON.stringify(failedLine());
     for (const leak of ["xylophone", "secret-ingredient", "sk-ant", "Recipe mentions", "craving"]) expect(logged).not.toContain(leak);
   });
+
+  it("a rejected set logs and returns WHICH rule it broke — as names, never the findings", async () => {
+    generate.mockResolvedValue({
+      ok: false,
+      code: "constraint_violation",
+      message: "x",
+      details: ["best_match: names secret-ingredient-5521, which the user is allergic to.", "alternative: isn't a no-cooking meal — it needs a cooking or heating step (bake)."],
+    });
+    const res = await send("req-rules");
+    const body = (await res.json()) as { error: { reasons?: string[] } };
+    expect(body.error.reasons).toEqual(["allergy", "no_cook"]);
+    const line = failedLine() as unknown as { broke?: string };
+    expect(line.broke).toBe("allergy,no_cook");
+    expect(JSON.stringify(failedLine())).not.toContain("secret-ingredient");
+  });
+
+  it("other failures carry no 'broke' field", async () => {
+    generate.mockResolvedValue({ ok: false, code: "upstream_error", message: "x" });
+    const res = await send("req-other");
+    expect(((await res.json()) as { error: { reasons?: string[] } }).error.reasons).toBeUndefined();
+    expect(failedLine()).not.toHaveProperty("broke");
+  });
 });
+

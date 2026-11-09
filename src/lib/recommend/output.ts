@@ -18,6 +18,7 @@ import type {
   Recommendation,
   RecommendationRole,
   RecommendSuccess,
+  ViolationKind,
 } from "../types";
 
 /** Estimates are fuzzy, so "must not exceed" allows a small margin before a
@@ -369,6 +370,26 @@ export function findConstraintViolations(
   }
 
   return [...findCookConstraintViolations(recommendations as readonly CookRecommendation[], constraints, onHand), ...allergens];
+}
+
+/** Which of the person's rules a set of findings (the strings above) broke, as an
+ *  enumeration — what the error screen and the failure log say instead of the findings
+ *  themselves, which quote food names. Keyed to the wording of this file's own messages;
+ *  a test builds each kind from a real violation so the two cannot drift apart. */
+export function violationKinds(details: readonly string[] | undefined): ViolationKind[] {
+  const rules: [ViolationKind, RegExp][] = [
+    ["allergy", /allergic to|allergen/i],
+    ["diet", /dietary pattern/i],
+    ["no_cook", /isn't a no-cooking meal/i],
+    ["equipment", /equipment the user doesn't have|hasn't said they have/i],
+    ["time", /min limit/i],
+    ["budget", /over the \$\d+ budget/i],
+    ["inventory", /inventory-only|isn't in the user's ingredients/i],
+    ["ways", /doesn't want to cook|only cooking was allowed/i],
+  ];
+  const found = new Set<ViolationKind>();
+  for (const detail of details ?? []) for (const [kind, pattern] of rules) if (pattern.test(detail)) found.add(kind);
+  return [...found];
 }
 
 /** What the Cook checks read. A limit that is null was never stated by the person

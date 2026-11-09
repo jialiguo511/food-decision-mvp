@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PROFILE } from "@/test/profileInput";
 import type { OpenContext, ProfileInput } from "@/lib/types";
-import { buildOpenOutputSchema, findConstraintViolations, parseRecommendations } from "./output";
+import { buildOpenOutputSchema, findConstraintViolations, parseRecommendations, violationKinds } from "./output";
 import { openContextSchema, resolveRecommendationInput, type OpenRecommendationInput } from "./input";
 import { buildSystemPrompt, buildUserMessage } from "./prompt";
 
@@ -204,5 +204,30 @@ describe("every card is held to its own way's rules", () => {
     const cooks = [{ decision_mode: "cook" as const, role: "best_match" as const, ...cook() }] as never;
     const v = findConstraintViolations(cooks, input({ ways: { cook: false, buy: true } }).hard_constraints);
     expect(v.join(" ")).toMatch(/doesn't want to cook/);
+  });
+});
+
+describe("violationKinds — which rule was broken, from the validator's own findings", () => {
+  const kindsOf = (text: string, i: OpenRecommendationInput) => {
+    const r = parse(text, i);
+    return r.ok ? [] : violationKinds(r.details);
+  };
+
+  it("names each kind from a REAL violation (so the wording cannot drift from the classifier)", () => {
+    expect(kindsOf(set(cook({ title: "Peanut noodle bowl" }), snack(), idea()), input({}, { ...DEFAULT_PROFILE, allergies: ["Peanuts"] }))).toEqual(["allergy"]);
+    expect(kindsOf(set(cook({ title: "Chicken wrap", ingredients_needed: ["chicken"], steps: ["Wrap the chicken."] }), snack(), idea()), input({}, { ...DEFAULT_PROFILE, dietary_patterns: ["vegetarian"] }))).toEqual(["diet"]);
+    expect(kindsOf(set(cook({ steps: ["Heat the pan.", "Fry the tuna."], title: "Seared tuna" }), snack(), idea()), input({}, NO_EQUIPMENT))).toContain("no_cook");
+    expect(kindsOf(set(cook({ equipment: ["Air fryer"], steps: ["Air fry it."] }), snack(), idea()), input({}, DEFAULT_PROFILE))).toContain("equipment");
+    expect(kindsOf(set(cook({ estimated_minutes: 40 }), snack(), idea()), input({ minutes: 15 }))).toEqual(["time"]);
+    expect(kindsOf(set(cook({ estimated_extra_cost_usd: 30 }), snack(), idea()), input({ extra_spend_usd: 8 }, { ...DEFAULT_PROFILE, budget_per_meal_usd: null }))).toEqual(["budget"]);
+    // (a recipe can't even be expressed when cooking is ruled out, so that finding is reached directly)
+    const recipeAnyway = [{ decision_mode: "cook" as const, role: "best_match" as const, ...cook() }] as never;
+    expect(violationKinds(findConstraintViolations(recipeAnyway, input({ ways: { cook: false, buy: true } }).hard_constraints))).toEqual(["ways"]);
+  });
+
+  it("several broken rules are all named, once each; nothing known is nothing", () => {
+    expect(violationKinds(["best_match: names peanuts, which the user is allergic to.", "alternative: names peanuts, which the user is allergic to."])).toEqual(["allergy"]);
+    expect(violationKinds([])).toEqual([]);
+    expect(violationKinds(undefined)).toEqual([]);
   });
 });
