@@ -14,6 +14,7 @@ import { DEFAULT_FORM_VALUES } from "@/lib/profile";
 const completeOnboarding = vi.fn(async () => ({ ok: true as const }));
 vi.mock("../actions", () => ({ completeOnboarding: (...a: unknown[]) => (completeOnboarding as (...x: unknown[]) => unknown)(...a) }));
 
+import { ALLERGY_NOTE } from "@/lib/disclaimers";
 import Onboarding from "./Onboarding";
 
 let container: HTMLDivElement;
@@ -37,6 +38,10 @@ afterEach(() => {
 });
 
 describe("first-run setup", () => {
+  it("says at the allergy question that checks can miss allergens", () => {
+    expect(text()).toContain(ALLERGY_NOTE);
+  });
+
   it("asks only about allergies and the dietary pattern — nothing else", async () => {
     expect(text()).toMatch(/Any food allergies/);
     await click(/^Skip for now/);

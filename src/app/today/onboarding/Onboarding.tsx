@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Button from "@/components/ui/Button";
+import { ALLERGY_LEAD, ALLERGY_REST } from "@/lib/disclaimers";
 import { COMMON_ALLERGIES } from "@/lib/options";
 import type { ProfileFormValues } from "@/lib/types";
 import DietaryPicker from "../../profile/DietaryPicker";
@@ -55,7 +56,7 @@ export default function Onboarding({ initial, onDone }: { initial: ProfileFormVa
     step === 0
       ? {
           title: "Any food allergies?",
-          hint: "Anything we should never recommend. We'll treat it as a hard rule.",
+          hint: "Anything we should leave out of your suggestions.",
           body: (
             <div>
               <FoodTermsPicker
@@ -78,7 +79,9 @@ export default function Onboarding({ initial, onDone }: { initial: ProfileFormVa
                   <span aria-hidden className={`size-5 rounded-full border ${noAllergies ? "border-accent bg-accent" : "border-line"}`} />
                 </button>
               )}
-              <p className="mt-3 text-xs text-muted">We can&apos;t check ingredients, so always read labels yourself. Not sure? Skip — we won&apos;t assume you have none.</p>
+              <p className="mt-3 text-xs text-muted" data-testid="allergy-note">
+                <span className="font-semibold">{ALLERGY_LEAD}</span> {ALLERGY_REST} Not sure? Skip — we won&apos;t assume you have none.
+              </p>
             </div>
           ),
         }

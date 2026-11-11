@@ -14,6 +14,7 @@ import {
   GOALS,
 } from "@/lib/options";
 import type { FridgeSize, Goal, ProfileFormValues } from "@/lib/types";
+import { ALLERGY_NOTE } from "@/lib/disclaimers";
 import { saveProfile } from "./actions";
 import DietaryPicker from "./DietaryPicker";
 import EquipmentPicker from "./EquipmentPicker";
@@ -72,7 +73,7 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
       <ProfileSection title="Food preferences" caption="Always used in your suggestions">
         <FoodTermsCard
           title="Allergies"
-          hint="Never suggested. We can't verify ingredients, so always check labels yourself."
+          hint={`We leave these out of suggestions. ${ALLERGY_NOTE}`}
           common={COMMON_ALLERGIES}
           values={values.allergies}
           placeholder="Another allergy…"

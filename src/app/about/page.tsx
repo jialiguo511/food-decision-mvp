@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import { appVersion } from "@/lib/feedback";
+import { ACCURACY_NOTE, ALLERGY_NOTE, MEDICAL_NOTE } from "@/lib/disclaimers";
 import { DEFAULT_LIMITS } from "@/lib/usage/limits";
 import { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 
@@ -29,8 +30,8 @@ export default function AboutPage() {
 
       <Section title="What it is not">
         <p>
-          It isn&apos;t a medical or dietetic service, a calorie tracker, or a coach. Nothing here is medical advice. If you have a medical condition, a
-          diagnosed allergy, or a specific diet from a professional, follow their guidance over this app&apos;s.
+          It isn&apos;t a medical or dietetic service, a calorie tracker, or a coach. {MEDICAL_NOTE} If you have a medical condition, a diagnosed allergy, or a
+          specific diet from a professional, follow their guidance over this app&apos;s.
         </p>
       </Section>
 
@@ -38,6 +39,7 @@ export default function AboutPage() {
         <ul className="list-disc space-y-1.5 pl-5">
           <li>Calories, protein, cost and time are rough estimates made by an AI model — they are shown with a “~” on purpose, and they can be wrong.</li>
           <li>Your daily calorie and protein targets are a standard formula applied to what you enter. They size a meal; they aren&apos;t a prescription.</li>
+          <li>{ACCURACY_NOTE}</li>
           <li>Recipes are suggestions. Check cooking times, temperatures and food safety yourself.</li>
           <li>
             For nearby places we have a place&apos;s name, type, distance, price level and whether it&apos;s open — not its menu. “What to look for” is a
@@ -50,7 +52,7 @@ export default function AboutPage() {
         <p>
           We tell the AI to leave out what you list, and we run a simple word check on the result. That check is literal — it looks for the exact words you
           entered — so it can miss an alias, a hidden ingredient, or a cross-contact risk.{" "}
-          <strong>It is not a safety guarantee.</strong> If an allergy matters for your health, read ingredient lists and ask the restaurant, every time.
+          <strong>It is not a safety guarantee.</strong> {ALLERGY_NOTE} Ask the restaurant, every time.
         </p>
       </Section>
 
@@ -102,8 +104,8 @@ export default function AboutPage() {
           </li>
         </ul>
         <p className="mt-2">
-          Each of those services has its own terms and privacy policy. There are no ads and no third-party analytics or tracking scripts in this app; it uses a
-          sign-in cookie and nothing else in your browser.{TURNSTILE_SITE_KEY ? " On the sign-in page, a Cloudflare Turnstile check may run to tell people from scripts; it is Cloudflare's service and is covered by their privacy policy." : ""}
+          Each of those services has its own terms and privacy policy. There are no ads and no third-party analytics or tracking scripts in this app; the app itself
+          sets only a sign-in cookie.{TURNSTILE_SITE_KEY ? " On the sign-in page, a Cloudflare Turnstile check may run to tell people from scripts; it is Cloudflare's service and is covered by their privacy policy." : ""}
         </p>
       </Section>
 

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import Button, { buttonClass } from "@/components/ui/Button";
+import { ALLERGY_LEAD, ALLERGY_REST } from "@/lib/disclaimers";
 import type { NutritionTargets } from "@/lib/nutrition";
 import { mealTargetsFor } from "@/lib/recommend/nutritionFit";
 import type { ActiveSession, DecisionContext } from "@/lib/types";
@@ -243,12 +244,13 @@ export default function ResultsScreen({
       )}
 
       {recs.length > 0 && (
-        <p className="text-xs text-muted">
+        <p className="text-xs text-muted" data-testid="results-footnote">
           {nearby
-            ? "Real places from Google Maps. We don't have their menus, so \"What to look for\" is a suggestion. If you have food allergies, check ingredients with the restaurant. Distances are approximate."
+            ? "Real places from Google Maps. We don't have their menus, so \"What to look for\" is a suggestion. Distances are approximate."
             : mode === "cook" || crossWay
               ? "All numbers are estimates. Buying ideas are things to search for or look for — we don't know what any particular place has."
-              : "All numbers are estimates — exact items aren't guaranteed to be available."}
+              : "All numbers are estimates — exact items aren't guaranteed to be available."}{" "}
+          <span className="font-semibold">{ALLERGY_LEAD}</span> {ALLERGY_REST}
         </p>
       )}
 
