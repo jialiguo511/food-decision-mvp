@@ -7,12 +7,12 @@
 > **Status: public beta.** Built and automatically tested; not yet validated with real users, so no usage numbers are claimed. Nutrition figures are AI estimates, and the allergy checks are not a safety guarantee. See [Limits](#limits-stated-plainly).
 
 <p>
-  <img src="docs/images/demo-1-understood.png" alt="The app reads one sentence into structured answers" width="250">
-  <img src="docs/images/demo-2-cards.png" alt="Three cook options with named tabs: best match, easiest, different" width="250">
-  <img src="docs/images/demo-3-get-food.png" alt="The same request type for ordering food, with a budget" width="250">
+  <img src="docs/images/demo-1-understood.png" alt="Static example: one sentence read into structured answers" width="250">
+  <img src="docs/images/demo-2-cards.png" alt="Static example: three cook options with tabs for best match, easiest and different" width="250">
+  <img src="docs/images/demo-3-get-food.png" alt="Static example: the same request type for getting food, with a budget" width="250">
 </p>
 
-*Screenshots are the public `/demo` page: a fixed, labelled example, so nothing in them is personal or generated for a real person.*
+*These are the public `/demo` page: a fixed, hand-written example with no model call, so nothing is personal or generated for a real person. It reuses the real summary panel and carousel but draws simplified cards, and it does not show the sentence box, photos, Save, step-by-step recipes or **Adjust**, which switches a request between Cook, Get food and Snack. Try those in the [live app](https://food-decision-mvp.vercel.app/) (email sign-in).*
 
 ## The problem
 
