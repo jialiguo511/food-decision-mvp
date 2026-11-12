@@ -70,6 +70,7 @@ npm run build       # production build
 - **Unit and route tests** cover output validation, the constraint checks, the sentence reader, usage limits and every paid route's refusal paths (signed out, cross-site, over limit, paused).
 - **Real-Postgres tests (PGlite)** run the shipped `supabase/schema.sql` and migrations: two-account isolation over every user-owned table, the usage meter under concurrency (exactly *N* of 40 simultaneous calls allowed), server-only writes to the shared picture cache, and migration idempotency in any order.
 - **Opt-in real-model checks** (cost real money, never part of `npm test`): `npm run check:interpret` and `npm run check:open` re-check allergy, no-cooking and no-invented-ingredient rules against live model output; `npm run bench:recommend` measures latency and cost. The benchmark was small (two runs per case), so it is an indication, not a performance claim.
+- **Reproducible install.** `package.json` pins Vitest's native bundler binding for the common platforms under `optionalDependencies`: npm (11.x) omits optional binaries of auto-installed peer dependencies when installing from the lockfile ([npm/cli#4828](https://github.com/npm/cli/issues/4828)), which made a clean `npm ci && npm test` fail. Remove the pins once that is fixed upstream.
 - **CI** runs typecheck, lint and tests on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ## Run it locally
