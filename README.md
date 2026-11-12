@@ -1,180 +1,112 @@
-# Food Decision MVP
+# What Should I Eat
 
-"What should I actually eat right now?" — three options, chosen for the
-constraints you actually have tonight.
+**Decide what to eat right now, in one sentence.** Say *"just trained, very hungry, 20 minutes, I'll cook with the eggs and rice I have"* and get exactly **three** options that respect your real constraints: allergies, diet, equipment, what is actually in your kitchen tonight, time, effort and budget.
 
-## Product documentation
+**[Live app](https://food-decision-mvp.vercel.app/)** · **[No-sign-up demo](https://food-decision-mvp.vercel.app/demo)** · [About, privacy and limits](https://food-decision-mvp.vercel.app/about) · [Case study](docs/CASE_STUDY.md)
 
-| file | what it covers |
-|---|---|
-| [`PRODUCT.md`](PRODUCT.md) | Product thesis, strategy (wedge vs. long-term product), target user, principles, success measures, MVP, non-goals |
-| [`PLAN.md`](PLAN.md) | Current roadmap — NOW / NEXT / LATER / NOT NOW, plus the four strategic stages |
-| [`PERSONALIZATION.md`](PERSONALIZATION.md) | How the product remembers and learns — explicit, routine, behavioral memory |
-| [`CLAUDE.md`](CLAUDE.md) | Coding and product rules for AI-assisted development |
-| [`LEARNINGS.md`](LEARNINGS.md) | Evidence and product learnings |
-| [`RELEASE.md`](RELEASE.md) | **Public Beta: what's built, what was and wasn't verified, migrations, env vars, external setup, the off switch, 10-minute acceptance checklist, release blockers** |
-| [`CASE_STUDY.md`](CASE_STUDY.md) | Project write-up: the problem, a 60–90 s demo script, technical decisions with evidence and their limits, built vs. unvalidated, resume text |
+> **Status: public beta.** Built and automatically tested; not yet validated with real users, so no usage numbers are claimed. Nutrition figures are AI estimates, and the allergy checks are not a safety guarantee. See [Limits](#limits-stated-plainly).
 
----
+<p>
+  <img src="docs/images/demo-1-understood.png" alt="The app reads one sentence into structured answers" width="250">
+  <img src="docs/images/demo-2-cards.png" alt="Three cook options with named tabs: best match, easiest, different" width="250">
+  <img src="docs/images/demo-3-get-food.png" alt="The same request type for ordering food, with a budget" width="250">
+</p>
 
-## Run it locally
+*Screenshots are the public `/demo` page: a fixed, labelled example, so nothing in them is personal or generated for a real person.*
 
-You need Node 18.18+ (check with `node --version`).
+## The problem
 
-### 1. Install dependencies
+People do not lack recipes; they lack a *decision*. A recipe app returns a hundred options and a calorie tracker returns a ledger. The question is narrower: **given my real constraints right now, what should I actually eat?** Success is measured by whether the person ate one of the three, not by time in the app.
 
-```bash
-cd food-decision-mvp
-npm install
+It is deliberately **not** a recipe database, a calorie tracker, a meal planner or a nutrition coach.
+
+## How it works
+
+```mermaid
+flowchart LR
+  U[Browser<br/>Next.js client] -->|sentence or taps| I["/api/recommend/interpret<br/>sentence → structured context"]
+  U -->|structured context| R["/api/recommend"]
+  R --> G{"auth + per-user & app-wide<br/>usage check (Postgres)"}
+  G -->|allowed| M[Anthropic API<br/>schema-constrained JSON]
+  G -->|nearby| P[Google Places<br/>candidates]
+  P --> RK[Deterministic ranking in code]
+  M --> V[Validate in code:<br/>schema · allergens · diet · equipment · ingredients]
+  RK --> V
+  V -->|retry once if a rule is broken| M
+  V --> DB[(Supabase Postgres<br/>RLS per user)]
+  DB --> U
 ```
 
-### 2. Create a Supabase project
+One request becomes exactly three *decisions*, each with a different purpose (best match, easiest, a meaningfully different option). Three ways of getting food are one system, not three products: **cook**, **get food** (order or nearby) and **grab a snack**, plus an *open* request that mixes them.
 
-1. Go to [supabase.com](https://supabase.com) → **New project** (free tier is fine).
-2. Open the **SQL Editor**, paste the entire contents of `supabase/schema.sql`,
-   and hit **Run**. This creates every table, function and security policy. It is
-   idempotent (checked on a real Postgres by `src/test/schema.realdb.test.ts`):
-   re-running it only adds what is missing.
-   **For an existing database,** first run the read-only `supabase/check-schema.sql`
-   to see what is missing, then follow `RELEASE.md` §4 — don't run every file in
-   `supabase/migrations/` (they are subsets of `schema.sql`).
-3. Go to **Project Settings → API** and copy the **Project URL** and the
-   **anon public** key.
+## Key engineering decisions
 
-### 3. Configure environment variables
+| decision | why | trade-off |
+|---|---|---|
+| **The model is a function, not a chatbot.** The server builds a structured context and the model returns JSON that is schema-validated before any UI sees it. | A bad answer fails visibly instead of rendering half a card. | No free-form conversation. |
+| **Hard constraints are enforced twice**: stated separately in the prompt, then checked in code on the answer (allergen names, dietary pattern, equipment, "no cooking at all"). A violating set is rejected and retried once. | A model is persuasive, not reliable. Safety-relevant rules should not rest on it alone. | The check is a literal word match: it can miss aliases and hidden ingredients. The app says so. |
+| **No invented ingredients.** Available = what you listed *for this meal* + persistent kitchen staples. "Use what I have" may return fewer than three, or a purchase fallback. | A recipe that quietly assumes an ingredient is worse than a short, honest list. | Sometimes the honest answer is "buy a few things". |
+| **Code picks the places; the model only words them.** Nearby results come from deterministic ranking over real candidates. | A model can hallucinate a restaurant; a ranking rule cannot. | Less creative than model ranking. |
+| **Preferences have provenance** (explicit, remembered, fallback). One choice never becomes a permanent preference; not choosing is never dislike. | Nothing inferred is presented as the person's own. | Slower to feel personalised. Rules only: no trained model. |
+| **Cost control lives in Postgres, before the paid call.** One atomic function enforces a per-person daily limit, an app-wide ceiling and an owner's off switch, and only the server role can execute it. | In-memory counters reset on cold starts, per-account limits alone do not stop many accounts, and a function the browser can call lets it choose its own limit (an earlier version did; found and closed in review). | These are the app's limits, not a billing cap. Vendor-side spend limits are still required. |
+| **Row Level Security is the authorization layer**, tested as two users and as signed out, for every user table. | The browser holds the public key by design. | Tests cover the shipped SQL on a local engine, not a particular hosted project. |
+| **Privacy by construction.** Product events and logs carry names, codes and timings, never what a person typed, foods, health details or location. | You cannot leak what you never record. | Less debugging detail; errors carry a short reference id. |
 
-```bash
-cp .env.local.example .env.local
-```
+More evidence for each decision, and what it does *not* prove, is in the [case study](docs/CASE_STUDY.md).
 
-Open `.env.local` and paste in your URL and anon key. Leave
-`NEXT_PUBLIC_SITE_URL=http://localhost:3000` for local development.
+## Tech stack
 
-> The anon key is *meant* to be public — it identifies your project, it doesn't
-> grant access. Row Level Security in Postgres is what keeps one user from
-> reading another's rows. Anything genuinely secret (the LLM key, later) has no
-> `NEXT_PUBLIC_` prefix, which is how Next.js knows never to send it to the
-> browser.
+Next.js 15 (App Router) · TypeScript (strict) · Tailwind CSS v4 · Supabase (Postgres, Auth magic link, Row Level Security, Storage) · Anthropic API · Google Places API (New) · Cloudflare Turnstile · Vercel · Vitest, PGlite (real Postgres engine in tests), ESLint.
 
-### 3b. Nearby places (optional)
-
-"Find food near me" (Home → "I want to order food") searches real nearby
-restaurants and cafés with the **Google Places API (New)**. Without a key
-everything else works, and that button explains that nearby search isn't set
-up.
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), create or
-   pick a project and **enable billing** (Google requires it, even for the free
-   monthly allowance).
-2. **APIs & Services → Library → "Places API (New)" → Enable.** Make sure it is
-   the *(New)* one, not the legacy "Places API".
-3. **APIs & Services → Credentials → Create credentials → API key.** Then
-   restrict it: **API restrictions → Places API (New)** only. (Application
-   restrictions by HTTP referrer don't work for server-side calls; leave those
-   unrestricted or use IP restrictions if you deploy to fixed IPs.)
-4. Put it in `.env.local` as `GOOGLE_PLACES_API_KEY=...` — no `NEXT_PUBLIC_`
-   prefix, and never commit it. On Vercel, add the same variable and redeploy.
-5. Each tap is one Nearby Search request (up to 20 places). The field mask
-   intentionally includes Enterprise-tier fields (open-now, price level, and website)
-   for MVP usefulness, so each request bills at the Enterprise tier. That is a
-   deliberate cost/utility tradeoff, centralized in `src/lib/places/config.ts`
-   so it can be changed later — revisit it if usage scales.
-6. **Before any public launch,** set project-level protections in the Google
-   Cloud console: a budget alert, and a per-day quota cap on the Places API
-   (New). The app makes at most one request per explicit tap and never retries
-   or polls on its own, but it has no rate limiter of its own — the Cloud quota
-   is the backstop.
-
-Location is requested by the browser only when you tap **Find food near me**,
-is used for that one search, and is never saved. The browser only shares
-location on `https://` or `localhost` — for phone testing use your deployed
-URL or a tunnel, not `http://<your-LAN-IP>:3000`.
-
-### 3c. Other optional keys
-
-`ANTHROPIC_API_KEY` powers the recommendations and the one-sentence entry.
-`PEXELS_API_KEY` / `OPENAI_API_KEY` add recipe pictures. `USAGE_LIMIT_*` change the
-per-person daily limits on paid calls (defaults in `src/lib/usage/limits.ts`).
-See `.env.local.example`.
-
-### 4. Start the dev server
-
-```bash
-npm run dev
-```
-
-Open <http://localhost:3000>. You'll be sent to `/login`.
-
-`npm run dev` clears stale `.next` development manifests before startup and
-uses Turbopack. This avoids the intermittent Webpack React Client Manifest
-desynchronization seen after long Fast Refresh sessions. The old Webpack
-server remains available as `npm run dev:webpack` only for troubleshooting.
-
-### 5. Sign in
-
-Enter your email and click the button. Supabase emails you a one-time link.
-
-- The built-in Supabase email sender is for trying things yourself: per Supabase's
-  docs it allows about 2 emails an hour for the whole project and only sends to
-  members of your organization. **To invite anyone else you must set up your own SMTP**
-  (`RELEASE.md` §6). If the email is slow while developing, open Supabase →
-  **Authentication → Users** and use "Send magic link", or add yourself there manually.
-- Make sure `http://localhost:3000/**` is listed under
-  **Authentication → URL Configuration → Redirect URLs**.
-
-After clicking the link you land on `/today` (labelled **Home** in the app).
-Tap **Me** in the bottom bar to set your Food Profile.
-
----
-
-## What to look at
-
-| URL | State |
-|---|---|
-| `/login` | Magic-link sign-in |
-| `/demo` | **Built** — public, static, clearly-labelled example walkthrough (no sign-in, no model, no data) |
-| `/about` | **Built** — public: privacy, what leaves the app, estimates, no safety guarantee |
-| **`/today`** (Home) | **Built** — say what's going on in a sentence, *or* choose step by step (Make something / Get food / Grab a snack); then three recommendations |
-| `/plan`, `/groceries` | Placeholder containers (not built) — **not linked from the nav** in the web beta |
-| **`/saved`** | **Built** — recipes and places you saved to come back to |
-| **`/profile`** (Me) | **Built** — Food Profile, Kitchen staples, account & data |
-
-The earlier `/results`, `/inbox` and `/my-food` routes were removed; see
-`PLAN.md`. Where the product is headed — and what is deliberately *not* built
-yet — is in `PRODUCT.md` → "Strategy".
-
-To confirm the profile actually persists: set some chips, press **Save
-profile**, reload the page — the choices come back. Then look at
-**Table Editor → profiles** in Supabase and you'll see your row.
-
----
-
-## Checks
+## Testing
 
 ```bash
 npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
-npm test            # unit + route + real-Postgres (PGlite) tests
-npm run build       # full production build
-
-# Costs real (small) money and needs ANTHROPIC_API_KEY — never part of `npm test`:
-INTERPRET_CONFIRM=1 npm run check:interpret   # the sentence reader, on the real model
-BENCH_CONFIRM=1 npm run bench:recommend       # recommender model benchmark
+npm test            # 1,346 tests in 93 files
+npm run build       # production build
 ```
 
-Dev-only pages (404 in production): `/dev/home` (the real Home with a fake network,
-`?returning=1` for a returning user) and `/dev/carousel` (picture loading; add
-`?mode=fail|genfail|broken|none&delay=3000`).
+- **Unit and route tests** cover output validation, the constraint checks, the sentence reader, usage limits and every paid route's refusal paths (signed out, cross-site, over limit, paused).
+- **Real-Postgres tests (PGlite)** run the shipped `supabase/schema.sql` and migrations: two-account isolation over every user-owned table, the usage meter under concurrency (exactly *N* of 40 simultaneous calls allowed), server-only writes to the shared picture cache, and migration idempotency in any order.
+- **Opt-in real-model checks** (cost real money, never part of `npm test`): `npm run check:interpret` and `npm run check:open` re-check allergy, no-cooking and no-invented-ingredient rules against live model output; `npm run bench:recommend` measures latency and cost. The benchmark was small (two runs per case), so it is an indication, not a performance claim.
+- **CI** runs typecheck, lint and tests on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
----
+## Run it locally
 
-## Deploy (when you're ready)
+Requires Node 20+ and a free Supabase project.
 
-Push to GitHub, import the repo on [vercel.com](https://vercel.com), and add
-the same environment variables in the Vercel project settings — with
-`NEXT_PUBLIC_SITE_URL` set to your real domain. Then add
-`https://your-app.vercel.app/**` to Supabase's redirect URL list.
+```bash
+npm install
+cp .env.local.example .env.local     # fill in the values; every variable is explained inside
+npm run dev                          # http://localhost:3000
+```
 
-**Before anyone but you uses it, read `RELEASE.md`:** run the database SQL first (in
-production the app refuses paid requests without it), set up your own SMTP, and
-walk the acceptance checklist on a preview deployment.
+1. Create a Supabase project and run `supabase/schema.sql` in the SQL editor (idempotent).
+2. Put the project URL and anon key in `.env.local`. Add `ANTHROPIC_API_KEY` for recommendations. Google Places, Pexels and OpenAI keys are optional and the app degrades without them.
+3. Under *Authentication → URL Configuration*, allow `http://localhost:3000/**`. Supabase's built-in email sender is limited to a couple of emails an hour to your own team; use *Authentication → Users → Send magic link* while developing.
+
+Dev-only pages (404 in production): `/dev/home` runs the real Home screen against a fake network, and `/dev/carousel` exercises picture loading. Deploying and operating it (migrations, environment variables, spend caps, the off switch) is in [`docs/RELEASE.md`](docs/RELEASE.md).
+
+## Limits, stated plainly
+
+- Calories, protein, cost and time are **estimates** from a model and are shown with a "~". Prices and place details can be out of date.
+- Allergen and diet checks are **literal word matches**. They are not a safety guarantee, and the UI says to check ingredients, labels and cross-contact yourself.
+- It is not medical or dietetic advice.
+- No user study has been run. "Do people eat one of the three?" is a hypothesis, tracked in [`docs/LEARNINGS.md`](docs/LEARNINGS.md).
+- The brand name is a placeholder (`src/lib/brand.ts`).
+
+## Documentation
+
+| file | what it covers |
+|---|---|
+| [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md) | The problem, technical decisions with evidence and their limits, built vs. unvalidated |
+| [`docs/PRODUCT.md`](docs/PRODUCT.md) | Product thesis, principles, scope and non-goals |
+| [`docs/PLAN.md`](docs/PLAN.md) | Roadmap: now / next / later |
+| [`docs/PERSONALIZATION.md`](docs/PERSONALIZATION.md) | How the product remembers and learns (rules, not a trained model) |
+| [`docs/LEARNINGS.md`](docs/LEARNINGS.md) | Evidence log: observations, hypotheses, what would change them |
+| [`docs/RELEASE.md`](docs/RELEASE.md) | Deploying and operating the beta |
+| [`CLAUDE.md`](CLAUDE.md) | Working rules for AI-assisted development in this repo |
+| [`SECURITY.md`](SECURITY.md) | Reporting a vulnerability; security model in brief |
+
+This project was built with an AI coding assistant working under the rules in `CLAUDE.md` and the product documents above; the commit history shows it.

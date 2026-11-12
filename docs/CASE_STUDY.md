@@ -2,19 +2,11 @@
 
 A solo-built web app for **food decision fatigue**: you say (or tap) what your evening looks like, and it returns
 **exactly three** options that respect your real constraints — allergies, what's in the fridge tonight, time, effort, budget.
-Status: **Public Beta, built and tested, not yet released to real users** — so there are no user numbers here, and none are implied.
+Status: **Public Beta** — live at <https://food-decision-mvp.vercel.app/>, built and automatically tested, **not yet validated with real users** — so there are no user numbers here, and none are implied.
 
 Stack: Next.js 15 (App Router) · TypeScript (strict) · Supabase (Postgres, Auth, Row Level Security, Storage) · Anthropic API · Google Places · Vercel.
 
 ---
-
-## 0. Personal-website blurb (copy-paste)
-
-**What Should I Eat** — a web app for food decision fatigue. Say, in one sentence, what your evening looks like (*"just trained, very hungry, 20 minutes, I have eggs and rice"*), and it returns
-exactly three realistic options — cook, order, or grab — that respect your allergies, what's actually in your fridge tonight, time and budget. I built and run it solo: Next.js, TypeScript,
-Supabase (Postgres + Row Level Security), the Anthropic API and Google Places. The parts I'm proudest of are the boring ones: model answers are schema-checked and re-checked in code against
-allergy, diet and equipment rules; spend is metered in Postgres by a function the browser can't call; and user data is isolated per account, tested on a real Postgres engine.
-It's in **Public Beta** — built and tested, not yet used by real people, so there are no usage numbers here. [Try the example](/demo) · [Case study](CASE_STUDY.md)
 
 ## 1. The problem and who it's for
 
@@ -75,21 +67,9 @@ A second find: some error logs included a database error's `details`, which for 
 ## 5. What I measured, and under what conditions
 
 - **Automated checks:** typecheck, lint, the test suite (including suites that run the shipped SQL on a real Postgres engine) and the production build all pass on the final tree (`RELEASE.md` §2 has the run and its limits). The count is not the point; what the real-Postgres suites assert is (isolation, the metering function, the cache).
-- **Model latency/cost:** one benchmark file, `bench-results/recommend-2026-10-05T23-56-10-368Z.md` — Cook-mode requests,
+- **Model latency/cost:** one benchmark run, `npm run bench:recommend` output (not committed) — Cook-mode requests,
   `claude-sonnet-5-5`, adaptive thinking at low effort, **n = 2** (one run per case): ~7.6 s median, ~$0.02 per request. Two runs is an
   indication, **not a performance claim**; it hasn't been re-run on a deployed host.
 - **Real-model behavior checks** (`npm run check:open`, `check:interpret`): see `RELEASE.md` §2 for what was run in this round.
 - **Not measured:** retention, "ate it" rate, real-user latency, cost per active user.
 
-## 6. Resume description
-
-**English (≈70 words)**
-> Designed and built a mobile-first web app (Next.js, TypeScript, Supabase, Anthropic API) that answers "what should I eat right now?" with exactly three
-> options under real constraints. LLM output is schema-validated and re-checked in code against allergy, diet and equipment rules; spend is capped in
-> Postgres by a server-only atomic function (per-user and app-wide limits, no-deploy kill switch); per-user data isolation and server-only writes to shared
-> resources are verified on a real Postgres engine. Public-beta ready; no user metrics claimed.
-
-**中文**
-> 独立设计并实现面向"吃什么"决策疲劳的移动端 Web 应用（Next.js / TypeScript / Supabase / Anthropic API）：在用户当下约束（过敏、现有食材、时间、预算）下固定返回三个选项；
-> 模型输出先做 schema 校验，再用代码按过敏/饮食/设备规则二次校验；费用在 Postgres 内由仅服务端可调用的原子函数计数（单用户 + 全站上限 + 无需发布的紧急开关）；
-> 用真实 Postgres 引擎对全部用户数据表做双账号隔离测试，并验证共享资源（图片缓存）只能由服务端写入。已达公开 Beta 就绪状态，未声称任何用户数据。

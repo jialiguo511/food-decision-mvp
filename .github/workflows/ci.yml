@@ -1,0 +1,32 @@
+name: CI
+
+# Typecheck, lint and the test suite. Needs no secrets and no network services:
+# the database tests run on an in-process Postgres (PGlite), and the real-model
+# checks (check:*, bench:*) are opt-in scripts that are not part of `npm test`.
+
+on:
+  push:
+    branches: [main, "docs/**", "release/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
