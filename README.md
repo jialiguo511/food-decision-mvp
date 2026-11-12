@@ -6,13 +6,25 @@
 
 > **Status: public beta.** Built and automatically tested; not yet validated with real users, so no usage numbers are claimed. Nutrition figures are AI estimates, and the allergy checks are not a safety guarantee. See [Limits](#limits-stated-plainly).
 
-<p>
-  <img src="docs/images/demo-1-understood.png" alt="Static example: one sentence read into structured answers" width="250">
-  <img src="docs/images/demo-2-cards.png" alt="Static example: three cook options with tabs for best match, easiest and different" width="250">
-  <img src="docs/images/demo-3-get-food.png" alt="Static example: the same request type for getting food, with a budget" width="250">
-</p>
+<table>
+  <tr>
+    <th align="center">1 · Describe</th>
+    <th align="center">2 · Decide</th>
+    <th align="center">3 · Adjust</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-1-describe.png" alt="Home screen of the signed-in app: a sentence box with an example typed in, and Make something, Get food and Grab a snack below it" width="240"></td>
+    <td><img src="docs/images/app-2-decide.png" alt="Results screen: a summary of what the app understood and a recipe card with photo, why it fits, what to buy, and estimates" width="240"></td>
+    <td><img src="docs/images/app-3-adjust.png" alt="The Adjust panel open above the results: a text box and one-tap switches to Get food or a snack" width="240"></td>
+  </tr>
+  <tr>
+    <td valign="top">Say what is going on in one sentence, or pick <em>Make something</em>, <em>Get food</em> or <em>Grab a snack</em> step by step.</td>
+    <td valign="top">Three options, one at a time, each with its reason, what to buy and estimated time, calories and protein.</td>
+    <td valign="top"><strong>Adjust</strong> changes the request in words or with a one-tap switch between Cook, Get food and Snack, without starting over.</td>
+  </tr>
+</table>
 
-*These are the public `/demo` page: a fixed, hand-written example with no model call, so nothing is personal or generated for a real person. It reuses the real summary panel and carousel but draws simplified cards, and it does not show the sentence box, photos, Save, step-by-step recipes or **Adjust**, which switches a request between Cook, Get food and Snack. Try those in the [live app](https://food-decision-mvp.vercel.app/) (email sign-in).*
+*Screenshots of the signed-in production app (the UI is unaltered; each image is cropped to the same frame). The suggestions are live model output for these example inputs; another run will differ. Photos are Pexels stock images, credited on the card. No account details are shown. Want to look without signing in? The [`/demo`](https://food-decision-mvp.vercel.app/demo) page is a fixed, hand-written example, not live output.*
 
 ## The problem
 
