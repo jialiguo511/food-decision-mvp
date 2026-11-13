@@ -108,6 +108,14 @@ A budget alert is not a cap. Treat each vendor's spend limit or quota setting as
 4. **Vendor spend caps.** Anthropic: a monthly spend limit. OpenAI: a project budget (only if `OPENAI_API_KEY` is set). Google: restrict the key to Places API (New), set a daily quota and a budget alert. Do this before the key sees public traffic.
 5. **Vercel:** set §5 variables on Preview and Production; function `maxDuration` is 200 s on `/api/recommend`, 60 s on image and enrich, 30 s on interpret, so check that your plan allows it.
 6. **Vendor terms:** this app sends food preferences to Anthropic and a dish description to OpenAI and Pexels; `/about` says so. Read each vendor's data terms and edit `/about` if your setup differs.
+7. **Sign-in email template (required for the code).** *Authentication → Emails → Templates → Magic Link*: the body must contain `{{ .Token }}` as well as the link, for example:
+   ```html
+   <h2>Your sign-in code</h2>
+   <p>Type this code on the sign-in page: <strong>{{ .Token }}</strong></p>
+   <p>Or open the link in the same browser you asked from: <a href="{{ .ConfirmationURL }}">Sign in</a></p>
+   <p>The code and the link each work once and expire after a while.</p>
+   ```
+   Without `{{ .Token }}` the page asks for a code the email does not contain. Why both: the link only works in the browser that requested it (it carries a PKCE verifier in a cookie), and mail apps such as Gmail open links in their own built-in browser, so the link fails there with "That sign-in link didn't work". The code has no such condition. The code length is *Authentication → Providers → Email → Email OTP Length* (6 by default); the page accepts 6–10 digits. Change the template **before** deploying the page that asks for the code.
 
 ## 7. Running the beta — the off switch and what to watch
 
@@ -129,7 +137,7 @@ While paused, people see "unavailable right now" and nothing is counted against 
 On a phone, against the deployment, signed in with your own email.
 
 1. [ ] `/demo` opens signed out; the "This is an example" banner is visible; tabs switch. `/about` shows the **Public Beta** pill.
-2. [ ] `/login` → request a link → the email arrives → the link signs you in. **Send another link** counts down. An old or used link shows the "didn't work… same browser" notice.
+2. [ ] `/login` → request → the email carries a link **and a code** → typing the code signs you in, including when the email is opened in Gmail's built-in browser or on another device; the link signs you in from the same browser. **Send another code** counts down. An old or used link shows the "didn't work" notice, which points to the code.
 3. [ ] First run asks only allergies and foods you avoid; **Skip** leaves allergies *unset* (not "none").
 4. [ ] Home: type *just trained, very hungry, 20 minutes, I have eggs and rice* → **Help me decide** → a short follow-up only for what you didn't say → three recipes; "Have" shows only eggs, rice and your staples.
 5. [ ] On results, **Adjust** → *no more snacks, I'll cook a proper meal* → the request becomes Cook, hunger kept, no return to Home; then *not cooking, buy something ready-made* → buying only; *same, but under $10* → only the budget moves. **Show me 3 more** keeps the conditions. If an Adjust fails, the text and the earlier results stay.
@@ -147,7 +155,7 @@ On a phone, against the deployment, signed in with your own email.
 
 **Required before inviting people** (settings outside the code):
 1. The 2026-11-09 and 2026-11-10 migrations applied (§4), `SUPABASE_SERVICE_ROLE_KEY` set on the deployment, and `check-schema.sql` showing no `MISSING` and no `EXPOSED`.
-2. Sign-in email works for non-members (custom SMTP, §6.1) and redirect URLs are set (§6.2).
+2. Sign-in email works for non-members (custom SMTP, §6.1), redirect URLs are set (§6.2), and the email template carries `{{ .Token }}` (§6.7).
 3. Vendor spend caps set (§6.4).
 4. The §8 checklist completed on the deployment.
 5. A contact address chosen (`NEXT_PUBLIC_CONTACT_EMAIL`): `/about` promises hand-removal of data only if one is shown.

@@ -7,12 +7,15 @@ import SetupNotice from "@/components/SetupNotice";
 import Turnstile, { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 import { BRAND } from "@/lib/brand";
 import { isSupabaseConfigured } from "@/lib/env";
-import { callbackErrorMessage, resendSecondsLeft, sendLinkErrorMessage } from "@/lib/loginErrors";
+import { callbackErrorMessage, cleanCode, isPlausibleCode, resendSecondsLeft, sendLinkErrorMessage, verifyCodeErrorMessage } from "@/lib/loginErrors";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Magic link sign-in. No passwords to store, reset, or leak — Supabase emails
- * a one-time link that lands on /auth/callback.
+ * Email sign-in with no password to store, reset, or leak. Supabase emails ONE message with two
+ * ways in: a one-time link that lands on /auth/callback (works only in the browser that asked —
+ * Gmail's and WeChat's built-in browsers are not that browser), and a one-time code typed here,
+ * which works in any browser or on any device. The code needs {{ .Token }} in the Supabase
+ * "Magic Link" email template (docs/RELEASE.md §6.7).
  */
 export default function LoginPage() {
   if (!isSupabaseConfigured) return <SetupNotice />;
@@ -34,6 +37,9 @@ function LoginForm() {
   const [now, setNow] = useState(() => Date.now());
   const [captcha, setCaptcha] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
+  const [code, setCode] = useState("");
+  const [codeState, setCodeState] = useState<"idle" | "checking" | "error">("idle");
+  const [codeError, setCodeError] = useState("");
 
   // Ticks only while the resend timer is running.
   const waiting = state === "sent" && resendSecondsLeft(sentAt, now) > 0;
@@ -75,8 +81,25 @@ function LoginForm() {
     } else {
       setSentAt(Date.now());
       setNow(Date.now());
+      setCode("");
+      setCodeState("idle");
       setState("sent");
     }
+  }
+
+  async function submitCode(event: React.FormEvent) {
+    event.preventDefault();
+    if (codeState === "checking" || !isPlausibleCode(code)) return;
+    setCodeState("checking");
+    const { error } = await createClient().auth.verifyOtp({ email: email.trim(), token: cleanCode(code), type: "email" });
+    if (error) {
+      setCodeError(verifyCodeErrorMessage(error));
+      setCodeState("error");
+      return;
+    }
+    // A full page load, not a client navigation: the session cookie is set, and everything in
+    // memory from before sign-in is dropped (the same rule Reset my data relies on).
+    window.location.assign("/today");
   }
 
   const left = state === "sent" ? resendSecondsLeft(sentAt, now) : 0;
@@ -96,9 +119,42 @@ function LoginForm() {
       {state === "sent" ? (
         <div className="mt-8 rounded-2xl border border-line bg-card p-5" role="status">
           <p className="text-sm">
-            Check <span className="font-medium">{email}</span> for a sign-in link. It works once, for a short time — and open it in <strong>this same browser</strong>.
+            We emailed <span className="font-medium">{email}</span> a sign-in link and a code. Type the code below — it works in any browser, including the one built
+            into Gmail — or tap the link in the same browser you are using now.
           </p>
-          <p className="mt-2 text-xs text-muted">Nothing there? Look in spam. The email comes from our sign-in service, and can take a minute.</p>
+          <form onSubmit={submitCode} className="mt-4 space-y-2">
+            <label htmlFor="login-code" className="text-sm font-semibold">
+              Code from the email
+            </label>
+            <input
+              id="login-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={14}
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value);
+                setCodeState("idle");
+              }}
+              disabled={codeState === "checking"}
+              aria-invalid={codeState === "error" ? true : undefined}
+              placeholder="123456"
+              className="w-full rounded-2xl border border-line bg-card px-4 py-3 text-lg tracking-widest outline-none focus:border-accent disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={codeState === "checking" || !isPlausibleCode(code)}
+              className="w-full rounded-2xl bg-accent py-3.5 font-semibold text-white disabled:opacity-60"
+            >
+              {codeState === "checking" ? "Signing in…" : "Sign in with code"}
+            </button>
+            {codeState === "error" && (
+              <p role="alert" className="text-sm text-red-700">
+                {codeError}
+              </p>
+            )}
+          </form>
+          <p className="mt-3 text-xs text-muted">Nothing there? Look in spam. The email comes from our sign-in service, and can take a minute. Codes and links work once.</p>
           <div className="mt-4 flex flex-col gap-2">
             {TURNSTILE_SITE_KEY && <Turnstile onToken={setCaptcha} resetKey={captchaReset} />}
             <button
@@ -107,13 +163,15 @@ function LoginForm() {
               disabled={left > 0 || (!!TURNSTILE_SITE_KEY && !captcha)}
               className="min-h-11 rounded-2xl border border-line bg-card px-4 text-sm font-semibold disabled:opacity-50"
             >
-              {left > 0 ? `Send another link (${left}s)` : "Send another link"}
+              {left > 0 ? `Send another code (${left}s)` : "Send another code"}
             </button>
             <button
               type="button"
               onClick={() => {
                 setState("idle");
                 setSentAt(null);
+                setCode("");
+                setCodeState("idle");
               }}
               className="min-h-11 text-sm text-accent"
             >
@@ -151,7 +209,7 @@ function LoginForm() {
             </p>
           )}
           <p className="text-xs text-muted">
-            No password. We email you a one-time link; signing in with a new address creates your account. By continuing you accept what&apos;s described in{" "}
+            No password. We email you a one-time code and link; signing in with a new address creates your account. By continuing you accept what&apos;s described in{" "}
             <Link href="/about" className="underline">
               About &amp; privacy
             </Link>

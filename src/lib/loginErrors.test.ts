@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callbackErrorMessage, resendSecondsLeft, RESEND_COOLDOWN_SECONDS, sendLinkErrorMessage, turnstileProblemMessage } from "./loginErrors";
+import { callbackErrorMessage, cleanCode, isPlausibleCode, resendSecondsLeft, RESEND_COOLDOWN_SECONDS, sendLinkErrorMessage, turnstileProblemMessage, verifyCodeErrorMessage } from "./loginErrors";
 
 describe("sendLinkErrorMessage — one plain sentence per cause, never the vendor's text", () => {
   it("rate limits", () => {
@@ -50,7 +50,8 @@ describe("turnstileProblemMessage — the check's real failure, with its code an
 
 describe("the callback notice and the resend timer", () => {
   it("explains an expired link, including the same-browser rule", () => {
-    expect(callbackErrorMessage("link_expired")).toMatch(/same browser/i);
+    expect(callbackErrorMessage("link_expired")).toMatch(/same browser|browser you asked from/i);
+    expect(callbackErrorMessage("link_expired")).toMatch(/code/i); // the way out that works anywhere
     expect(callbackErrorMessage(null)).toBeNull();
     expect(callbackErrorMessage("<script>")).toBeNull();
   });
@@ -59,5 +60,25 @@ describe("the callback notice and the resend timer", () => {
     expect(resendSecondsLeft(1_000, 1_000)).toBe(RESEND_COOLDOWN_SECONDS);
     expect(resendSecondsLeft(1_000, 1_000 + 20_000)).toBe(RESEND_COOLDOWN_SECONDS - 20);
     expect(resendSecondsLeft(1_000, 1_000 + 61_000)).toBe(0);
+  });
+});
+
+describe("one-time code entry", () => {
+  it("accepts a pasted code with spaces or dashes, 6 to 10 digits, and nothing else", () => {
+    expect(cleanCode(" 123 456 ")).toBe("123456");
+    expect(cleanCode("123-456")).toBe("123456");
+    expect(isPlausibleCode("123456")).toBe(true);
+    expect(isPlausibleCode("12345678")).toBe(true);
+    expect(isPlausibleCode("12345")).toBe(false);
+    expect(isPlausibleCode("12345678901")).toBe(false);
+    expect(isPlausibleCode("abcdef")).toBe(false);
+    expect(isPlausibleCode("")).toBe(false);
+  });
+  it("one plain sentence per failure, never the vendor's text", () => {
+    expect(verifyCodeErrorMessage({ status: 429, message: "x" })).toMatch(/too many/i);
+    expect(verifyCodeErrorMessage({ code: "otp_expired", message: "Token has expired or is invalid" })).toMatch(/didn't work.*send another/i);
+    expect(verifyCodeErrorMessage({ message: "Failed to fetch" })).toMatch(/connection/i);
+    expect(verifyCodeErrorMessage(null)).toMatch(/Couldn't check that code/);
+    expect(verifyCodeErrorMessage({ code: "otp_expired", message: "Token has expired or is invalid" })).not.toMatch(/token/i);
   });
 });

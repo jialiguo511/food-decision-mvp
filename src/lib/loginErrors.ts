@@ -55,9 +55,31 @@ export function turnstileProblemMessage(problem: TurnstileProblem, host: string)
 /** The sign-in page's notice for `/login?error=…`, set by /auth/callback. */
 export function callbackErrorMessage(code: string | null | undefined): string | null {
   if (code === "link_expired") {
-    return "That sign-in link didn't work. Links stop working after a while and can be used once — and must be opened in the same browser you asked from. Request a new one below.";
+    return "That sign-in link didn't work. A link can be used once, expires after a while, and only works in the browser you asked from — Gmail's built-in browser isn't that one. Request a new email below and type the code from it instead; the code works anywhere.";
   }
   return null;
+}
+
+/** A one-time code is digits only (Supabase allows 6–10). Pasting "123 456" or "123-456" must work. */
+export function cleanCode(input: string): string {
+  return input.replace(/\D/g, "");
+}
+export function isPlausibleCode(input: string): boolean {
+  const digits = cleanCode(input);
+  return digits.length >= 6 && digits.length <= 10;
+}
+
+/** Why a typed code didn't sign the person in — one plain sentence and the next step. */
+export function verifyCodeErrorMessage(error: AuthLikeError): string {
+  const text = `${error?.code ?? ""} ${error?.message ?? ""}`.toLowerCase();
+  if (error?.status === 429 || text.includes("rate") || text.includes("too many")) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+  if (text.includes("expired") || text.includes("invalid") || error?.status === 403 || error?.status === 400 || error?.status === 422) {
+    return "That code didn't work. Codes expire after a while and work once — check the newest email, or send another code.";
+  }
+  if (text.includes("failed to fetch") || text.includes("network")) return "Couldn't reach the server. Check your connection and try again.";
+  return "Couldn't check that code. Please try again, or send another one.";
 }
 
 /** Seconds left on the resend timer; 0 when it can be used. */
