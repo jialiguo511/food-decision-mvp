@@ -25,7 +25,20 @@ const nextConfig: NextConfig = {
   // The framework name in a header helps nobody.
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // The sign-in confirmation page is reached with a one-time secret in its address. Later entries
+      // win for a repeated key, so its Referrer-Policy is the strictest: no Referer at all. Nothing
+      // under /auth/ is stored by a browser, proxy or CDN, or indexed.
+      {
+        source: "/auth/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store, max-age=0" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
   },
 };
 

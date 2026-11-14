@@ -8,9 +8,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "@/lib/env";
+import { isHttpsRequest, sessionCookieOptions } from "@/lib/supabase/cookieOptions";
 
 export async function middleware(request: NextRequest) {
   if (!isSupabaseConfigured) return NextResponse.next();
+  const https = isHttpsRequest(request.headers, request.url);
 
   let response = NextResponse.next({ request });
 
@@ -25,7 +27,7 @@ export async function middleware(request: NextRequest) {
         }
         response = NextResponse.next({ request });
         for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
+          response.cookies.set(name, value, sessionCookieOptions(options, https));
         }
       },
     },

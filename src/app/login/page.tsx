@@ -12,10 +12,10 @@ import { createClient } from "@/lib/supabase/client";
 
 /**
  * Email sign-in with no password to store, reset, or leak. Supabase emails ONE message with two
- * ways in: a one-time link that lands on /auth/callback (works only in the browser that asked —
- * Gmail's and WeChat's built-in browsers are not that browser), and a one-time code typed here,
- * which works in any browser or on any device. The code needs {{ .Token }} in the Supabase
- * "Magic Link" email template (docs/RELEASE.md §6.7).
+ * ways in: a one-time link to /auth/confirm (a confirmation page; nothing is used up until the
+ * person taps its button, and it works from any app — the session is created in whichever browser
+ * taps it), and a one-time code typed here, which signs in THIS browser. Both need the email
+ * templates in docs/RELEASE.md §6.7.
  */
 export default function LoginPage() {
   if (!isSupabaseConfigured) return <SetupNotice />;
@@ -68,7 +68,9 @@ function LoginForm() {
     const { error } = await createClient().auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        // The confirmation page (docs/RELEASE.md §6.7). The email template builds the link from this
+        // address; an older-style redirect arriving here is handed on to /auth/callback.
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
         ...(captcha ? { captchaToken: captcha } : {}),
       },
     });
@@ -119,8 +121,8 @@ function LoginForm() {
       {state === "sent" ? (
         <div className="mt-8 rounded-2xl border border-line bg-card p-5" role="status">
           <p className="text-sm">
-            We emailed <span className="font-medium">{email}</span> a sign-in link and a code. Type the code below — it works in any browser, including the one built
-            into Gmail — or tap the link in the same browser you are using now.
+            We emailed <span className="font-medium">{email}</span> a sign-in link and a code. Type the code below to sign in here, in this browser. The link works from any
+            app, but signs you in inside whichever browser opens it (Gmail&apos;s built-in browser, for one) — not in this one.
           </p>
           <form onSubmit={submitCode} className="mt-4 space-y-2">
             <label htmlFor="login-code" className="text-sm font-semibold">

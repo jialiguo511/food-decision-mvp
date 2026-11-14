@@ -108,14 +108,31 @@ A budget alert is not a cap. Treat each vendor's spend limit or quota setting as
 4. **Vendor spend caps.** Anthropic: a monthly spend limit. OpenAI: a project budget (only if `OPENAI_API_KEY` is set). Google: restrict the key to Places API (New), set a daily quota and a budget alert. Do this before the key sees public traffic.
 5. **Vercel:** set §5 variables on Preview and Production; function `maxDuration` is 200 s on `/api/recommend`, 60 s on image and enrich, 30 s on interpret, so check that your plan allows it.
 6. **Vendor terms:** this app sends food preferences to Anthropic and a dish description to OpenAI and Pexels; `/about` says so. Read each vendor's data terms and edit `/about` if your setup differs.
-7. **Sign-in email template (required for the code).** *Authentication → Emails → Templates → Magic Link*: the body must contain `{{ .Token }}` as well as the link, for example:
+7. **Sign-in email templates, and how they go live (required).** One email carries two ways in: a **code** that signs in the browser it is typed in, and a **link** that works from any app (Gmail's built-in browser included). The link opens `/auth/confirm`, which shows a button; only the tap uses the token up (so mail scanners and link previews cannot), and the token travels in the URL *fragment* and then in a POST body, so it is in no server log and no Referer. Supabase sends **two** templates for passwordless sign-in and the docs do not say which a brand-new address gets, so change **both** and test with a never-used email.
+
+   **Step A: add the code, keep the old link** (safe to do first; the current production page ignores the code). *Authentication → Emails → Templates →* **Magic Link** and **Confirm signup**, same body in both:
    ```html
    <h2>Your sign-in code</h2>
    <p>Type this code on the sign-in page: <strong>{{ .Token }}</strong></p>
    <p>Or open the link in the same browser you asked from: <a href="{{ .ConfirmationURL }}">Sign in</a></p>
-   <p>The code and the link each work once and expire after a while.</p>
+   <p>The code and the link each work once and expire in 15 minutes. If you didn't ask for this, ignore this email.</p>
    ```
-   Without `{{ .Token }}` the page asks for a code the email does not contain. Why both: the link only works in the browser that requested it (it carries a PKCE verifier in a cookie), and mail apps such as Gmail open links in their own built-in browser, so the link fails there with "That sign-in link didn't work". The code has no such condition. The code length is *Authentication → Providers → Email → Email OTP Length* (6 by default); the page accepts 6–10 digits. Change the template **before** deploying the page that asks for the code.
+   **Step B: deploy** this branch to production. Links from Step A emails still work in the browser that asked (the confirm page hands an old `?code=` redirect to `/auth/callback`), and the page now shows the code box.
+
+   **Step C: switch the link** to the cross-browser form. Same two templates, new body (`type=email` in Magic Link, **`type=signup` in Confirm signup**):
+   ```html
+   <h2>Your sign-in code</h2>
+   <p>Type this code on the sign-in page, in the browser where you asked for it: <strong>{{ .Token }}</strong></p>
+   <p>Or <a href="{{ .RedirectTo }}#token_hash={{ .TokenHash }}&type=email">open the sign-in link</a> from any app. It shows a confirmation page first; nothing is used up until you tap the button there. It signs in whichever browser opens it (the Gmail app's own browser, for one).</p>
+   <p>The code and the link each work once and expire in 15 minutes. If you didn't ask for this, ignore this email.</p>
+   ```
+   Roll back Step C by pasting the Step A body again (no deploy needed).
+
+   **Settings to check (Authentication → Providers → Email):** *Email OTP Expiration* = `900` (seconds; the default is 3600), *Email OTP Length* = `6` (the page accepts 6–10). *Authentication → Rate Limits:* the confirm route calls Supabase from **our server**, so every person shares our server's address in Supabase's per-IP *token verifications* limit (30 per 5 minutes by default); raise it to about 100 so a busy minute cannot lock sign-in for everyone. Typing the code goes browser → Supabase directly and is not affected.
+
+   **Needs:** `{{ .RedirectTo }}` is the address the sign-in page passes (`<origin>/auth/confirm`), so each origin must be in *Redirect URLs* (§6.2). An email sent from the Supabase dashboard ("Send magic link") has no such address and its link will not open the confirm page; use the code there.
+
+   **Browser-specific sessions.** Cookies belong to one browser. Tapping the link in the Gmail app signs you in *inside Gmail's browser*, not in Safari or Chrome; the page says so. To sign in your own browser, request the email there and type the code.
 
 ## 7. Running the beta — the off switch and what to watch
 
@@ -137,7 +154,7 @@ While paused, people see "unavailable right now" and nothing is counted against 
 On a phone, against the deployment, signed in with your own email.
 
 1. [ ] `/demo` opens signed out; the "This is an example" banner is visible; tabs switch. `/about` shows the **Public Beta** pill.
-2. [ ] `/login` → request → the email carries a link **and a code** → typing the code signs you in, including when the email is opened in Gmail's built-in browser or on another device; the link signs you in from the same browser. **Send another code** counts down. An old or used link shows the "didn't work" notice, which points to the code.
+2. [ ] `/login` → request → the email carries a link **and a code**. (a) Typing the code signs in the browser you typed it in. (b) Tapping the link in Gmail's mobile app, in Safari and in Chrome each opens a **confirmation page**; nothing happens until you tap **Sign in**, which then signs in that browser. (c) Open the link once, tap **Sign in**, then reopen the same link: it says it was already used. (d) Request with a **never-used email** and repeat (a)–(b): new accounts get the *Confirm signup* template. (e) Wait past 15 minutes: the link and the code both say they expired. **Send another code** counts down.
 3. [ ] First run asks only allergies and foods you avoid; **Skip** leaves allergies *unset* (not "none").
 4. [ ] Home: type *just trained, very hungry, 20 minutes, I have eggs and rice* → **Help me decide** → a short follow-up only for what you didn't say → three recipes; "Have" shows only eggs, rice and your staples.
 5. [ ] On results, **Adjust** → *no more snacks, I'll cook a proper meal* → the request becomes Cook, hunger kept, no return to Home; then *not cooking, buy something ready-made* → buying only; *same, but under $10* → only the budget moves. **Show me 3 more** keeps the conditions. If an Adjust fails, the text and the earlier results stay.
@@ -155,7 +172,7 @@ On a phone, against the deployment, signed in with your own email.
 
 **Required before inviting people** (settings outside the code):
 1. The 2026-11-09 and 2026-11-10 migrations applied (§4), `SUPABASE_SERVICE_ROLE_KEY` set on the deployment, and `check-schema.sql` showing no `MISSING` and no `EXPOSED`.
-2. Sign-in email works for non-members (custom SMTP, §6.1), redirect URLs are set (§6.2), and the email template carries `{{ .Token }}` (§6.7).
+2. Sign-in email works for non-members (custom SMTP, §6.1), redirect URLs are set (§6.2), and both email templates carry `{{ .Token }}` and the confirm link (§6.7, steps A–C in order).
 3. Vendor spend caps set (§6.4).
 4. The §8 checklist completed on the deployment.
 5. A contact address chosen (`NEXT_PUBLIC_CONTACT_EMAIL`): `/about` promises hand-removal of data only if one is shown.
@@ -171,6 +188,10 @@ On a phone, against the deployment, signed in with your own email.
 - Allergen checks are literal word matches, never a guarantee. The dietary pattern is checked literally for Cook only.
 - Pexels and idea-photo lookups are not metered (free, but a signed-in user could exhaust the vendor's free quota; pictures then fall back gracefully).
 - Sign-in email rate limiting is Supabase's plus a UI cooldown; the app can't enforce a per-IP limit because the browser talks to Supabase directly.
+- `/auth/confirm/verify` has a per-address limit (10 per 5 minutes) kept in the memory of one server instance: it stops one client hammering the route, but resets on a cold start and is not shared between instances. Supabase's own per-IP verification limit (§6.7) is the backstop; a durable, app-wide limiter would need a table and function.
+- The session cookie is `SameSite=Lax` and, over HTTPS, `Secure`, but **not `HttpOnly`**: the browser client reads and clears the session itself (sign-out, and typing the sign-in code). Making it HttpOnly means moving both to the server first; until then a script-injection bug could read the session (frame, base-URI and form-action restrictions are on; a `script-src` policy is not).
+- Anyone who can open the sign-in *email* can sign in with its link or code, from any browser. That was already true of the old link in the browser that asked; the link is now also usable elsewhere. It is single-use, expires (§6.7), and is only as safe as the mailbox.
+- The confirm link needs JavaScript (the token is in the fragment, which only a script can read) and a mail app that keeps the end of a link; otherwise the page says the link is incomplete and points to the code.
 - "Does it help people decide?" is untested with real users (`docs/PRODUCT.md` proof steps; baseline in `docs/LEARNINGS.md`).
 - The sentence reader was exercised on a handful of sentences, not a corpus.
 - A user out of today's pictures sees "Picture limit reached" even when the cause is the app-wide ceiling or the pause switch.

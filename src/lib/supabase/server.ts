@@ -5,13 +5,15 @@
 //
 // Never import this into a client component.
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
+import { isHttpsRequest, sessionCookieOptions } from "./cookieOptions";
 
 export async function createClient() {
   // In Next.js 15 cookies() is async.
   const cookieStore = await cookies();
+  const https = isHttpsRequest(await headers());
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
@@ -23,7 +25,7 @@ export async function createClient() {
       setAll(cookiesToSet: Parameters<SetAllCookies>[0]) {
         try {
           for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, sessionCookieOptions(options, https));
           }
         } catch {
           // Called from a Server Component, where cookies are read-only.
