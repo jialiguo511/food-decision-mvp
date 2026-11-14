@@ -180,14 +180,14 @@ describe("what is refused before the auth service is asked", () => {
 });
 
 describe("rate limiting", () => {
-  it("one client address is stopped after 10 tries in five minutes, before the auth service is asked", async () => {
+  it("one client address is stopped after 5 tries in five minutes, before the auth service is asked", async () => {
     const pinned = { "x-forwarded-for": "203.0.113.9" };
     const bad = { token_hash: "x".repeat(56), type: "email" };
     const statuses: number[] = [];
-    for (let i = 0; i < 12; i++) statuses.push((await post(bad, pinned)).status);
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
-    expect(statuses.slice(10)).toEqual([429, 429]);
-    expect(verifyOtp).toHaveBeenCalledTimes(10);
+    for (let i = 0; i < 7; i++) statuses.push((await post(bad, pinned)).status);
+    expect(statuses.slice(0, 5).every((s) => s === 400)).toBe(true);
+    expect(statuses.slice(5)).toEqual([429, 429]);
+    expect(verifyOtp).toHaveBeenCalledTimes(5);
     // Someone else is unaffected.
     expect((await post({ token_hash: TOKEN, type: "email" })).status).toBe(200);
   });

@@ -19,8 +19,9 @@ import { clientIp, createWindowLimiter } from "@/lib/windowLimit";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_CHARS = 2000;
-// Per client address, per instance. Supabase's own per-IP limit still applies behind it (§6.7).
-const limiter = createWindowLimiter({ limit: 10, windowMs: 5 * 60_000, maxKeys: 5000 });
+// Per client address, per instance. A real person taps the button once or twice, so 5 in five minutes
+// is generous; Supabase's own per-IP limit still applies behind it (docs/RELEASE.md §6.7).
+const limiter = createWindowLimiter({ limit: 5, windowMs: 5 * 60_000, maxKeys: 5000 });
 
 function reply(status: number, body: { ok: true; next: string } | { ok: false; reason: ConfirmFailure }) {
   // A response carrying (or refusing) a sign-in is never stored by a browser, proxy or CDN.
