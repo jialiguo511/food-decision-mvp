@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { isNativeApp } from "@/lib/native";
 import Button, { buttonClass } from "@/components/ui/Button";
 import type { RecommendUiError } from "@/lib/types";
 import { brokenRules, errorCopy } from "./errorCopy";
@@ -13,8 +14,11 @@ export function LoadingState({
   phase,
   lines,
   startedAt,
+  onStop,
 }: {
   phase: "locating" | "nearby" | "generate";
+  /** Offered once the wait is longer than usual: stop and go back to the answers. */
+  onStop?: () => void;
   lines: string[];
   /** When the request began (ms epoch). A Home that remounts mid-request picks
    *  the entrance animation up where it would be, instead of replaying it as if
@@ -24,11 +28,12 @@ export function LoadingState({
   // Read once, at mount: how far into the request this view appears.
   const [elapsed] = useState(() => (startedAt === undefined ? 0 : Math.max(0, Date.now() - startedAt)));
   const resumed = elapsed > 500;
+  const slow = useSlow(startedAt);
   if (phase === "locating") {
     return (
       <div role="status" aria-live="polite" className="animate-fade-in">
         <p className="text-lg font-semibold">Checking where you are…</p>
-        <p className="mt-1 text-sm text-muted">Your browser may ask to share your location. It&apos;s used once and isn&apos;t saved.</p>
+        <p className="mt-1 text-sm text-muted">You may be asked to share your location. It&apos;s used once and isn&apos;t saved.</p>
       </div>
     );
   }
@@ -43,6 +48,17 @@ export function LoadingState({
           </li>
         ))}
       </ul>
+      {slow && (
+        <div className="animate-fade-in mt-5 rounded-2xl border border-line bg-card p-4" data-testid="slow-notice">
+          <p className="text-sm font-semibold">Taking longer than usual.</p>
+          <p className="mt-1 text-sm text-muted">Still working on it — this can happen when the AI service is busy. Your answers are kept.</p>
+          {onStop && (
+            <Button variant="secondary" className="mt-3" onClick={onStop}>
+              Stop and change my answers
+            </Button>
+          )}
+        </div>
+      )}
       <div className="mt-6 space-y-2.5" aria-hidden>
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex h-16 items-center gap-3 rounded-2xl border border-line bg-card px-4">
@@ -56,6 +72,32 @@ export function LoadingState({
       </div>
     </div>
   );
+}
+
+/** Most answers arrive in well under 15 s (bench-results/). Past this, say so. */
+export const SLOW_AFTER_MS = 15_000;
+
+function useSlow(startedAt: number | undefined): boolean {
+  const [slow, setSlow] = useState(() => startedAt !== undefined && Date.now() - startedAt >= SLOW_AFTER_MS);
+  useEffect(() => {
+    if (slow || startedAt === undefined) return;
+    const id = window.setTimeout(() => setSlow(true), Math.max(0, SLOW_AFTER_MS - (Date.now() - startedAt)));
+    return () => window.clearTimeout(id);
+  }, [slow, startedAt]);
+  return slow;
+}
+
+/** The person's own connection is down — a different, more useful message than "couldn't reach
+ *  the server", and the iOS app's location switch lives in iPhone Settings, not a browser. */
+function contextualCopy(code: RecommendUiError["code"]) {
+  const copy = errorCopy(code);
+  if (code === "network_error" && typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { ...copy, title: "You're offline.", body: "Your answers are kept. Reconnect to Wi-Fi or mobile data, then press Try again." };
+  }
+  if (code === "location_denied" && isNativeApp()) {
+    return { ...copy, body: "Turn on location in iPhone Settings → What to Eat → Location, or get food ideas by type instead." };
+  }
+  return copy;
 }
 
 /** A failed request, in human words, with the next useful step. `compact`
@@ -76,7 +118,7 @@ export function ErrorState({
   onIdeasByType?: () => void;
   onChange: () => void;
 }) {
-  const copy = errorCopy(error.code);
+  const copy = contextualCopy(error.code);
   return (
     <section role="alert" className={`rounded-3xl border border-line bg-card ${compact ? "p-4" : "p-5"} animate-fade-in`}>
       <p className="text-base font-semibold">{copy.title}</p>

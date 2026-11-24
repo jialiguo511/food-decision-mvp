@@ -5,6 +5,7 @@ import type { ActiveSession, DecisionContext } from "@/lib/types";
 import {
   type Entry,
   adopt,
+  cancel,
   choose,
   enrich,
   getServerSnapshot,
@@ -51,6 +52,7 @@ export function useRecommend(owner: string, initial: { session: ActiveSession | 
     [owner, view.session],
   );
   const retryFor = useCallback(() => retry(owner), [owner]);
+  const cancelFor = useCallback(() => cancel(owner), [owner]);
   /** Nearby places restored without their wording: ask for it once. */
   const ensureEnriched = useCallback(
     (session: ActiveSession) => {
@@ -65,5 +67,5 @@ export function useRecommend(owner: string, initial: { session: ActiveSession | 
     [owner],
   );
 
-  return { ...view, run: runFor, retry: retryFor, choose: chooseFor, ensureEnriched, rescore: rescoreFor };
+  return { ...view, run: runFor, retry: retryFor, cancel: cancelFor, choose: chooseFor, ensureEnriched, rescore: rescoreFor };
 }

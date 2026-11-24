@@ -42,6 +42,7 @@ export default function ResultsScreen({
   initialPlaceFeedback,
   onChoose,
   onRetry,
+  onStop,
   onShowMore,
   onWhatToBuy,
   onIdeasByType,
@@ -69,6 +70,8 @@ export default function ResultsScreen({
   initialPlaceFeedback: Record<string, PlaceFeedbackState>;
   onChoose: (index: 0 | 1 | 2) => void;
   onRetry: () => void;
+  /** Stop a request that is still loading and go back to the answers. */
+  onStop?: () => void;
   onShowMore: () => void;
   onWhatToBuy: () => void;
   onIdeasByType: () => void;
@@ -118,7 +121,7 @@ export default function ResultsScreen({
         {header}
         {adjustPanel && <div className="pt-3">{adjustPanel}</div>}
         <div className="pt-3">
-          <LoadingState phase={phase} lines={requested ? loadingLines(requested, { avoidsFoods }) : []} startedAt={request.startedAt} />
+          <LoadingState phase={phase} lines={requested ? loadingLines(requested, { avoidsFoods }) : []} startedAt={request.startedAt} onStop={onStop} />
         </div>
       </div>
     );

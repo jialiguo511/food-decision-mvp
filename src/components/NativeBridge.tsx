@@ -36,7 +36,14 @@ export default function NativeBridge() {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
       const href = anchor.getAttribute("href") ?? "";
-      if (!isExternalHref(href, window.location.origin)) return;
+      if (!isExternalHref(href, window.location.origin)) {
+        // There are no tabs in the app: a "new tab" link to our own page opens in place.
+        if (anchor.target === "_blank") {
+          event.preventDefault();
+          window.location.assign(href);
+        }
+        return;
+      }
       event.preventDefault();
       void openOutside(href);
     };

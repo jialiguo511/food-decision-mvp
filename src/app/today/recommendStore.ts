@@ -258,9 +258,31 @@ export function run(owner: string, context: DecisionContext, previous?: Previous
   return handle.done;
 }
 
+/** The longest the person waits on one request. The server's own worst case (two model attempts
+ *  plus one validation retry) can run past this; a spinner that long is worse than an honest
+ *  "took too long" with Try again. If the server finishes anyway, its session is stored and
+ *  restored on the next visit to Home. */
+export const CLIENT_DEADLINE_MS = 100_000;
+
+/** "Stop" while a request is loading: abort it and go back to no request. Nothing is charged
+ *  twice — the server stops its model call when the browser goes away. */
+export function cancel(owner: string): void {
+  if (!active || snap.owner !== owner) return;
+  requestLog("abort", { requestId: active.requestId, reason: "cancelled" });
+  ledger = { requestId: active.requestId, state: "aborted" };
+  active.controller.abort();
+  active = null;
+  set({ request: { kind: "idle" } });
+}
+
 async function execute(owner: string, handle: ActiveRequest): Promise<void> {
   const { requestId, context, previous, controller, entry, shown } = handle;
   const startedAt = Date.now();
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, CLIENT_DEADLINE_MS);
   const isCurrent = () => active === handle;
   const mode = context.decision_mode === "order" && context.nearby ? "nearby" : context.decision_mode;
   requestLog("start", { requestId, mode });
@@ -330,14 +352,20 @@ async function execute(owner: string, handle: ActiveRequest): Promise<void> {
       fail(requestId, { kind: "error", requestId, error: transportError(response.status) });
     }
   } catch (error) {
-    // Aborted on purpose (superseded / owner changed): not a failure, not ours.
+    // Aborted on purpose (superseded / owner changed / cancelled): not a failure, not ours.
     if (!isCurrent()) return;
+    if (timedOut) {
+      fail(requestId, { kind: "error", requestId, error: { code: "upstream_timeout", message: "No answer within the app's time limit." } });
+      return;
+    }
     if (error instanceof LocationError) {
       fail(requestId, { kind: "error", requestId, error: { code: error.code, message: error.message } });
       return;
     }
     // The request never got an answer (connection dropped, offline, blocked).
     fail(requestId, { kind: "error", requestId, error: { code: "network_error", message: error instanceof Error ? error.name : "Request failed." } });
+  } finally {
+    clearTimeout(deadline);
   }
 }
 

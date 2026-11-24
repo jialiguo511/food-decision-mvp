@@ -86,7 +86,7 @@ export default function HomeFlow({
   /** Whether the person has ever answered the allergy question (lib/allergyStatus.ts). */
   allergyStatus: AllergyStatus;
 }) {
-  const { session, selection, request, requested, notice, noMore, live, run, retry, choose, ensureEnriched, rescore } = useRecommend(ownerId, {
+  const { session, selection, request, requested, notice, noMore, live, run, retry, cancel, choose, ensureEnriched, rescore } = useRecommend(ownerId, {
     session: initialSession,
     chosenIndex: initialChosenIndex,
   });
@@ -570,6 +570,10 @@ export default function HomeFlow({
         initialPlaceFeedback={isRestored ? initialPlaceFeedback : {}}
         onChoose={choose}
         onRetry={retry}
+        onStop={() => {
+          cancel();
+          change();
+        }}
         onShowMore={showMore}
         onWhatToBuy={showWhatToBuy}
         onIdeasByType={() => find("order", true)}
