@@ -34,6 +34,7 @@
 <script>
   // app-url.js is written by scripts/ios-sync.mjs from CAP_SERVER_URL: the hosted app's address.
   var target = window.APP_URL;
+  try { window.Capacitor.Plugins.SplashScreen.hide(); } catch (e) {}
   document.getElementById("retry").addEventListener("click", function () {
     document.getElementById("note").textContent = "Trying…";
     if (target) window.location.replace(target); else window.location.reload();

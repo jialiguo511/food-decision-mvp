@@ -29,7 +29,9 @@ const config: CapacitorConfig = {
       }
     : undefined,
   plugins: {
-    SplashScreen: { launchShowDuration: 0, launchAutoHide: false, backgroundColor: "#FBF7F0", showSpinner: false },
+    // The page hides the launch screen once it has painted (NativeBridge); 3 s is the safety net for a
+    // page that never runs our code.
+    SplashScreen: { launchShowDuration: 3000, launchAutoHide: true, backgroundColor: "#FBF7F0", showSpinner: false },
     StatusBar: { style: "LIGHT", overlaysWebView: true },
   },
 };
