@@ -7,7 +7,7 @@ import type { NutritionTargets } from "@/lib/nutrition";
 import { toMealContext } from "@/lib/recommend/cookForm";
 import type { FormDefaults } from "@/lib/recommend/rememberedDefaults";
 import { normalizeCraving } from "@/lib/text";
-import type { ActiveSession, DecisionMode, MealContext, OpenContext, OrderContext, ProfileFormValues } from "@/lib/types";
+import type { ActiveSession, DecisionMode, MealContext, OpenContext, OrderContext, OrderMethod, ProfileFormValues } from "@/lib/types";
 import { confirmNoAllergies, dismissNutritionStep } from "./actions";
 import { createAdvanceScheduler } from "./flow/advance";
 import EquipmentScreen from "./flow/EquipmentScreen";
@@ -352,6 +352,15 @@ export default function HomeFlow({
     applyAdjustment(QUICK_ADJUSTS.find((q) => q.kind === kind)?.label ?? "Change", quickDelta(kind));
   }
 
+  /** Get food: Delivery ⇄ Pickup ⇄ Eat nearby from the results, keeping every other answer. */
+  function switchMethod(method: OrderMethod) {
+    if (!session || session.context.decision_mode !== "order") return;
+    const { nearby: _nearby, ...answers } = session.context;
+    void _nearby;
+    track({ name: "entry_selected", props: { entry: "adjust", mode: "order" } });
+    find("order", false, { ...forms, order: { ...forms.order, ...answers, method } }, null, "adjust");
+  }
+
   /** "Show me 3 more": the session's own context, with its cards sent as
    *  exclusions. A true re-roll — the answers can't have drifted from it,
    *  because changing an answer means leaving the results screen.
@@ -570,6 +579,7 @@ export default function HomeFlow({
         initialPlaceFeedback={isRestored ? initialPlaceFeedback : {}}
         onChoose={choose}
         onRetry={retry}
+        onSwitchMethod={switchMethod}
         onStop={() => {
           cancel();
           change();

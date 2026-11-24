@@ -294,3 +294,22 @@ describe("an explicit start mode (Saved → 'Find something to make')", () => {
     expect(container.textContent).toContain("A bowl");
   });
 });
+
+describe("Get food: switching Delivery ⇄ Pickup from the results", () => {
+  it("sends the same request with the new method — budget and hunger kept, nothing re-asked", async () => {
+    mount();
+    await type("Tired, order something around $15");
+    await send();
+    await answer("A");
+    const pickup = [...container.querySelectorAll('[role="radio"]')].find((b) => b.textContent === "Pickup") as HTMLButtonElement;
+    expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe("Delivery");
+    await act(async () => {
+      pickup.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await flush();
+    expect(recommendCalls).toHaveLength(2);
+    expect(recommendCalls[1].body.context).toMatchObject({ decision_mode: "order", method: "pickup", meal_budget: "under_15", nearby: true });
+    expect(recommendCalls[1].body.context.hunger).toBe(recommendCalls[0].body.context.hunger);
+  });
+});

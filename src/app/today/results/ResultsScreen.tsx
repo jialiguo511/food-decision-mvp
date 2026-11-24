@@ -6,7 +6,7 @@ import Button, { buttonClass } from "@/components/ui/Button";
 import { ALLERGY_LEAD, ALLERGY_REST } from "@/lib/disclaimers";
 import type { NutritionTargets } from "@/lib/nutrition";
 import { mealTargetsFor } from "@/lib/recommend/nutritionFit";
-import type { ActiveSession, DecisionContext } from "@/lib/types";
+import type { ActiveSession, DecisionContext, OrderMethod } from "@/lib/types";
 import type { Understood } from "../flow/interpret";
 import { loadingLines, sessionSummary } from "../flow/summary";
 import { BackButton } from "../flow/QuestionScreen";
@@ -21,6 +21,7 @@ import PlaceCard from "./PlaceCard";
 import RecipeCard from "./RecipeCard";
 import { shortRoleLabel } from "./ResultCard";
 import { inventoryNote, isInventoryLimited, isNearbySession } from "./sessionKind";
+import MethodSwitch from "./MethodSwitch";
 import { ErrorState, LoadingState, Notice } from "./States";
 import UnderstoodPanel from "./UnderstoodPanel";
 
@@ -43,6 +44,7 @@ export default function ResultsScreen({
   onChoose,
   onRetry,
   onStop,
+  onSwitchMethod,
   onShowMore,
   onWhatToBuy,
   onIdeasByType,
@@ -72,6 +74,8 @@ export default function ResultsScreen({
   onRetry: () => void;
   /** Stop a request that is still loading and go back to the answers. */
   onStop?: () => void;
+  /** Get food only: same request, another way of getting it. */
+  onSwitchMethod?: (method: OrderMethod) => void;
   onShowMore: () => void;
   onWhatToBuy: () => void;
   onIdeasByType: () => void;
@@ -159,6 +163,9 @@ export default function ResultsScreen({
       {adjustPanel}
       {previous && (
         <ErrorState compact error={request.error} reference={request.requestId} onRetry={onRetry} onIdeasByType={mode === "order" ? onIdeasByType : undefined} onChange={onChange} />
+      )}
+      {!previous && session.context.decision_mode === "order" && onSwitchMethod && (
+        <MethodSwitch value={session.context.method} onSwitch={onSwitchMethod} />
       )}
       <div>
         {previous ? (
