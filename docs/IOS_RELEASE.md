@@ -94,6 +94,61 @@ app whose every screen is fetched from a website. The question is how much it co
    change the plan.
 3. **Not recommended:** a React Native rewrite (6–10 weeks, no gain the bundled UI doesn't give).
 
+## Bundled-UI proof of concept — results (2026-11-24)
+
+A screen shipped inside the app (`mobile/poc`, origin `capacitor://localhost`) against the real
+Preview backend and Supabase. Build it with `CAP_WEB_DIR=mobile/poc` (see `scripts/ios-sync.mjs`).
+
+| check | result |
+|---|---|
+| Supabase reachable from the app origin (CORS) | ✅ HTTP 200 |
+| Vercel API from the app origin | ✅ `/api/app/ping` 200; CORS preflight allowed for `capacitor://localhost` (204), refused for other origins (403); a forged bearer token is rejected (`invalid_token`) |
+| Turnstile widget runs in the app (Cloudflare test key) | ✅ token issued |
+| Turnstile with the **real** key | ❌ error **110200** (address not allowed), even with `localhost` in Hostname Management and after a retry |
+| Email code sign-in from the bundled screen | ❌ Supabase refuses the send: `captcha_failed` (confirmed by the founder on the Simulator; nothing was sent) |
+| Bearer token from a real session → Row Level Security | **not verified** — no real session could be created from the bundled screen, and the browser check was skipped |
+| Stored session survives relaunch | not verified (needs a sign-in first) |
+
+**What it means.** Everything except sign-in works from a bundled screen. Sign-in is blocked by
+CAPTCHA: Supabase requires a Turnstile token for every sign-in, and Cloudflare won't issue one to
+a page whose address isn't a real web hostname. Turning CAPTCHA off is not an option (it protects
+the public sign-up), and Supabase's CAPTCHA setting is project-wide.
+
+**The fix to try first (≈ 1–2 days, unverified):** a *sign-in check bridge*. The app opens a tiny page
+on our real domain (`/app/check`) in Apple's sign-in browser sheet (`ASWebAuthenticationSession`);
+Turnstile runs there on an allowed hostname and hands the token back to the app through a return
+URL; the app then sends the code exactly as now. Apple sign-in, once enabled, takes the same token.
+If Cloudflare also refuses that sheet, the fallback is to keep only the sign-in screen hosted.
+
+**Updated scope:** ≈ 8–12 days (unchanged list above) **+ 1–2 days** for the check bridge, plus
+the bearer/RLS and stored-session checks, which need one successful sign-in from a bundled screen.
+
+**Go / no-go: conditional GO.** Do the check-bridge spike first (1–2 days). Go to the full migration
+only if (1) a bundled screen signs in with a real code through the bridge, (2) the bearer token
+reads the user's own rows and nothing else, and (3) the session survives a relaunch. If (1) fails,
+stay on the hosted shell for beta and decide about the hybrid sign-in before App Store submission.
+
+## Real end-to-end run on the Preview (2026-11-24, iPhone 17 Simulator, hosted shell)
+
+Isolated test account (a `+alias` address), production Supabase project; nothing else touched,
+no account deleted.
+
+| flow | result |
+|---|---|
+| Email code sign-in in the app | ✅ (founder typed the code) → first-run setup |
+| Allergy (Peanuts) + diet (Vegetarian) in setup | ✅ saved, shown in Me |
+| Cook (equipment, 20 min, ~$10, Light and clean + High protein) | ✅ 3 real vegetarian recipes, ~10–15 s, photos, "Estimate" labels |
+| Save a recipe → Saved | ✅ appears with photo; Places empty state → opens Get food |
+| Delivery | ✅ 3 real vegetarian ideas, no prices or fees invented |
+| Pickup: location **Don't Allow** | ✅ iPhone-Settings copy + "Get food ideas by type" |
+| …then location turned on → Try again | ❌ first run (WebView kept the denial) → **fixed** with native location → ✅ real nearby places with Google photos |
+| Eat nearby | ✅ real places |
+| Snack, Sweet + Crunchy | ✅ 3 matching snacks; "Taking longer than usual" + Stop appeared for real past 15 s |
+| Relaunch (and reinstall) | ✅ still signed in, last results restored |
+| Me: optional-details card, sign-in methods | ✅ only unset items listed |
+| Bugs found and fixed | stuck location denial; method switch opened the Adjust box; "Around Under $15" |
+| Not run | account deletion (kept the test account; non-destructive), offline on the Preview (offline screen verified earlier against a stopped server) |
+
 ## Sign in with Apple (iOS app) + Email code
 
 - **Built:** native Apple sheet (project-local plugin `ios/App/App/AppleSignInPlugin.swift`, no
