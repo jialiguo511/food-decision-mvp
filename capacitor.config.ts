@@ -24,6 +24,8 @@ const config: CapacitorConfig = {
         // Plain http is allowed only for a localhost dev server.
         cleartext: serverUrl.startsWith("http://localhost"),
         errorPath: "offline.html",
+        // Simulator testing only: e.g. CAP_START_PATH=/dev/home opens the fixture Home (dev server).
+        ...(process.env.CAP_START_PATH ? { appStartPath: process.env.CAP_START_PATH } : {}),
       }
     : undefined,
   plugins: {

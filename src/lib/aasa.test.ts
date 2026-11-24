@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aasaBody } from "./route";
+import { aasaBody } from "./aasa";
 
 describe("apple-app-site-association", () => {
   it("is off until a well-formed app id is configured", () => {

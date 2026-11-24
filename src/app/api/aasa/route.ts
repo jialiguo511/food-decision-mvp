@@ -1,18 +1,9 @@
 // apple-app-site-association, served at /.well-known/apple-app-site-association (rewrite in
-// next.config.ts). It lets the iOS app open the emailed sign-in link (/auth/confirm) instead of
-// Safari. Off until APPLE_APP_IDS is set ("TEAMID.bundle.id", comma-separated); the app also needs
-// the Associated Domains entitlement for this host (docs/IOS_RELEASE.md).
+// next.config.ts). Lets the iOS app open the emailed sign-in link instead of Safari. The app also
+// needs the Associated Domains entitlement for this host (docs/IOS_RELEASE.md).
+import { aasaBody } from "@/lib/aasa";
 
 export const dynamic = "force-dynamic";
-
-export function aasaBody(appIds: string | undefined): object | null {
-  const ids = (appIds ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => /^[A-Z0-9]{10}\.[A-Za-z0-9.-]+$/.test(s));
-  if (ids.length === 0) return null;
-  return { applinks: { details: [{ appIDs: ids, components: [{ "/": "/auth/confirm", comment: "Emailed sign-in link" }] }] } };
-}
 
 export function GET() {
   const body = aasaBody(process.env.APPLE_APP_IDS);
