@@ -18,3 +18,5 @@ yarn-error.log*
 # model benchmark output (npm run bench:recommend)
 bench-results/
 mobile/www/app-url.js
+mobile/poc/config.js
+mobile/poc/supabase.js
