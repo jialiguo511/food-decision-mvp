@@ -17,7 +17,7 @@ export function renderAppIcon(size: number) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#e2703a",
+          background: "#C8643B",
         }}
       >
         <div style={{ display: "flex", gap }}>

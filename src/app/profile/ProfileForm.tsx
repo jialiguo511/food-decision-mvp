@@ -70,7 +70,7 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
 
   return (
     <div className="space-y-8">
-      <ProfileSection title="Food preferences" caption="Always used in your suggestions">
+      <ProfileSection id="food-preferences" title="Food preferences" caption="Always used in your suggestions">
         <FoodTermsCard
           title="Allergies"
           hint={`We leave these out of suggestions. ${ALLERGY_NOTE}`}
@@ -118,7 +118,7 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
         <HealthPrioritiesCard values={values} set={set} />
       </ProfileSection>
 
-      <ProfileSection title="My goals" caption="Helps shape suggestions, and any calorie or protein estimates">
+      <ProfileSection id="my-goals" title="My goals" caption="Helps shape suggestions, and any calorie or protein estimates">
         <Card>
           <OptionalChoice options={GOALS} value={values.goal} onChange={(value) => set("goal", value as Goal | null)} />
         </Card>
@@ -126,7 +126,7 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
 
       <NutritionSection values={values} set={set} />
 
-      <ProfileSection title="Kitchen basics" caption="Used when you make something">
+      <ProfileSection id="kitchen-basics" title="Kitchen basics" caption="Used when you make something">
         {staples}
 
         <Card

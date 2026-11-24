@@ -13,6 +13,8 @@ import { toProfileFormValues } from "@/lib/profile";
 import AccountDataSection from "./AccountDataSection";
 import KitchenStaplesCard from "./KitchenStaplesCard";
 import ProfileForm from "./ProfileForm";
+import ProfileGaps from "./ProfileGaps";
+import { profileGaps } from "@/lib/profileCompletion";
 
 export default async function ProfilePage() {
   if (!isSupabaseConfigured) return <SetupNotice />;
@@ -46,6 +48,7 @@ export default async function ProfilePage() {
       subtitle="What we always avoid, plus a few things that help us fit you."
       action={<SignOutButton />}
     >
+      <ProfileGaps gaps={profileGaps(data, kitchenStaples.length)} />
       <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} allergyStatus={allergyStatus(data)} />
       <AccountDataSection />
       <p className="mt-6 flex flex-col items-center gap-2 text-center text-xs text-muted">

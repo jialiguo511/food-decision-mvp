@@ -343,7 +343,7 @@ function NutritionLine({ session, targets, notice }: { session: ActiveSession; t
   const meal = mealTargetsFor(targets, context.hunger, context.decision_mode === "store_snack" ? "snack" : "meal");
   const shown = notice && notice.sessionId === session.session_id ? notice : null;
   if (!meal && !shown) return null;
-  const parts = [meal?.kcal ? `~${kcalRange(meal.kcal)} kcal` : null, meal?.protein ? `~${gramsRange(meal.protein)} g protein` : null].filter(
+  const parts = [meal?.kcal ? `~${kcalRange(meal.kcal)} cal` : null, meal?.protein ? `~${gramsRange(meal.protein)} g protein` : null].filter(
     (p): p is string => p !== null,
   );
   return (

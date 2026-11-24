@@ -6,7 +6,7 @@ import type { CookRecommendation } from "@/lib/types";
 import RecipeImage from "../RecipeImage";
 import { RecipeSaveControl } from "../SaveControl";
 import type { Selection } from "../useRecommend";
-import ResultCard, { Pills, Reveal } from "./ResultCard";
+import ResultCard, { NutritionEstimate, Pills, Reveal } from "./ResultCard";
 
 /** A Cook recommendation. First level, in this order: what it is, why it fits (for the first
  *  card why it wins; for the others what it trades against it), what to buy, and only then the
@@ -83,15 +83,9 @@ export default function RecipeCard({
           <p className="text-sm font-medium">Nothing to buy — uses what you have.</p>
         )}
       </div>
-      <div className="mt-3">
-        <Pills
-          items={[
-            `~${r.estimated_minutes} min`,
-            `~${r.estimated_calories} cal`,
-            `~${r.estimated_protein_g}g protein`,
-            r.estimated_extra_cost_usd > 0 ? `~$${r.estimated_extra_cost_usd} to buy` : null,
-          ]}
-        />
+      <div className="mt-3 space-y-2">
+        <Pills items={[`~${r.estimated_minutes} min`, r.estimated_extra_cost_usd > 0 ? `~$${r.estimated_extra_cost_usd} to buy` : null]} />
+        <NutritionEstimate calories={r.estimated_calories} proteinG={r.estimated_protein_g} />
       </div>
     </ResultCard>
   );

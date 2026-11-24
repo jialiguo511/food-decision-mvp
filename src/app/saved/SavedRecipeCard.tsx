@@ -23,7 +23,7 @@ export default function SavedRecipeCard({
       <RecipeImage target={{ saved_id: id }} size="thumbnail" />
       <h3 className="text-lg font-semibold leading-snug">{recipe.title}</h3>
       <p className="mt-1 text-sm text-muted">
-        ~{recipe.estimated_minutes} min · ~{recipe.estimated_calories} cal · ~{recipe.estimated_protein_g}g protein
+        ~{recipe.estimated_minutes} min · Estimate: ~{recipe.estimated_calories} cal · ~{recipe.estimated_protein_g} g protein
       </p>
 
       {flags.allergies.length > 0 && (

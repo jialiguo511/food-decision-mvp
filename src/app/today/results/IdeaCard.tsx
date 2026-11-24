@@ -5,7 +5,7 @@ import Button from "@/components/ui/Button";
 import type { OrderRecommendation, StoreSnackRecommendation } from "@/lib/types";
 import RecipeImage from "../RecipeImage";
 import type { Selection } from "../useRecommend";
-import ResultCard, { Pills, Reveal } from "./ResultCard";
+import ResultCard, { NutritionEstimate, Reveal } from "./ResultCard";
 
 /** A food idea by type (Delivery / "ideas by type") or a snack to grab: what
  *  it is, rough numbers, why, and the one line needed to act on it — what to
@@ -87,7 +87,7 @@ export default function IdeaCard({
         )}
       </div>
       <div className="mt-3">
-        <Pills items={[`~${r.estimated_calories} cal`, `~${r.estimated_protein_g}g protein`]} />
+        <NutritionEstimate calories={r.estimated_calories} proteinG={r.estimated_protein_g} />
       </div>
     </ResultCard>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Button from "@/components/ui/Button";
 import type { Recommendation } from "@/lib/types";
 import type { Selection } from "../useRecommend";
@@ -112,6 +113,31 @@ export function Pills({ items }: { items: (string | null | false)[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Calories and protein, always labelled as an estimate. Every number the app shows is a model's
+ *  estimate from a typical portion — nothing is measured or verified — so the label says so in
+ *  words, not only with "~", and one tap explains it. */
+export function NutritionEstimate({ calories, proteinG }: { calories: number; proteinG: number }) {
+  const [why, setWhy] = useState(false);
+  return (
+    <div>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink/80" aria-label={`Estimated: about ${calories} calories and ${proteinG} grams of protein`}>
+        <span className="rounded-full bg-sage-soft px-2 py-0.5 font-semibold text-sage">Estimate</span>
+        <span className="font-medium">~{calories} cal</span>
+        <span aria-hidden className="text-line">•</span>
+        <span className="font-medium">~{proteinG} g protein</span>
+        <button type="button" onClick={() => setWhy(!why)} aria-expanded={why} className="min-h-8 px-1 text-muted underline decoration-dotted">
+          How?
+        </button>
+      </p>
+      {why && (
+        <p className="mt-1 animate-fade-in text-xs text-muted">
+          An AI estimate for one typical portion — not measured or checked against a label. Real portions and recipes vary.
+        </p>
+      )}
+    </div>
   );
 }
 
