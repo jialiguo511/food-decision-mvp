@@ -26,13 +26,15 @@
   <p class="sub">This screen ships inside the app. It talks to the real backend from the app's own origin.</p>
   <ol id="checks"></ol>
   <section>
-    <b>Email code sign-in (from the bundled screen)</b>
-    <div id="captcha"></div>
+    <b>Sign in through the check bridge</b>
     <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="test address">
-    <button id="send" type="button">Send code</button>
+    <button id="check" type="button">1 · Quick check (opens our page)</button>
+    <button id="send" type="button">2 · Send code</button>
     <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="code from the email">
-    <button id="verify" type="button">Sign in</button>
-    <button id="signout" type="button" style="background:#fff;color:var(--ink);border:1px solid var(--line)">Sign out (clears the stored session)</button>
+    <button id="verify" type="button">3 · Sign in</button>
+    <button id="tests" type="button">4 · Run session &amp; data checks</button>
+    <button id="replay" type="button" style="background:#fff;color:var(--ink);border:1px solid var(--line)">5 · Replay checks (reuse token / code)</button>
+    <button id="signout" type="button" style="background:#fff;color:var(--ink);border:1px solid var(--line)">6 · Sign out + old refresh token check</button>
   </section>
 </main>
 <script src="config.js"></script>
