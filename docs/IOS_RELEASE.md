@@ -123,10 +123,71 @@ If Cloudflare also refuses that sheet, the fallback is to keep only the sign-in 
 **Updated scope:** ≈ 8–12 days (unchanged list above) **+ 1–2 days** for the check bridge, plus
 the bearer/RLS and stored-session checks, which need one successful sign-in from a bundled screen.
 
-**Go / no-go: conditional GO.** Do the check-bridge spike first (1–2 days). Go to the full migration
+**Go / no-go: conditional GO.** Do the check-bridge spike first (1–2 days). **Update: the spike passed — see below.** Go to the full migration
 only if (1) a bundled screen signs in with a real code through the bridge, (2) the bearer token
 reads the user's own rows and nothing else, and (3) the session survives a relaunch. If (1) fails,
 stay on the hosted shell for beta and decide about the hybrid sign-in before App Store submission.
+
+## Sign-in check bridge spike — results (2026-11-24): PASSED
+
+**Design.** The bundled app opens `/app/check` on our real Preview domain in Apple's
+authentication sheet (`ASWebAuthenticationSession`, ephemeral; project-local `WebAuthPlugin.swift`,
+no Apple signing or entitlement). Only Turnstile runs there. The page returns the one-time Turnstile
+token through `whattoeat-auth://check#state=…&token=…`, bound to a random 32-byte `state` the app
+checks. The bundled app then calls Supabase itself (`signInWithOtp` with that token, `verifyOtp` on
+the device), so the **session is created directly in the app and never travels through a URL, a log
+or our server**; nothing is stored server-side; no database change. This is simpler and safer than
+handing a session over from a hosted page (which would need server-side storage and a server-side
+`verifyOtp`, sharing one IP rate-limit bucket for every user).
+
+**Run:** iPhone 17 Simulator, bundled screen at `capacitor://localhost`, real Preview + production
+Supabase project, fresh test account `+wse-test2` (code received and typed by the founder).
+
+| # | test | result |
+|---|---|---|
+| 1 | Request the email code from the bundled app | ✅ Supabase accepted the token issued on our domain and sent from the app's origin |
+| 2 | Code arrives and verifies | ✅ verified on the device |
+| 3 | App holds a valid session | ✅ stored in the app's own storage |
+| 4 | Force-quit → reopen | ✅ session restored |
+| 5 | Logout (global) | ✅ stored session cleared; the old refresh token refused (`refresh_token_not_found`); relaunch starts signed out |
+| 6 | Refresh | ✅ new access token, later expiry (also after relaunch) |
+| 7 | Authenticated API from the bundled origin | ✅ `/api/app/ping` with bearer → `signedIn=true`, RLS read as the user |
+| 8 | Other users' data | ✅ 0 rows of anyone else in `profiles`, `saved_recipes`, `saved_places`, `decision_sessions` (the same database holds other accounts' rows, e.g. test account 1's profile and saved recipe) |
+| 9 | Replays and forgeries | ✅ reused check token → `captcha_failed`; reused code and wrong code → `otp_expired`; tampered bearer → `invalid_token`; callback with another `state` → dropped |
+| — | Expiry of an access token that is never refreshed | **not directly tested** (needs ~1 h); Supabase rejects expired JWTs in `getUser`, and the app refreshes automatically |
+| — | Physical iPhone | not tested (no Apple signing yet) |
+
+**Found and fixed:** Capacitor's debug console printed plugin results, including the bridge callback
+URL with the one-time token. `loggingBehavior: "none"` now; re-checked: nothing logged.
+
+**Manual configuration: none.** The Preview hostname is already allowed in Turnstile; the
+`localhost` entry added for the earlier test is no longer needed and can be removed. Production
+auth settings, Turnstile and CAPTCHA were not changed.
+
+## Plan — migrating Home, Saved and Me to the bundled UI (not started; needs your go)
+
+Order chosen so the web app and the hosted beta keep working at every step.
+
+1. **Auth (≈ 1.5 days).** Productize the spike: the real sign-in screen (Email code; Apple behind its
+   switch) using the bridge; session in Capacitor Preferences (Keychain-backed) instead of
+   localStorage; sign-out / Reset / Delete clear it; a "session expired" path back to sign-in.
+2. **Server: bearer + CORS (≈ 1 day).** `createClient()` accepts `Authorization: Bearer` when there is
+   no cookie; CORS for `capacitor://localhost` on `/api/*`; `refuseCrossSite` lets the app origin
+   through only with a bearer (no cookie → no CSRF). Tests for both paths.
+3. **Reads (≈ 2 days).** Move the reads of `today/page.tsx`, `saved/page.tsx`, `profile/page.tsx`
+   into shared loaders; the web pages call them unchanged; `GET /api/app/home|saved|profile` return
+   the same props as JSON.
+4. **Writes (≈ 2 days).** One `POST /api/app/action` dispatcher calling the same 19 Server Action
+   functions; a `callAction` adapter in the 12 client modules (direct call on the web, fetch in the app).
+5. **Bundled build (≈ 2–3 days).** A second build target that exports Home, Saved, Me, sign-in and
+   About with the same client components, an API base URL, and the native layer already built;
+   images and place photos from absolute URLs.
+6. **Hardening and device QA (≈ 2 days).** Version header + "please update" response for old app
+   builds; offline/first-launch states; full test script on a real iPhone.
+
+**Total ≈ 10–12 working days** (estimate). Risks: keeping old app versions working as the API changes
+(step 6 mitigates); Server Actions that call `revalidatePath` or redirect need small adjustments;
+first launch offline shows the shell but no data.
 
 ## Real end-to-end run on the Preview (2026-11-24, iPhone 17 Simulator, hosted shell)
 

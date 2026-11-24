@@ -12,6 +12,9 @@ const serverUrl = process.env.CAP_SERVER_URL;
 const config: CapacitorConfig = {
   appId: process.env.CAP_APP_ID ?? "com.whatshouldieat.app",
   appName: "What to Eat",
+  // Capacitor's debug log prints every plugin result — including the sign-in check bridge's
+  // callback URL with its one-time token (seen in the spike). Nothing native is logged.
+  loggingBehavior: "none",
   // CAP_WEB_DIR=mobile/poc (with no CAP_SERVER_URL) builds the bundled-UI proof of concept.
   webDir: process.env.CAP_WEB_DIR ?? "mobile/www",
   // The WebView's own colour before a page paints: cream, never a white flash on a slow load.

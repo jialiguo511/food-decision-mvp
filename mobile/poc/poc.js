@@ -48,7 +48,7 @@
 
   // 2 · Send the code from the bundled origin with the hosted check's token.
   document.getElementById("send").onclick = function () {
-    var li = row("send", "Send code from the app with the bridged token");
+    var li = row("r-send", "Send code from the app with the bridged token");
     if (!checkToken) return done(li, false, "do the check first");
     var token = checkToken; usedCheckToken = token; checkToken = null;
     client.auth.signInWithOtp({ email: document.getElementById("email").value.trim(), options: { captchaToken: token, shouldCreateUser: true } })
@@ -58,7 +58,7 @@
   // 3 · Verify on the device (the person's own IP bucket), session stored in the app.
   var lastCode = null;
   document.getElementById("verify").onclick = function () {
-    var li = row("verify", "Verify code → session in the app");
+    var li = row("r-verify", "Verify code → session in the app");
     var code = document.getElementById("code").value.replace(/\D/g, "");
     client.auth.verifyOtp({ email: document.getElementById("email").value.trim(), token: code, type: "email" }).then(function (r) {
       if (r.error) return done(li, false, "refused: " + errCode(r.error));
