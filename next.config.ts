@@ -24,6 +24,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // The framework name in a header helps nobody.
   poweredByHeader: false,
+  // The iOS app's Universal Links file (src/app/api/aasa/route.ts).
+  async rewrites() {
+    return [{ source: "/.well-known/apple-app-site-association", destination: "/api/aasa" }];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

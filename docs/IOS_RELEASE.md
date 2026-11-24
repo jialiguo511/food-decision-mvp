@@ -74,14 +74,38 @@ through App Review; external testers get a lighter beta review). Do the bundled-
 as the **App Store** path, because 4.2 is the one risk we can't test our way out of. The P0/P1
 fixes below are written against the shared client components, so they carry over unchanged.
 
-## P0 status
+## User-feedback fixes on this branch
 
-| item | status |
+| item | what changed | verified by |
+|---|---|---|
+| P0 Saved → "Find something to make" opened the last Eat-out set | links pass `?start=cook` / `?start=order`, which beats any restored or in-memory set | unit + real-HomeFlow tests |
+| P0 Gmail spam | code-first copy, "Not spam" hint; the rest is DNS/dashboard (below) | test; **delivery not verified** |
+| P0 iOS auth / returning users | code-first sign-in (types into the app's own WebView session); resume after 30 min reloads (session refresh); AASA route for the emailed link | tests; **sign-in on a device not yet tried** |
+| P0 latency / errors / recovery | 100 s client deadline → "That took too long" + Try again (was: spinner up to the server's 200 s); after 15 s "Taking longer than usual" with **Stop and change my answers**; "You're offline" copy; iOS-specific location-denied copy | store tests with fake timers |
+| P1 several compatible preferences | Cook craving chips multi-select (+ soft "Vegetarian"); "Light and clean" ⇄ "Comfort food" exclusive; Snack Sweet/Salty/Crunchy/Creamy combine, "Anything" alone. Get food's category stays single (drives place fit) | unit + flow tests; clicked through at 375 px |
+| P1 Pickup / Delivery switching | Delivery · Pickup · Eat nearby switch on Get food results; same answers, new method. No price/fee comparison (no verified data; Google's coarse `$$` level stays as before) | real-HomeFlow test; clicked through at 375 px (stand-in data) |
+| P1 optional profile completion | quiet card on Me listing only unset items with what each changes; not on Home | unit tests |
+| P1 nutrition labels | "Estimate" label in words + "How?" on every card; `cal` everywhere | clicked through at 375 px |
+| UI | warm palette tokens; all text pairs ≥ 4.5:1 (old orange button 3.2:1); `viewport-fit=cover` safe areas | contrast computed; screenshots |
+
+Not changed, deliberately: Get food craving categories, onboarding, the three-card carousel layout.
+
+## TestFlight readiness — four separate states
+
+| state | status |
 |---|---|
-| Saved → "Find something to make" opened the last Eat-out set | **Fixed, verified by tests.** Bare `/today` reopened the most recent session; links now pass `?start=cook` / `?start=order`, which beats any restored or in-memory set (`flow/homeReducer.ts → initialScreen`). |
-| Sign-in emails in Gmail spam | Code-level part done (code-first copy, "Not spam" hint). The causes are mostly outside the code — see below. |
-| iOS auth / returning users | Code-first sign-in done. Universal Links and resume handling: with the Capacitor work. |
-| Recommendation latency / errors / recovery | Not started on this branch. |
+| **1. Technical build** | Debug Simulator build and unsigned Release device build **succeed** (Xcode 27.2). |
+| **2. Simulator testing** | see the run log below. |
+| **3. Physical device** | **not done** — needs your Apple team for signing and a device. |
+| **4. TestFlight** | **not done** — needs the steps below. Internal testers need no review; external testers need Beta App Review. |
+| **5. App Store** | **not ready** — 4.2 decision (above), review notes, screenshots, privacy label. |
+
+**Steps to a TestFlight build (yours unless noted):**
+1. Apple Developer: create the App ID (bundle id — `com.whatshouldieat.app` is a placeholder; it is permanent once uploaded) and the App Store Connect app record.
+2. Deploy this branch to a **Vercel Preview** (needs your approval) and add that origin to Supabase Redirect URLs.
+3. `CAP_SERVER_URL=https://<preview-origin> npm run ios:sync` (me), then open `ios/App/App.xcodeproj`, set Signing → Team, and Product → Archive → Distribute → TestFlight.
+4. Optional, for the emailed link to open the app: set `APPLE_APP_IDS=<TEAMID>.<bundle id>` on Vercel and add `applinks:<host>` under Signing & Capabilities → Associated Domains.
+5. App Store Connect: privacy policy URL (`/about`), beta description, a review contact, and a way for the reviewer to sign in (they need to receive the code — e.g. a dedicated inbox you share in the review notes).
 
 ## Gmail spam — what to change outside the code
 
