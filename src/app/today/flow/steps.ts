@@ -86,7 +86,8 @@ export const STEP_KINDS = {
   },
   store_snack: {
     hunger: "single",
-    craving: "single",
+    // Several compatible cravings can be picked together, so this waits for Continue.
+    craving: "multi",
   },
 } as const satisfies Record<DecisionMode, Record<string, StepKind>>;
 

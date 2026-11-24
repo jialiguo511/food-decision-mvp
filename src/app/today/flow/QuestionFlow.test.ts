@@ -80,14 +80,15 @@ describe("A. a pure single choice moves on by itself", () => {
     }
   });
 
-  it("Snack · How hungry are you? moves on; What sounds good? (the last question) sends the request", () => {
+  it("Snack · How hungry are you? moves on; What sounds good? takes several, so it waits for the button", () => {
     const hungry = render("store_snack", 0, forms());
     tap(hungry.body, "onPick", "light");
     expect(hungry.calls.onNext).toHaveBeenCalledWith(2, true, 0);
 
     const craving = render("store_snack", 1, forms());
-    tap(craving.body, "onPick", "salty");
-    expect(craving.calls.onFinish).toHaveBeenCalledWith(true);
+    (find(craving.body, "onChange")?.props.onChange as (v: unknown) => void)({ decision_mode: "store_snack", hunger: "normal", craving_type: "sweet", also_craving: ["crunchy"] });
+    expect(craving.calls.setForm).toHaveBeenCalledWith("store_snack", expect.objectContaining({ craving_type: "sweet", also_craving: ["crunchy"] }));
+    expect(craving.calls.onFinish).not.toHaveBeenCalled();
     expect(craving.calls.onNext).not.toHaveBeenCalled();
   });
 

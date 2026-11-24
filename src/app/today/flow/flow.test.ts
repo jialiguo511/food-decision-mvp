@@ -222,7 +222,7 @@ describe("when an answer moves on by itself (one rule, by kind of input)", () =>
     const expected = {
       cook: { hunger: true, time_effort: false, shopping: true, budget: false, ingredients: false, craving: false },
       order: { method: true, hunger: true, craving: false, budget: true, travel: true },
-      store_snack: { hunger: true, craving: true },
+      store_snack: { hunger: true, craving: false }, // several cravings can be picked together
     } as const;
     for (const [mode, steps] of Object.entries(expected)) {
       for (const [step, auto] of Object.entries(steps)) {

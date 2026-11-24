@@ -46,7 +46,8 @@ export function summaryParts(values: AnyForm): SummaryPart[] {
     }
     if (values.meal_budget !== "no_preference") parts.push(part("meal_budget", label(MEAL_BUDGETS, values.meal_budget)));
   } else if (values.craving_type !== "anything") {
-    parts.push(part("craving_type", label(STORE_SNACK_CRAVINGS, values.craving_type)));
+    const all = [values.craving_type, ...(values.also_craving ?? [])].map((c) => label(STORE_SNACK_CRAVINGS, c));
+    parts.push(part("craving_type", all.join(" + ")));
   }
   return parts.filter((p): p is SummaryPart => p !== null);
 }

@@ -169,13 +169,16 @@ export const COOK_SHOPPING_MODES: { value: CookShopping; label: string; hint: st
   { value: "can_buy", label: "I can buy a few things", hint: "A quick stop for a few extras" },
 ];
 
-/** Craving presets. The user can also type their own — see flow/cookQuestions.tsx. */
+/** Craving presets — several can be picked together (lib/cravings.ts). The user can also type
+ *  their own — see flow/cookQuestions.tsx. */
 export const COMMON_CRAVINGS = [
   "Something warm",
   "Something fresh",
   "Spicy",
   "Comfort food",
   "Light and clean",
+  // A soft "meat-free tonight", not the Profile's dietary pattern (that one is a hard constraint).
+  "Vegetarian",
   "High protein",
   "Carbs",
   "Soup",

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import OptionList from "@/components/ui/OptionList";
 import Slider from "@/components/ui/Slider";
+import Chip from "@/components/ui/Chip";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
 import {
   BUDGET_PER_MEAL,
@@ -14,6 +15,7 @@ import {
   HUNGER_LEVELS,
 } from "@/lib/options";
 import type { BudgetUsual } from "@/lib/recommend/rememberedDefaults";
+import { COOK_CRAVING_EXCLUSIVE, joinCraving, splitCraving, toggleCompatible } from "@/lib/cravings";
 import { normalizeCraving } from "@/lib/text";
 import type { CookForm, CookShopping, Effort, Hunger } from "@/lib/types";
 import IngredientsPicker, { StaplesNote } from "./IngredientsPicker";
@@ -39,7 +41,6 @@ export type CookQuestionProps = {
   kitchenStaples: string[];
 };
 
-const NO_CRAVING = "__none__";
 
 export function cookQuestion(step: CookStep, p: CookQuestionProps): StepView {
   const { values } = p;
@@ -196,31 +197,41 @@ function BudgetBody({ values, onChange, budgetUsual, kitchenStaples }: CookQuest
   );
 }
 
-/** One value, not a tag list: a preset or whatever was typed. Typing clears
- *  every chip, including "No preference". */
+/** Any number of compatible presets plus the person's own words, kept in the one craving text
+ *  (lib/cravings.ts). "No preference" clears everything. */
 function CravingBody({ values, onChange }: CookQuestionProps) {
-  const preset =
-    values.craving !== null && (COMMON_CRAVINGS as readonly string[]).includes(values.craving) ? values.craving : null;
-  const custom = preset === null ? (values.craving ?? "") : "";
-  const set = (craving: string | null) => onChange({ ...values, craving });
+  const { chips, custom } = splitCraving(values.craving, COMMON_CRAVINGS);
+  // Typed text is kept as typed while editing (never trimmed per keystroke) and normalized on blur.
+  const [draft, setDraft] = useState(custom);
+  const set = (nextChips: string[], text: string) => onChange({ ...values, craving: joinCraving(nextChips, text) });
 
   return (
     <div>
-      <SingleChipGroup
-        options={[{ value: NO_CRAVING, label: "No preference" }, ...COMMON_CRAVINGS.map((c) => ({ value: c, label: c }))]}
-        value={preset ?? (custom === "" ? NO_CRAVING : "")}
-        onChange={(v) => set(v === NO_CRAVING ? null : v)}
-      />
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          label="No preference"
+          selected={chips.length === 0 && draft.trim() === ""}
+          onClick={() => {
+            setDraft("");
+            set([], "");
+          }}
+        />
+        {COMMON_CRAVINGS.map((c) => (
+          <Chip key={c} label={c} selected={chips.includes(c)} onClick={() => set(toggleCompatible(chips, c, COOK_CRAVING_EXCLUSIVE), draft)} />
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted">Pick as many as fit.</p>
       <input
-        value={custom}
-        // Never trim per keystroke — that deletes the space as it's typed.
-        // Normalized on blur and again when the request is made.
-        onChange={(e) => set(e.target.value || null)}
-        onBlur={(e) => set(normalizeCraving(e.target.value))}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          set(chips, e.target.value);
+        }}
+        onBlur={(e) => setDraft(normalizeCraving(e.target.value) ?? "")}
         placeholder="Or describe what sounds good…"
         aria-label="Describe your craving"
         className={`mt-4 min-h-12 w-full rounded-2xl bg-card px-4 outline-none ${
-          custom === "" ? "border border-line focus:border-accent" : "border border-accent text-accent"
+          draft === "" ? "border border-line focus:border-accent" : "border border-accent text-accent"
         }`}
       />
     </div>

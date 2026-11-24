@@ -32,7 +32,7 @@ export function contextsEqual(a: DecisionContext, b: DecisionContext): boolean {
     );
   }
   if (a.decision_mode === "store_snack" && b.decision_mode === "store_snack") {
-    return a.hunger === b.hunger && a.craving_type === b.craving_type;
+    return a.hunger === b.hunger && a.craving_type === b.craving_type && (a.also_craving ?? []).join() === (b.also_craving ?? []).join();
   }
   if (a.decision_mode === "open" && b.decision_mode === "open") {
     return (

@@ -200,7 +200,11 @@ export type CravingType = "sweet" | "salty" | "crunchy" | "creamy" | "anything";
 export type StoreSnackContext = {
   decision_mode: "store_snack";
   hunger: Hunger;
+  /** The first craving picked ("anything" when none). */
   craving_type: CravingType;
+  /** Further compatible cravings picked with it ("sweet" + "crunchy"). Absent on sessions from
+   *  before several could be picked, and whenever craving_type is "anything". */
+  also_craving?: Exclude<CravingType, "anything">[];
 };
 
 /**

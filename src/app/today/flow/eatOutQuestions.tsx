@@ -1,5 +1,6 @@
 "use client";
 
+import Chip from "@/components/ui/Chip";
 import OptionList from "@/components/ui/OptionList";
 import { SingleChipGroup } from "@/components/ui/ChipGroup";
 import {
@@ -10,6 +11,7 @@ import {
   STORE_SNACK_CRAVINGS,
   TRAVEL_OPTIONS,
 } from "@/lib/options";
+import { toggleCompatible } from "@/lib/cravings";
 import { normalizeCraving } from "@/lib/text";
 import type {
   CravingType,
@@ -125,12 +127,33 @@ export function snackQuestion(step: SnackStep, { values, onChange, onPick }: Pro
   return {
     title: "What sounds good?",
     body: (
-      <OptionList
-        label="What sounds good?"
-        options={STORE_SNACK_CRAVINGS}
-        value={values.craving_type}
-        onPick={(v) => onChange({ ...values, craving_type: v as CravingType })}
-      />
+      <SnackCravings values={values} onChange={onChange} />
     ),
   };
+}
+
+/** Any compatible combination ("Sweet" + "Crunchy"); "Anything" stands alone. */
+function SnackCravings({ values, onChange }: { values: StoreSnackContext; onChange: (v: StoreSnackContext) => void }) {
+  const picked: CravingType[] = values.craving_type === "anything" ? [] : [values.craving_type, ...(values.also_craving ?? [])];
+  const store = (next: CravingType[]) => {
+    const [first, ...rest] = next.filter((c): c is Exclude<CravingType, "anything"> => c !== "anything");
+    const { also_craving: _old, ...base } = values;
+    void _old;
+    onChange(first ? { ...base, craving_type: first, ...(rest.length ? { also_craving: rest } : {}) } : { ...base, craving_type: "anything" });
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {STORE_SNACK_CRAVINGS.map((c) => (
+          <Chip
+            key={c.value}
+            label={c.label}
+            selected={c.value === "anything" ? picked.length === 0 : picked.includes(c.value)}
+            onClick={() => store(c.value === "anything" ? [] : toggleCompatible(picked, c.value, []))}
+          />
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted">Pick as many as fit.</p>
+    </div>
+  );
 }

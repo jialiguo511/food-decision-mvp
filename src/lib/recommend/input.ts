@@ -109,6 +109,7 @@ export const storeSnackContextSchema = z.object({
   decision_mode: z.literal("store_snack"),
   hunger: z.enum(["light", "normal", "very_hungry"]),
   craving_type: z.enum(cravingTypes),
+  also_craving: z.array(z.enum(["sweet", "salty", "crunchy", "creamy"])).max(3).optional(),
 }) satisfies z.ZodType<StoreSnackContext>;
 
 const phraseOrNull = (max: number) =>
@@ -250,6 +251,7 @@ export type StoreSnackRecommendationInput = {
     disliked_foods: string[];
     hunger: Hunger;
     craving_type: CravingType;
+    also_craving?: Exclude<CravingType, "anything">[];
   };
   previous_recommendations?: { role: RecommendationRole; title: string; reason: string }[];
   /** The user's CONFIRMED nutrition priorities — strong guidance, not a hard
@@ -498,6 +500,7 @@ export function resolveRecommendationInput(
         disliked_foods: profile.dislikes,
         hunger: context.hunger,
         craving_type: context.craving_type,
+        ...(context.craving_type !== "anything" && context.also_craving?.length ? { also_craving: context.also_craving } : {}),
       },
       ...(previous ? { previous_recommendations: previous } : {}),
       ...hints,

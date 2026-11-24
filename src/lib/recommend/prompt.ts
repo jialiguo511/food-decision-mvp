@@ -492,7 +492,7 @@ ${nutritionPrioritiesSection(input.nutrition_priorities)}## Soft preferences
 4. The health goal, applied gently (see the philosophy above — never at the expense of the craving).
 5. Protein, as a bonus when it fits naturally, never as a requirement.
 
-- \`craving_type\` is the strongest signal in this whole context: sweet, salty, crunchy, creamy, or anything. Take it literally — every recommendation should fit it (unless it's "anything").
+- \`craving_type\` is the strongest signal in this whole context: sweet, salty, crunchy, creamy, or anything. Take it literally — every recommendation should fit it (unless it's "anything"). When \`also_craving\` is present the person picked several at once (e.g. sweet + crunchy): every recommendation should fit the combination.
 - ${DISLIKE_RULE}
 - Feasibility here is about realism of the category, not availability at one specific store: assume common grocery/drugstore snack and dessert aisles, refrigerated and frozen sections exist, but don't name a specific chain or brand as if you know their current stock.
 
