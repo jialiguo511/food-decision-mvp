@@ -19,7 +19,7 @@ import type { PlaceFeedbackState } from "./PlaceFeedback";
 import HomeFlow from "./HomeFlow";
 import { parseStartMode } from "./flow/homeReducer";
 
-export default async function TodayPage({ searchParams }: { searchParams?: Promise<{ start?: string | string[] }> } = {}) {
+export default async function TodayPage({ searchParams }: { searchParams?: Promise<{ start?: string | string[] }> }) {
   if (!isSupabaseConfigured) return <SetupNotice />;
 
   const user = await requireUser();

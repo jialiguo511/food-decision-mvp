@@ -58,7 +58,7 @@ import TodayPage from "./page";
 
 /** The props the page gave HomeFlow. */
 async function homeProps() {
-  const shell = (await TodayPage()) as ReactElement<{ children: ReactElement<Record<string, unknown>> }>;
+  const shell = (await TodayPage({})) as ReactElement<{ children: ReactElement<Record<string, unknown>> }>;
   return shell.props.children.props;
 }
 
