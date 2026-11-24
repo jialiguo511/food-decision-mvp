@@ -845,6 +845,16 @@ contents into NOW.
     decides), free-form chat, wearables, inferring training load from
     history.
 
+- **iOS app via Capacitor (TestFlight)** — promoted from LATER ("Native mobile
+  app") 2026-11-24 at the founder's explicit request, in progress on
+  `feat/ios-app`, unvalidated. A Capacitor shell around the hosted web app with a
+  small native layer (code-first sign-in, Universal Links for the sign-in link,
+  offline/retry screen, system-browser external links, location permission
+  string, resume handling, icon and launch assets). Reuses every page, action and
+  API route unchanged; no bundled-UI rewrite unless App Review requires it.
+  Android, push notifications, HealthKit and widgets stay out. Plan, findings and
+  the manual setup list: `docs/IOS_RELEASE.md`.
+
 ---
 
 ## LATER — only after evidence
@@ -880,7 +890,7 @@ Parked. These correspond to `PRODUCT.md` → Possible future directions.
 - **Personal decision model** (Stage 3) and **broader food intelligence**
   (Stage 4) — added 2026-10-05 as parked pointers to "Strategic stages" above.
   Stage 3 is rules-based, not a trained model. Neither is scheduled.
-- Native mobile app
+- Native mobile app — *iOS via Capacitor promoted to NEXT 2026-11-24; Android stays here*
 - Household mode
 - Subscriptions
 

@@ -54,7 +54,7 @@ function LoginForm() {
     if (state === "sending") return;
     if (TURNSTILE_SITE_KEY && !captcha) {
       // The check sits just above the button and shows its own failure and retry if it cannot run.
-      setError("The check above has to pass before we can send the link.");
+      setError("The check above has to pass before we can send the code.");
       setState("error");
       return;
     }
@@ -121,8 +121,8 @@ function LoginForm() {
       {state === "sent" ? (
         <div className="mt-8 rounded-2xl border border-line bg-card p-5" role="status">
           <p className="text-sm">
-            We emailed <span className="font-medium">{email}</span> a sign-in link and a code. Type the code below to sign in here, in this browser. The link works from any
-            app, but signs you in inside whichever browser opens it (Gmail&apos;s built-in browser, for one) — not in this one.
+            We emailed a sign-in code to <span className="font-medium">{email}</span>. Type it below to sign in here. (The email also has a link, but it signs you in
+            inside whichever app opens it — not necessarily this one. The code always works here.)
           </p>
           <form onSubmit={submitCode} className="mt-4 space-y-2">
             <label htmlFor="login-code" className="text-sm font-semibold">
@@ -156,7 +156,10 @@ function LoginForm() {
               </p>
             )}
           </form>
-          <p className="mt-3 text-xs text-muted">Nothing there? Look in spam. The email comes from our sign-in service, and can take a minute. Codes and links work once.</p>
+          <p className="mt-3 text-xs text-muted">
+            Nothing there? It can take a minute. Check spam or Promotions — if it&apos;s there, marking it &ldquo;Not spam&rdquo; helps the next one reach your inbox.
+            Each code works once.
+          </p>
           <div className="mt-4 flex flex-col gap-2">
             {TURNSTILE_SITE_KEY && <Turnstile onToken={setCaptcha} resetKey={captchaReset} />}
             <button
@@ -203,7 +206,7 @@ function LoginForm() {
             disabled={state === "sending"}
             className="w-full rounded-2xl bg-accent py-3.5 font-semibold text-white disabled:opacity-60"
           >
-            {state === "sending" ? "Sending…" : "Email me a sign-in link"}
+            {state === "sending" ? "Sending…" : "Email me a sign-in code"}
           </button>
           {state === "error" && (
             <p role="alert" className="text-sm text-red-700">
@@ -211,7 +214,7 @@ function LoginForm() {
             </p>
           )}
           <p className="text-xs text-muted">
-            No password. We email you a one-time code and link; signing in with a new address creates your account. By continuing you accept what&apos;s described in{" "}
+            No password. We email you a one-time code; signing in with a new address creates your account. By continuing you accept what&apos;s described in{" "}
             <Link href="/about" className="underline">
               About &amp; privacy
             </Link>

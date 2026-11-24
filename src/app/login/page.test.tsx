@@ -70,12 +70,13 @@ describe("sign-in page", () => {
     expect(signInWithOtp).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ emailRedirectTo: "http://localhost:3000/auth/confirm" }) }));
   });
 
-  it("after the email is sent, offers a code that signs in this browser, and says where the link signs you in", async () => {
+  it("after the email is sent, leads with the code (it signs in HERE — browser or iOS app) and says the link may open elsewhere", async () => {
     await requestEmail();
     expect(signInWithOtp).toHaveBeenCalledTimes(1);
     expect(container.querySelector("#login-code")).not.toBeNull();
-    expect(text()).toMatch(/in this browser/i);
-    expect(text()).toMatch(/Gmail/);
+    expect(text()).toMatch(/sign-in code/i);
+    expect(text()).toMatch(/signs you in\s+inside whichever app opens it/i);
+    expect(text()).toMatch(/Not spam/);
     expect(container.querySelector("#login-code")?.getAttribute("autocomplete")).toBe("one-time-code");
   });
 
