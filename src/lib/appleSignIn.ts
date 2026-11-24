@@ -39,7 +39,10 @@ export type AppleSignInResult =
   | { ok: false; canceled: boolean; message: string };
 
 /** Sign in (or link, when `link` is true and someone is signed in) with Apple. */
-export async function signInWithApple(supabase: SupabaseClient, { link = false }: { link?: boolean } = {}): Promise<AppleSignInResult> {
+export async function signInWithApple(
+  supabase: SupabaseClient,
+  { link = false, captchaToken }: { link?: boolean; captchaToken?: string | null } = {},
+): Promise<AppleSignInResult> {
   const nonce = await makeNonce();
   let credential: AppleCredential;
   try {
@@ -51,7 +54,11 @@ export async function signInWithApple(supabase: SupabaseClient, { link = false }
     return { ok: false, canceled: code === "canceled", message: "Sign in with Apple didn't finish. Please try again, or use your email." };
   }
   const args = { provider: "apple" as const, token: credential.identityToken, nonce: nonce.raw };
-  const { data, error } = link ? await supabase.auth.linkIdentity(args) : await supabase.auth.signInWithIdToken(args);
+  // With CAPTCHA protection on in Supabase, a sign-in (not a link, which needs a session) carries the
+  // same Turnstile token the email path does.
+  const { data, error } = link
+    ? await supabase.auth.linkIdentity(args)
+    : await supabase.auth.signInWithIdToken({ ...args, ...(captchaToken ? { options: { captchaToken } } : {}) });
   const user = data && "user" in data ? data.user : null;
   if (error || !user) {
     // Supabase's message only goes to the console (it can name configuration); the person gets a plain one.

@@ -110,7 +110,7 @@ function LoginForm() {
   const left = state === "sent" ? resendSecondsLeft(sentAt, now) : 0;
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 pt-[max(3rem,calc(env(safe-area-inset-top)+1rem))] pb-[max(3rem,env(safe-area-inset-bottom))]">
       <p className="mb-3 w-fit rounded-full border border-accent/30 bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">{BRAND.stage}</p>
       <h1 className="text-3xl font-semibold tracking-tight">{BRAND.name}?</h1>
       <p className="mt-2 text-muted">{BRAND.tagline}</p>
@@ -191,7 +191,15 @@ function LoginForm() {
         <>
         {/* iOS app only (renders nothing on the web): Apple first, email as the alternative. */}
         <div className="mt-8 empty:mt-4">
-          <AppleSignInButton onUseEmail={setAppleNotice} />
+          <AppleSignInButton
+            onUseEmail={setAppleNotice}
+            needsCaptcha={!!TURNSTILE_SITE_KEY}
+            captchaToken={captcha}
+            onCaptchaUsed={() => {
+              setCaptcha(null);
+              setCaptchaReset((n) => n + 1);
+            }}
+          />
         </div>
         {appleNotice && (
           <p role="status" className="mt-4 rounded-2xl border border-line bg-card p-4 text-sm">

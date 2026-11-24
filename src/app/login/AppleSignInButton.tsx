@@ -23,7 +23,19 @@ type State =
   | { kind: "undoing" }
   | { kind: "error"; message: string };
 
-export default function AppleSignInButton({ onUseEmail }: { onUseEmail: (notice: string) => void }) {
+export default function AppleSignInButton({
+  onUseEmail,
+  needsCaptcha = false,
+  captchaToken = null,
+  onCaptchaUsed,
+}: {
+  onUseEmail: (notice: string) => void;
+  /** The sign-in check (Turnstile) is on: Apple sign-in needs its token too. */
+  needsCaptcha?: boolean;
+  captchaToken?: string | null;
+  /** A token is single-use: the page resets the check after a try. */
+  onCaptchaUsed?: () => void;
+}) {
   const [native, setNative] = useState(false);
   const [state, setState] = useState<State>({ kind: "idle" });
   // Decided after mount: the server render never knows it's inside the app.
@@ -32,9 +44,11 @@ export default function AppleSignInButton({ onUseEmail }: { onUseEmail: (notice:
 
   async function start() {
     if (state.kind === "working") return;
+    if (needsCaptcha && !captchaToken) return setState({ kind: "error", message: "One moment — the check below has to finish first. Then tap again." });
     void tapFeedback();
     setState({ kind: "working" });
-    const result = await signInWithApple(createClient());
+    const result = await signInWithApple(createClient(), { captchaToken });
+    if (needsCaptcha) onCaptchaUsed?.();
     if (!result.ok) return setState(result.canceled ? { kind: "idle" } : { kind: "error", message: result.message });
     if (!result.firstSignIn) return window.location.assign("/today");
     setState({ kind: "new", code: result.authorizationCode, relay: /@privaterelay\.appleid\.com$/i.test(result.user.email ?? "") });

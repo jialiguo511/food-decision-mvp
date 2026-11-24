@@ -82,7 +82,7 @@ export default function ConfirmClient() {
   const retryable = failure === "rate" || failure === "network";
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-12">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 pt-[max(3rem,calc(env(safe-area-inset-top)+1rem))] pb-[max(3rem,env(safe-area-inset-bottom))]">
       <p className="mb-3 w-fit rounded-full border border-accent/30 bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">{BRAND.stage}</p>
       <h1 className="text-3xl font-semibold tracking-tight">{BRAND.name}?</h1>
 
