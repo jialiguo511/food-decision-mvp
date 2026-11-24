@@ -27,6 +27,9 @@ stay out: carbohydrate/fat targets and fixed weekly planning are excluded by `PR
 
 ## Prototype built: Capacitor shell around the hosted app (`feat/ios-app`)
 
+> **Status: PROTOTYPE.** The hosted shell is for TestFlight beta testing only. It is not the
+> approved App Store architecture — see "Production architecture" below, which needs your decision.
+
 - **Capacitor 8** project in `ios/` (iPhone only, portrait). The WebView loads `CAP_SERVER_URL`
   (`npm run ios:sync`): `http://localhost:3000` for the Simulator, a Vercel Preview for a device.
   Every page, Server Action, API route, metering rule and RLS policy is reused unchanged.
@@ -69,10 +72,45 @@ app whose every screen is fetched from a website. The question is how much it co
 | Ongoing cost | none | **API compatibility**: every web deploy must keep working for app versions still installed |
 | Rewrite (React Native/Expo) for comparison | — | 6–10 weeks, every screen again |
 
-**Recommendation.** Ship the hosted shell to **TestFlight** now (internal testers don't go
-through App Review; external testers get a lighter beta review). Do the bundled-UI work in parallel
-as the **App Store** path, because 4.2 is the one risk we can't test our way out of. The P0/P1
-fixes below are written against the shared client components, so they carry over unchanged.
+**Additions since Sign in with Apple (2026-11-24)** — the bundled UI also needs:
+
+| piece | change | risk |
+|---|---|---|
+| Session storage | supabase-js session kept in the app (Capacitor Preferences) instead of cookies; bearer token on every server call | sign-out / reset / delete must clear it (today they rely on a full page load) |
+| Apple + Email sign-in | unchanged client code (`signInWithIdToken`, `verifyOtp`) — both already run in the browser client | none new |
+| Turnstile CAPTCHA | the bundled page's origin is `capacitor://localhost`; Turnstile may not accept that scheme | **unverified** — may need a server-side check for app requests (App Attest) instead of Turnstile; must be tested before committing |
+| Email link (`/auth/confirm`) | Universal Link must open the bundled app and hand the token to the client | small |
+
+**Recommendation (needs your approval before any of it starts).**
+1. **Now:** TestFlight beta on the hosted shell (labelled prototype). Internal testers need no
+   review; external testers go through Beta App Review, which is lighter than App Store review.
+2. **Before App Store submission:** the bundled UI with the same Vercel + Supabase backend —
+   ≈ 8–12 working days, estimated, done in this order so each step ships on its own and the web keeps working:
+   (a) bearer-token support in `createClient()` + CORS/same-origin for the app origin;
+   (b) `/api/app/*` read endpoints from shared loaders (web pages call the same loaders);
+   (c) one action dispatcher + client adapter for the 19 Server Actions;
+   (d) the static-export build target and session storage in the app;
+   (e) the Turnstile question above, answered by a spike **first** — it's the one unknown that could
+   change the plan.
+3. **Not recommended:** a React Native rewrite (6–10 weeks, no gain the bundled UI doesn't give).
+
+## Sign in with Apple (iOS app) + Email code
+
+- **Built:** native Apple sheet (project-local plugin `ios/App/App/AppleSignInPlugin.swift`, no
+  third-party code on the login path) → Supabase `signInWithIdToken` in the browser client → the
+  same cookie session the server reads for email users. Apple is first on the iOS sign-in page;
+  Email code stays below it and is the only option on the web.
+- **Duplicates:** Supabase links a matching *verified* email itself. When Apple sign-in *creates*
+  an account (e.g. Hide My Email), the page asks: keep it, or "I already have an account — use my
+  email" (deletes the empty new account, revokes Apple, returns to the email form). Me → Sign-in
+  methods → **Add** links Apple to a signed-in email account (Supabase manual linking).
+- **Deletion:** Me → Delete asks Apple for a fresh code and the server revokes the Apple
+  authorization (5.1.1(v)); never blocks deletion.
+- **Verified:** unit tests (nonce, first-sign-in detection, relay detection, ES256 client secret,
+  revocation calls and failures, deletion order); in the Simulator the button calls the native
+  plugin and Apple's sheet opens (it then asks for an Apple Account, which a Simulator doesn't
+  have). **Not verified:** a real Apple sign-in, linking, or revocation — they need your Apple
+  Developer setup and a signed build on a device.
 
 ## User-feedback fixes on this branch
 
@@ -94,9 +132,10 @@ Not changed, deliberately: Get food craving categories, onboarding, the three-ca
 
 | state | status |
 |---|---|
-| **1. Technical build** | Debug Simulator build and unsigned Release device build **succeed** (Xcode 27.2). |
+| **1. Technical build** | Debug Simulator build, unsigned Release device build and unsigned **Release archive** succeed (Xcode 27.2). A signed archive needs your team. |
 | **2. Simulator testing** | **done for what runs without a real sign-in** — iPhone 17, iOS 27.2, app loading the local dev server (run log below). |
-| **3. Physical device** | **not done** — needs your Apple team for signing and a device. |
+| **2b. Real backend (Vercel Preview)** | Deployed from `feat/ios-app` (public, no Deployment Protection). Verified: app loads the real sign-in page from the Preview in the Simulator; unauthenticated `/api/recommend` → 401, cross-site → 403; security headers present. **Sign-in blocked** by Turnstile hostname (110200) until you allowlist it — so no real recommendation has been run from the app yet. |
+| **3. Physical device** | **not done** — needs your Apple team for signing and a device. Runbook: docs/TESTFLIGHT.md. |
 | **4. TestFlight** | **not done** — needs the steps below. Internal testers need no review; external testers need Beta App Review. |
 | **5. App Store** | **not ready** — 4.2 decision (above), review notes, screenshots, privacy label. |
 
