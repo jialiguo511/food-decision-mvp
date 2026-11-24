@@ -1,7 +1,7 @@
 // Prepares the iOS project: writes the hosted app's address into the bundled pages and runs
 // `cap sync ios`. Usage: CAP_SERVER_URL=http://localhost:3000 node scripts/ios-sync.mjs
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const url = process.env.CAP_SERVER_URL;
 // A path is allowed for Simulator testing (http://localhost:3000/dev/home opens the fixture Home).
@@ -13,3 +13,13 @@ if (!url || !/^https:\/\/|^http:\/\/localhost(:\d+)?(\/|$)/.test(url)) {
 }
 writeFileSync("mobile/www/app-url.js", `window.APP_URL = ${JSON.stringify(url)};\n`);
 execFileSync("npx", ["cap", "sync", "ios"], { stdio: "inherit", env: process.env });
+
+// Plugins that live in this project (not npm) must be in packageClassList, which Capacitor reads
+// when the bridge starts. Registering them later (capacitorDidLoad) is too late for a hosted page:
+// the page never learns they exist and calls fail with UNIMPLEMENTED.
+const LOCAL_PLUGINS = ["AppleSignInPlugin"];
+const generated = "ios/App/App/capacitor.config.json";
+const config = JSON.parse(readFileSync(generated, "utf8"));
+config.packageClassList = [...new Set([...(config.packageClassList ?? []), ...LOCAL_PLUGINS])];
+writeFileSync(generated, JSON.stringify(config, null, "\t") + "\n");
+console.log(`[ios-sync] local plugins registered: ${LOCAL_PLUGINS.join(", ")}`);

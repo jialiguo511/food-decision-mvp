@@ -30,12 +30,17 @@ const adminTableAccess = vi.fn();
 /** release_user_storage(): the user's shared Storage files stop blocking the auth deletion. */
 const releaseStorage = vi.fn<(args: { p_user: string }) => Promise<{ data: unknown; error: { code: string; message: string } | null }>>(async () => ({ data: 0, error: null }));
 let adminConfigured = true;
+/** The signed-in user also has a Sign in with Apple identity. */
+let appleIdentity = false;
+const revokeApple = vi.fn<(code: string) => Promise<"revoked">>(async () => "revoked");
+vi.mock("@/lib/appleRevoke", () => ({ revokeAppleAuthorization: (code: string) => revokeApple(code) }));
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => {
     const c = db.clientFor(currentUser);
-    return { ...c, auth: { ...c.auth, signOut } };
+    const appleUser = appleIdentity ? { getUser: async () => ({ data: { user: { id: currentUser, identities: [{ provider: "email" }, { provider: "apple" }] } }, error: null }) } : {};
+    return { ...c, auth: { ...c.auth, signOut, ...appleUser } };
   },
   getUser: async () => (currentUser ? { id: currentUser } : null),
 }));
@@ -195,6 +200,35 @@ describe("a reset account is the same as a new account", () => {
   });
 });
 
+describe("Delete my account — Sign in with Apple", () => {
+  it("revokes the Apple authorization with the fresh code before removing the auth user", async () => {
+    await useTheApp();
+    appleIdentity = true;
+    const order: string[] = [];
+    revokeApple.mockImplementationOnce(async (code) => (order.push(`revoke:${code}`), "revoked" as const));
+    deleteUser.mockImplementationOnce(async (id) => (order.push(`delete:${id}`), { error: null }));
+    expect(await deleteAccount({ appleAuthorizationCode: "c0de.abcdef12" })).toEqual({ ok: true });
+    expect(order).toEqual(["revoke:c0de.abcdef12", "delete:u1"]);
+    appleIdentity = false;
+  });
+
+  it("never lets revocation block deletion, and ignores a malformed code", async () => {
+    await useTheApp();
+    appleIdentity = true;
+    expect(await deleteAccount({ appleAuthorizationCode: "<script>" })).toEqual({ ok: true });
+    expect(revokeApple).not.toHaveBeenCalledWith("<script>");
+    expect(deleteUser).toHaveBeenCalledWith("u1");
+    appleIdentity = false;
+  });
+
+  it("an email-only account never calls Apple", async () => {
+    revokeApple.mockClear();
+    await useTheApp();
+    expect(await deleteAccount({ appleAuthorizationCode: "c0de.abcdef12" })).toEqual({ ok: true });
+    expect(revokeApple).not.toHaveBeenCalled();
+  });
+});
+
 describe("Delete my account", () => {
   it("removes all app data, then the auth user (by the verified session's id), then signs out", async () => {
     await useTheApp("u1");
@@ -294,8 +328,15 @@ describe("Delete my account", () => {
     expect(deleteUser).not.toHaveBeenCalled();
   });
 
-  it("takes no id from the caller — it can only ever act on the signed-in user", () => {
-    expect(deleteAccount.length).toBe(0);
+  it("takes no id from the caller — it can only ever act on the signed-in user", async () => {
     expect(resetMyData.length).toBe(0);
+    // Its one optional argument is an Apple authorization code; anything else passed is ignored.
+    expect(deleteAccount.length).toBeLessThanOrEqual(1);
+    await useTheApp("u1");
+    await useTheApp("u2");
+    currentUser = "u1";
+    expect(await deleteAccount({ id: "u2", user_id: "u2" } as never)).toEqual({ ok: true });
+    expect(deleteUser).toHaveBeenLastCalledWith("u1");
+    expect(rowsFor("u2").length).toBeGreaterThan(0);
   });
 });

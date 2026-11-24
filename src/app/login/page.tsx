@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import SetupNotice from "@/components/SetupNotice";
 import Turnstile, { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
+import AppleSignInButton from "./AppleSignInButton";
 import { BRAND } from "@/lib/brand";
 import { isSupabaseConfigured } from "@/lib/env";
 import { callbackErrorMessage, cleanCode, isPlausibleCode, resendSecondsLeft, sendLinkErrorMessage, verifyCodeErrorMessage } from "@/lib/loginErrors";
@@ -40,6 +41,8 @@ function LoginForm() {
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<"idle" | "checking" | "error">("idle");
   const [codeError, setCodeError] = useState("");
+  /** Set when someone came back from Apple sign-in to use their email account instead. */
+  const [appleNotice, setAppleNotice] = useState<string | null>(null);
 
   // Ticks only while the resend timer is running.
   const waiting = state === "sent" && resendSecondsLeft(sentAt, now) > 0;
@@ -185,7 +188,17 @@ function LoginForm() {
           </div>
         </div>
       ) : (
-        <form onSubmit={send} className="mt-8 space-y-3">
+        <>
+        {/* iOS app only (renders nothing on the web): Apple first, email as the alternative. */}
+        <div className="mt-8 empty:mt-4">
+          <AppleSignInButton onUseEmail={setAppleNotice} />
+        </div>
+        {appleNotice && (
+          <p role="status" className="mt-4 rounded-2xl border border-line bg-card p-4 text-sm">
+            {appleNotice}
+          </p>
+        )}
+        <form onSubmit={send} className="mt-4 space-y-3">
           <label htmlFor="login-email" className="sr-only">
             Email
           </label>
@@ -221,6 +234,7 @@ function LoginForm() {
             .
           </p>
         </form>
+        </>
       )}
 
       <div className="mt-8 flex flex-col gap-2 text-sm">

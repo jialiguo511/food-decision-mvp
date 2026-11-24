@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import Button from "@/components/ui/Button";
+import { appleCredential, makeNonce } from "@/lib/appleSignIn";
+import { isNativeApp } from "@/lib/native";
 import { createClient } from "@/lib/supabase/client";
 import { resetMyData, deleteAccount, type AccountResult } from "./account.actions";
 
@@ -15,7 +17,7 @@ type Pending = "reset" | "delete" | null;
  * the page does a FULL load — dropping the in-memory request store and any
  * cached server render — so nothing stale survives.
  */
-export default function AccountDataSection() {
+export default function AccountDataSection({ usesApple = false }: { usesApple?: boolean }) {
   const [asking, setAsking] = useState<Pending>(null);
   const [busy, setBusy] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +30,7 @@ export default function AccountDataSection() {
     setError(null);
     let result: AccountResult;
     try {
-      result = await (kind === "reset" ? resetMyData() : deleteAccount());
+      result = await (kind === "reset" ? resetMyData() : deleteAccount({ appleAuthorizationCode: usesApple ? await freshAppleCode() : undefined }));
     } catch {
       result = { ok: false, error: "Something went wrong. Please try again." };
     }
@@ -142,4 +144,17 @@ function Confirm({
       </div>
     </div>
   );
+}
+
+/** For an account with Sign in with Apple, inside the iOS app: ask Apple for a fresh authorization
+ *  code so the server can revoke Apple's authorization as the account is deleted (App Store 5.1.1(v)).
+ *  If the person closes Apple's sheet, deletion still goes ahead — it is never held hostage. */
+async function freshAppleCode(): Promise<string | undefined> {
+  if (!isNativeApp()) return undefined;
+  try {
+    const { hashed } = await makeNonce();
+    return (await appleCredential(hashed)).authorizationCode;
+  } catch {
+    return undefined;
+  }
 }

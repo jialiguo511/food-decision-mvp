@@ -14,6 +14,7 @@ import AccountDataSection from "./AccountDataSection";
 import KitchenStaplesCard from "./KitchenStaplesCard";
 import ProfileForm from "./ProfileForm";
 import ProfileGaps from "./ProfileGaps";
+import SignInMethods from "./SignInMethods";
 import { profileGaps } from "@/lib/profileCompletion";
 
 export default async function ProfilePage() {
@@ -49,8 +50,9 @@ export default async function ProfilePage() {
       action={<SignOutButton />}
     >
       <ProfileGaps gaps={profileGaps(data, kitchenStaples.length)} />
+      <SignInMethods email={user.email ?? null} providers={providersOf(user)} />
       <ProfileForm initial={initial} staples={<KitchenStaplesCard initial={kitchenStaples} />} allergyStatus={allergyStatus(data)} />
-      <AccountDataSection />
+      <AccountDataSection usesApple={providersOf(user).includes("apple")} />
       <p className="mt-6 flex flex-col items-center gap-2 text-center text-xs text-muted">
         <Link href="/feedback?from=/profile" className="text-sm font-semibold text-accent">
           Send feedback or report a problem
@@ -61,4 +63,11 @@ export default async function ProfilePage() {
       </p>
     </AppShell>
   );
+}
+
+/** How this account can sign in ("email", "apple"), from the verified user. */
+function providersOf(user: { identities?: { provider: string }[] | null; app_metadata?: { providers?: unknown } }): string[] {
+  const fromIdentities = (user.identities ?? []).map((i) => i.provider);
+  const meta = user.app_metadata?.providers;
+  return [...new Set([...fromIdentities, ...(Array.isArray(meta) ? meta.filter((p): p is string => typeof p === "string") : [])])];
 }

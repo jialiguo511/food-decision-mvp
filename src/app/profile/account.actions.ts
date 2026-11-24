@@ -9,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { wipeUserData } from "@/lib/accountData";
+import { revokeAppleAuthorization } from "@/lib/appleRevoke";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -60,12 +61,16 @@ export async function resetMyData(): Promise<AccountResult> {
  * If (3) fails after (2), the account is left empty-but-valid — a reset state —
  * and retrying completes it.
  */
-export async function deleteAccount(): Promise<AccountResult> {
+export async function deleteAccount(options?: { appleAuthorizationCode?: unknown }): Promise<AccountResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return SIGNED_OUT;
+  // A fresh Apple authorization code, asked for by the iOS app just before deleting an account that
+  // uses Sign in with Apple (lib/appleRevoke.ts). Untrusted input: only a plausible string is used.
+  const rawCode = options?.appleAuthorizationCode;
+  const appleCode = typeof rawCode === "string" && /^[\w.-]{10,512}$/.test(rawCode) ? rawCode : null;
 
   const admin = createAdminClient();
   if (!admin) {
@@ -89,6 +94,13 @@ export async function deleteAccount(): Promise<AccountResult> {
     console.error("[account] delete: couldn't release shared Storage files (run supabase/migrations/2026-11-08_release_user_storage.sql)", { code: released.error.code });
   }
 
+  // Apple asks apps to revoke Sign in with Apple when the account goes. Best effort: a failure is
+  // logged (as a code) and never keeps the account alive.
+  if (usesApple(user)) {
+    const outcome = appleCode ? await revokeAppleAuthorization(appleCode) : "no_code";
+    console.info("[account] delete: apple revocation", { outcome });
+  }
+
   const { error } = await admin.auth.admin.deleteUser(user.id);
   if (error) {
     console.error("[account] delete: auth user removal failed (data already cleared)", { message: error.message, storageReleased: !released.error });
@@ -100,4 +112,10 @@ export async function deleteAccount(): Promise<AccountResult> {
   await supabase.auth.signOut().catch(() => undefined);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+function usesApple(user: { identities?: { provider: string }[] | null; app_metadata?: { providers?: unknown } }): boolean {
+  if (user.identities?.some((i) => i.provider === "apple")) return true;
+  const providers = user.app_metadata?.providers;
+  return Array.isArray(providers) && providers.includes("apple");
 }
