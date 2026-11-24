@@ -11,7 +11,7 @@
 // email form, from where Apple can be linked in Me. Nothing is merged on a guess.
 
 import { useEffect, useState } from "react";
-import { signInWithApple } from "@/lib/appleSignIn";
+import { APPLE_SIGNIN_ENABLED, signInWithApple } from "@/lib/appleSignIn";
 import { isNativeApp, tapFeedback } from "@/lib/native";
 import { createClient } from "@/lib/supabase/client";
 import { deleteAccount } from "../profile/account.actions";
@@ -40,7 +40,7 @@ export default function AppleSignInButton({
   const [state, setState] = useState<State>({ kind: "idle" });
   // Decided after mount: the server render never knows it's inside the app.
   useEffect(() => setNative(isNativeApp()), []);
-  if (!native) return null;
+  if (!native || !APPLE_SIGNIN_ENABLED) return null;
 
   async function start() {
     if (state.kind === "working") return;

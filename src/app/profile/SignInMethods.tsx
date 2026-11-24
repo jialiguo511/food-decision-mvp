@@ -5,7 +5,7 @@
 // signed-in person, never inferred. Needs "Manual linking" enabled in Supabase Auth.
 
 import { useEffect, useState } from "react";
-import { signInWithApple } from "@/lib/appleSignIn";
+import { APPLE_SIGNIN_ENABLED, signInWithApple } from "@/lib/appleSignIn";
 import { isNativeApp } from "@/lib/native";
 import { createClient } from "@/lib/supabase/client";
 
@@ -30,8 +30,8 @@ export default function SignInMethods({ email, providers }: { email: string | nu
     }
   }
 
-  // On the web an Apple-less account has nothing to show or do here.
-  if (!native && !apple) return null;
+  // Nothing to show or do here for an Apple-less account unless Apple can actually be added.
+  if (!apple && !(native && APPLE_SIGNIN_ENABLED)) return null;
   const relay = !!email && /@privaterelay\.appleid\.com$/i.test(email);
 
   return (

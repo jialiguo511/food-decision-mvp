@@ -20,6 +20,11 @@ type AppleSignInPlugin = { authorize(options: { nonce: string }): Promise<AppleC
 
 const AppleSignIn = registerPlugin<AppleSignInPlugin>("AppleSignIn");
 
+/** Sign in with Apple is shown only once it can work: an Apple Developer membership, the Apple
+ *  provider in Supabase, and a build signed with the entitlement. Until then every Apple button is
+ *  hidden and Email code is the only way in. Turn on with NEXT_PUBLIC_APPLE_SIGNIN=on (build time). */
+export const APPLE_SIGNIN_ENABLED = process.env.NEXT_PUBLIC_APPLE_SIGNIN === "on";
+
 /** A raw nonce and its SHA-256 hex digest (what Apple receives). */
 export async function makeNonce(): Promise<{ raw: string; hashed: string }> {
   const bytes = crypto.getRandomValues(new Uint8Array(32));

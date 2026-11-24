@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Button from "@/components/ui/Button";
-import { appleCredential, makeNonce } from "@/lib/appleSignIn";
+import { APPLE_SIGNIN_ENABLED, appleCredential, makeNonce } from "@/lib/appleSignIn";
 import { isNativeApp } from "@/lib/native";
 import { createClient } from "@/lib/supabase/client";
 import { resetMyData, deleteAccount, type AccountResult } from "./account.actions";
@@ -150,7 +150,7 @@ function Confirm({
  *  code so the server can revoke Apple's authorization as the account is deleted (App Store 5.1.1(v)).
  *  If the person closes Apple's sheet, deletion still goes ahead — it is never held hostage. */
 async function freshAppleCode(): Promise<string | undefined> {
-  if (!isNativeApp()) return undefined;
+  if (!isNativeApp() || !APPLE_SIGNIN_ENABLED) return undefined;
   try {
     const { hashed } = await makeNonce();
     return (await appleCredential(hashed)).authorizationCode;
