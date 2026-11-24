@@ -16,7 +16,7 @@ stay out: carbohydrate/fat targets and fixed weekly planning are excluded by `PR
 
 | area | what exists | iOS impact |
 |---|---|---|
-| Framework | Next.js 15 App Router; every page under `/today`, `/saved`, `/profile` is a **Server Component** reading Supabase with the user's cookie; writes are **Server Actions** (6 action files); LLM, places and images are Route Handlers. | `output: "export"` (a fully bundled UI) is **not** possible without rewriting every page to client-side reads and every Server Action to an authenticated API. That is a multi-week rewrite of stable code. |
+| Framework | Next.js 15 App Router; every page under `/today`, `/saved`, `/profile` is a **Server Component** reading Supabase with the user's cookie; writes are **Server Actions** (6 action files); LLM, places and images are Route Handlers. | A fully bundled UI is not possible **as-is**; it needs the changes listed under "Production architecture" (≈ 8–12 days), not a rewrite. |
 | Auth | Supabase email OTP. One email, a code (typed on `/login`, `verifyOtp` in the browser) and a link (`/auth/confirm`, POST-only verify). Session in cookies; `middleware.ts` refreshes it on every request. | **The code is the native-friendly path**: typed inside the app's WebView, it creates the session in the app's own cookie store. The link opens Safari/Gmail and signs in *there*, not the app, unless a Universal Link routes it back. |
 | Session persistence | `@supabase/ssr` cookies, `SameSite=Lax`, `Secure` on https. | WKWebView keeps first-party cookies for the loaded origin across launches (assumed; to verify on device: force-quit → reopen stays signed in). |
 | Location | `navigator.geolocation`, only from a tap. | Works in WKWebView; needs `NSLocationWhenInUseUsageDescription`. Denied/unavailable copy says "browser settings" — needs an app wording. |
@@ -25,29 +25,54 @@ stay out: carbohydrate/fat targets and fixed weekly planning are excluded by `PR
 | Paid-call metering, RLS, same-origin checks | Server-side. | Unchanged when the app loads the same origin. |
 | Simulator on this Mac | Xcode 27.2 present; `simctl` fails (CoreSimulator framework missing). | Must be fixed before any simulator verification — see "Your setup". |
 
-## Recommended approach: Capacitor shell around the hosted app, with a native layer
+## Prototype built: Capacitor shell around the hosted app (`feat/ios-app`)
 
-One option, chosen for maximum reuse and smallest change:
+- **Capacitor 8** project in `ios/` (iPhone only, portrait). The WebView loads `CAP_SERVER_URL`
+  (`npm run ios:sync`): `http://localhost:3000` for the Simulator, a Vercel Preview for a device.
+  Every page, Server Action, API route, metering rule and RLS policy is reused unchanged.
+- Native layer (`src/components/NativeBridge.tsx`, no-op in a browser): bundled can't-connect
+  screen with Try again (`mobile/www/offline.html`, Capacitor `errorPath`); launch screen in cream
+  with the mark, hidden after first paint; external links → Safari view / system apps; reload after
+  30 min in the background (fresh session, fresh Home); our-origin Universal Link URLs load in the
+  app; location purpose string and iPhone-Settings wording when denied; `viewport-fit=cover`
+  (without it every safe-area inset was 0); code-first sign-in.
+- **Not yet:** Associated Domains entitlement + `apple-app-site-association` (needs your Team ID
+  and the final domain).
 
-- **Capacitor 7 iOS project** in `ios/`, `server.url` = the deployed origin (Preview first, then
-  production). All pages, Server Actions, API routes, metering and RLS are reused unchanged.
-- **Not a bare wrapper** — the native layer the app gets:
-  - bundled offline / can't-connect screen with Retry (a WebView with no network otherwise shows
-    a blank page), and a native splash so launch never flashes white;
-  - **code-first sign-in** (done on this branch) + **Universal Links** for `/auth/confirm` so the
-    emailed link opens the app, not Safari (`apple-app-site-association` served by Next);
-  - external links (Maps, websites) opened in the system browser / Apple Maps via
-    `@capacitor/browser`;
-  - native location permission string and app-specific denied copy;
-  - resume handling (`@capacitor/app`): on return from background after a while, reload so the
-    middleware refreshes the session and Home re-reads state;
-  - status bar / safe-area insets, haptics on the main choice, app icon and launch assets.
-- **Risk, stated plainly:** App Review guideline 4.2 ("minimum functionality") rejects apps that
-  are just a website. The native layer above is the mitigation; it is not a guarantee. If Apple
-  rejects, the fallback is the bundled-UI rewrite (client reads via supabase-js + RLS, actions as
-  token-authenticated routes) — larger, and only worth doing on that evidence.
+## Production architecture — hosted shell vs. bundled UI
 
-Rejected: Expo/React Native rewrite (re-implements every screen); static export now (rewrite above).
+Capacitor documents `server.url` as a development feature, and App Review 4.2 is a real risk for an
+app whose every screen is fetched from a website. The question is how much it costs to ship the UI
+**inside** the app while keeping Vercel + Supabase as the backend. It is not a rewrite:
+
+**What exists today that a bundled UI cannot use directly**
+
+| piece | count | why it can't be bundled as-is | change needed |
+|---|---|---|---|
+| Server-rendered signed-in pages | 3 that matter: `today/page.tsx` (166 lines of reads), `saved/page.tsx`, `profile/page.tsx` | they read Supabase on the server with the cookie session | move each page's reads into a shared loader (`loadHome`, `loadSaved`, `loadProfile`); the web page calls it as now, a new `GET /api/app/<screen>` returns the same props as JSON. Web unchanged. |
+| Server Actions | 19 functions in 6 files, imported by 12 client modules | a Server Action is a POST to the page URL with a build-specific id — a separately built app can't call the deployed server's actions | one `POST /api/app/action` dispatcher that calls the **same** functions; a client adapter (`callAction`) used by those 12 modules — direct call on the web, `fetch` in the app |
+| Session lookup | `lib/supabase/server.ts → createClient()` reads cookies | the app holds its session in supabase-js, not a cookie on our domain | accept `Authorization: Bearer <access token>` in `createClient()`; RLS then works exactly as now. One file. |
+| Cross-site guard | `refuseCrossSite` on paid POST routes | the bundled app's origin is `capacitor://localhost` | allow that one origin **only** with a bearer token (no cookie → no CSRF), plus CORS for it |
+| Sign-in | `/login` already verifies the code in the client | — | keep; persist the session with supabase-js in the app; sign-out/reset clear it |
+| Route Handlers (`/api/recommend`, interpret, enrich, image, place-photo) | 6 | relative URLs | an API base URL in the app build; no server change beyond the bearer/CORS above |
+| Build | one Next build | — | a second build target (`output: "export"`) for `/today`, `/saved`, `/profile`, `/login`, `/about`, using the same client components |
+
+**Scope comparison (estimates, not measured)**
+
+| | hosted shell (built) | bundled UI, same backend |
+|---|---|---|
+| Work beyond what is on the branch | ~1–2 days: Universal Links, device QA | ~8–12 working days: the table above, plus tests and device QA |
+| Server changes | none | bearer auth in one file, one action dispatcher, three read endpoints, CORS |
+| App Review 4.2 risk | real; mitigated by the native layer, not removed | low: the UI ships in the binary |
+| No network | bundled error screen | app opens, screens show cached shell + retry |
+| Shipping a UI fix | deploy the web app; every installed app gets it at once | needs an app update through review |
+| Ongoing cost | none | **API compatibility**: every web deploy must keep working for app versions still installed |
+| Rewrite (React Native/Expo) for comparison | — | 6–10 weeks, every screen again |
+
+**Recommendation.** Ship the hosted shell to **TestFlight** now (internal testers don't go
+through App Review; external testers get a lighter beta review). Do the bundled-UI work in parallel
+as the **App Store** path, because 4.2 is the one risk we can't test our way out of. The P0/P1
+fixes below are written against the shared client components, so they carry over unchanged.
 
 ## P0 status
 
