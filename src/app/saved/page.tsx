@@ -61,7 +61,7 @@ export default async function SavedPage({ searchParams }: { searchParams: Promis
       const recipe = parseSavedRecipe(row.recipe);
       return recipe && typeof row.id === "string" ? [{ id: row.id, recipe, savedAt: typeof row.created_at === "string" ? row.created_at : null }] : [];
     });
-    if (items.length === 0) return <Empty action={{ href: "/today", label: "Find something to make" }}>Tap the bookmark on a recipe to keep it here.</Empty>;
+    if (items.length === 0) return <Empty action={{ href: "/today?start=cook", label: "Find something to make" }}>Tap the bookmark on a recipe to keep it here.</Empty>;
     return (
       <div className="space-y-4">
         {items.map((item) => (
@@ -87,7 +87,7 @@ export default async function SavedPage({ searchParams }: { searchParams: Promis
       const place = parseSavedPlaceRow(row);
       return place && !excluded.has(place.place_id) ? [place] : [];
     });
-    if (items.length === 0) return <Empty action={{ href: "/today", label: "Find a place nearby" }}>Tap the bookmark on a place to keep it here.</Empty>;
+    if (items.length === 0) return <Empty action={{ href: "/today?start=order", label: "Find a place nearby" }}>Tap the bookmark on a place to keep it here.</Empty>;
     return (
       <div className="space-y-4">
         {items.map((place) => (

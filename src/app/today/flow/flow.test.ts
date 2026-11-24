@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { baseDefaults } from "@/lib/recommend/rememberedDefaults";
 import { cookContext } from "@/test/cookFixtures";
 import type { CookForm, DecisionMode, OrderContext } from "@/lib/types";
-import { homeReducer, initialScreen, modeToChange, type Screen } from "./homeReducer";
+import { homeReducer, initialScreen, modeToChange, parseStartMode, type Screen } from "./homeReducer";
 import { autoAdvances, cookSteps, ingredientsStepIndex, orderSteps, searchesNearby, snackSteps, STEP_KINDS, stepKind, type Step } from "./steps";
 import { contextSummary, ctaLabel, loadingLines } from "./summary";
 
@@ -52,6 +52,25 @@ describe("homeReducer", () => {
     expect(initialScreen({ hasSession: true, needsOnboarding: true })).toEqual({ name: "results" });
     expect(initialScreen({ hasSession: false, needsOnboarding: true })).toEqual({ name: "onboarding" });
     expect(initialScreen({ hasSession: false, needsOnboarding: false })).toEqual({ name: "start" });
+  });
+
+  it("an explicit start mode beats a restored session (Saved → 'Find something to make' opens Cook)", () => {
+    const cook = { mode: "cook" as const, hasMemory: false, needsEquipment: false };
+    expect(initialScreen({ hasSession: true, needsOnboarding: false, start: cook })).toEqual({ name: "questions", mode: "cook", step: 0, viaMode: false });
+    expect(initialScreen({ hasSession: true, needsOnboarding: false, start: { ...cook, hasMemory: true } })).toEqual({ name: "mode", mode: "cook" });
+    expect(initialScreen({ hasSession: true, needsOnboarding: false, start: { ...cook, needsEquipment: true } })).toEqual({ name: "equipment" });
+    // Equipment is a Cook question only.
+    expect(initialScreen({ hasSession: true, needsOnboarding: false, start: { mode: "order", hasMemory: true, needsEquipment: true } })).toEqual({ name: "mode", mode: "order" });
+    // First-run setup still comes first.
+    expect(initialScreen({ hasSession: false, needsOnboarding: true, start: cook })).toEqual({ name: "onboarding" });
+  });
+
+  it("parses ?start= strictly", () => {
+    expect(parseStartMode("cook")).toBe("cook");
+    expect(parseStartMode("store_snack")).toBe("store_snack");
+    expect(parseStartMode("nearby")).toBeNull();
+    expect(parseStartMode(["cook"])).toBeNull();
+    expect(parseStartMode(undefined)).toBeNull();
   });
 
   it("a mode with memory opens on its own screen; a mode without goes straight to question 1", () => {

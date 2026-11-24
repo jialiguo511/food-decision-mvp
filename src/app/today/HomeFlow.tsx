@@ -54,7 +54,10 @@ export default function HomeFlow({
   onboardingProfile,
   nutritionProfile,
   allergyStatus,
+  startMode = null,
 }: {
+  /** An explicit entry into one mode for this visit (`/today?start=cook`, e.g. from Saved). */
+  startMode?: DecisionMode | null;
   /** The signed-in user — the recommendation state belongs to them. */
   ownerId: string;
   /** Where answers start, per mode — remembered from recent sessions. */
@@ -90,8 +93,17 @@ export default function HomeFlow({
   // A request this tab already has (running, failed, or its cards) decides the
   // opening screen — never the older page the server happened to render.
   const [screen, dispatch] = useReducer(homeReducer, undefined, () =>
-    initialScreen({ hasSession: live || !!initialSession, needsOnboarding: !!onboardingProfile }),
+    initialScreen({
+      hasSession: live || !!initialSession,
+      needsOnboarding: !!onboardingProfile,
+      start: startMode ? { mode: startMode, hasMemory: defaults.remembered[startMode], needsEquipment: !equipmentKnown } : null,
+    }),
   );
+  // The entry is for this visit only: drop it from the address so a reload or Back
+  // doesn't force the same mode again over whatever the user has done since.
+  useEffect(() => {
+    if (startMode && window.location.search.includes("start=")) window.history.replaceState(null, "", "/today");
+  }, [startMode]);
   const { forms, setForm } = useHomeForms(defaults, session);
   // The mode of the most recent request, so "Change" still knows where to go
   // when that request failed and there is no session to read it from.

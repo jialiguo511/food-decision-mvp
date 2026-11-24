@@ -53,10 +53,31 @@ export type HomeAction =
   | { type: "nutritionDone" }
   | { type: "start" };
 
-export function initialScreen({ hasSession, needsOnboarding }: { hasSession: boolean; needsOnboarding: boolean }): Screen {
+/** Where Home opens. An explicit entry into one mode (`start`, from a link such as Saved's
+ *  "Find something to make") is the user's intent for THIS visit, so it beats a restored or
+ *  in-memory session: that session's cards stay in history, they are just not the opening
+ *  screen. First-run setup still comes first — it is offered once and leads to Start. */
+export function initialScreen({
+  hasSession,
+  needsOnboarding,
+  start,
+}: {
+  hasSession: boolean;
+  needsOnboarding: boolean;
+  start?: { mode: DecisionMode; hasMemory: boolean; needsEquipment: boolean } | null;
+}): Screen {
+  if (start && !needsOnboarding) {
+    if (start.mode === "cook" && start.needsEquipment) return { name: "equipment" };
+    return homeReducer({ name: "start" }, { type: "pickMode", mode: start.mode, hasMemory: start.hasMemory });
+  }
   if (hasSession) return { name: "results" };
   if (needsOnboarding) return { name: "onboarding" };
   return { name: "start" };
+}
+
+/** `?start=` on /today, validated: one of the three modes, else none. */
+export function parseStartMode(value: unknown): DecisionMode | null {
+  return value === "cook" || value === "order" || value === "store_snack" ? value : null;
 }
 
 export function homeReducer(screen: Screen, action: HomeAction): Screen {

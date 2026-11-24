@@ -79,10 +79,11 @@ afterEach(() => {
 
 const ORDER_USED = rememberedDefaults([{ decision_mode: "order", hunger: "normal", craving_category: "no_preference", craving_note: null, method: "delivery", meal_budget: "no_preference", travel_willingness: "no_preference" }]);
 
-function mount(defaults = rememberedDefaults([])) {
+function mount(defaults = rememberedDefaults([]), startMode: "cook" | "order" | "store_snack" | null = null) {
   act(() =>
     root.render(
       <HomeFlow
+        startMode={startMode}
         ownerId="u1"
         defaults={defaults}
         kitchenStaples={[]}
@@ -263,5 +264,33 @@ describe("a decision that started from the questions", () => {
     expect(container.querySelector('section[aria-label="What I understood"]')).toBeNull();
     await change();
     expect(box()).toBeNull(); // questions, not the old sentence
+  });
+});
+
+describe("an explicit start mode (Saved → 'Find something to make')", () => {
+  it("opens Cook even when this tab still holds an Eat-out set", async () => {
+    mount();
+    await type("Tired, order something around $15");
+    await send();
+    await answer("A");
+    expect(container.textContent).toContain("A bowl");
+
+    // Leave Home (as navigating to Saved does) and come back through the Cook link.
+    act(() => root.unmount());
+    root = createRoot(container);
+    mount(rememberedDefaults([]), "cook");
+    expect(h1h2()).toBe("How hungry are you?");
+    expect(container.textContent).not.toContain("A bowl");
+  });
+
+  it("without it, coming back shows the set this tab already has", async () => {
+    mount();
+    await type("Tired, order something around $15");
+    await send();
+    await answer("A");
+    act(() => root.unmount());
+    root = createRoot(container);
+    mount();
+    expect(container.textContent).toContain("A bowl");
   });
 });

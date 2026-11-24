@@ -17,12 +17,16 @@ import { PLACE_PROVIDER, toPlaceFeedbackSets } from "@/lib/places/feedback";
 import { loadSavedState } from "@/lib/saved/savedQuery";
 import type { PlaceFeedbackState } from "./PlaceFeedback";
 import HomeFlow from "./HomeFlow";
+import { parseStartMode } from "./flow/homeReducer";
 
-export default async function TodayPage() {
+export default async function TodayPage({ searchParams }: { searchParams?: Promise<{ start?: string | string[] }> } = {}) {
   if (!isSupabaseConfigured) return <SetupNotice />;
 
   const user = await requireUser();
   const supabase = await createClient();
+  // An explicit "start in this mode" link (Saved's empty states). When present, the last
+  // session is not restored as the opening screen — see initialScreen.
+  const startMode = parseStartMode((await searchParams)?.start);
 
   // Four independent reads, together — one round trip's wait instead of four
   // (they used to run one after another on every open of Home). The reads that
@@ -60,7 +64,7 @@ export default async function TodayPage() {
   // recommendations and its meal-specific inputs (foods on hand, craving) are
   // not restored, and the form starts from remembered defaults below. The row
   // itself is left alone as history.
-  const restored = sessionRow && isRecentSession(sessionRow.created_at) ? parseStoredSession(sessionRow) : null;
+  const restored = !startMode && sessionRow && isRecentSession(sessionRow.created_at) ? parseStoredSession(sessionRow) : null;
 
   // Cook automatically has access to Kitchen staples (condiments/seasonings
   // only) — the user never re-enters them. Editing happens on Me; this is a
@@ -155,6 +159,7 @@ export default async function TodayPage() {
         onboardingProfile={stage === "new" ? profileValues : null}
         nutritionProfile={stage === "partial" ? profileValues : null}
         allergyStatus={allergyStatus(data)}
+        startMode={startMode}
       />
     </AppShell>
   );
