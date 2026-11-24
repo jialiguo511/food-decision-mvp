@@ -45,3 +45,15 @@ describe("requestLocation", () => {
     expect(locationErrorCode(99)).toBe("location_unavailable");
   });
 });
+
+import { nativeLocationErrorCode } from "./location";
+
+describe("native location errors (iOS app)", () => {
+  it("maps the plugin's codes to the app's", () => {
+    expect(nativeLocationErrorCode("OS-PLUG-GLOC-0003")).toBe("location_denied");
+    expect(nativeLocationErrorCode("OS-PLUG-GLOC-0008")).toBe("location_denied");
+    expect(nativeLocationErrorCode("OS-PLUG-GLOC-0010")).toBe("location_timeout");
+    expect(nativeLocationErrorCode("OS-PLUG-GLOC-0007")).toBe("location_unavailable");
+    expect(nativeLocationErrorCode(undefined)).toBe("location_unavailable");
+  });
+});

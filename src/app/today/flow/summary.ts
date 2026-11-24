@@ -121,7 +121,11 @@ export function loadingLines(values: DecisionContext, { avoidsFoods }: { avoidsF
     } else {
       lines.push("Picking food that's easy to order");
     }
-    if (values.meal_budget !== "no_preference") lines.push(`Around ${label(MEAL_BUDGETS, values.meal_budget)}`);
+    // "Under $15" already says how much; "Around" only fits a range ("Around $15–25").
+    if (values.meal_budget !== "no_preference") {
+      const budget = label(MEAL_BUDGETS, values.meal_budget);
+      if (budget) lines.push(budget.startsWith("Under") ? budget : `Around ${budget}`);
+    }
   } else {
     lines.push("Looking for something quick to grab");
   }

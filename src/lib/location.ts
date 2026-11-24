@@ -39,12 +39,37 @@ export function locationErrorCode(positionErrorCode: number): LocationErrorCode 
   return "location_unavailable";
 }
 
-/** Asks the browser for the current position. Rejects with a LocationError. */
+/** The native plugin's error codes (README of @capacitor/geolocation), mapped to ours. */
+export function nativeLocationErrorCode(code: unknown): LocationErrorCode {
+  if (code === "OS-PLUG-GLOC-0003" || code === "OS-PLUG-GLOC-0008") return "location_denied";
+  if (code === "OS-PLUG-GLOC-0010") return "location_timeout";
+  if (code === "OS-PLUG-GLOC-0007") return "location_unavailable";
+  return "location_unavailable";
+}
+
+/** Inside the iOS app: ask iOS directly. The WebView's own geolocation remembers a "Don't Allow"
+ *  for as long as the page is open, so someone who turned location on in Settings stayed stuck
+ *  until they force-quit; the native plugin reads the current permission every time. */
+async function requestNativeLocation(): Promise<SearchLocation> {
+  const { Geolocation } = await import("@capacitor/geolocation");
+  try {
+    const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: OPTIONS.timeout, maximumAge: OPTIONS.maximumAge });
+    return { latitude: position.coords.latitude, longitude: position.coords.longitude };
+  } catch (error) {
+    throw new LocationError(nativeLocationErrorCode((error as { code?: unknown })?.code));
+  }
+}
+
+/** Asks for the current position (iOS app: natively; browser: navigator.geolocation). Rejects with
+ *  a LocationError. Only ever called from a tap. */
 export function requestLocation(
-  geolocation: Pick<Geolocation, "getCurrentPosition"> | undefined = typeof navigator === "undefined"
-    ? undefined
-    : navigator.geolocation,
+  geolocation?: Pick<Geolocation, "getCurrentPosition">,
 ): Promise<SearchLocation> {
+  if (geolocation === undefined && isNativeApp()) return requestNativeLocation();
+  return requestBrowserLocation(geolocation ?? (typeof navigator === "undefined" ? undefined : navigator.geolocation));
+}
+
+function requestBrowserLocation(geolocation: Pick<Geolocation, "getCurrentPosition"> | undefined): Promise<SearchLocation> {
   return new Promise((resolve, reject) => {
     if (!geolocation) {
       reject(new LocationError("location_unsupported"));

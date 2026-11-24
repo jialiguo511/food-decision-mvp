@@ -358,7 +358,9 @@ export default function HomeFlow({
     const { nearby: _nearby, ...answers } = session.context;
     void _nearby;
     track({ name: "entry_selected", props: { entry: "adjust", mode: "order" } });
-    find("order", false, { ...forms, order: { ...forms.order, ...answers, method } }, null, "adjust");
+    // A plain re-run with one answer changed — not an Adjust request (whose failure reopens the
+    // Adjust box with typed text in it).
+    find("order", false, { ...forms, order: { ...forms.order, ...answers, method } }, null, "steps");
   }
 
   /** "Show me 3 more": the session's own context, with its cards sent as

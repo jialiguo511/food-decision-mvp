@@ -22,6 +22,7 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/browser": "^8.0.5",
     "@capacitor/core": "^8.6.2",
+    "@capacitor/geolocation": "8.2.4",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.4",
