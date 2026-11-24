@@ -128,7 +128,7 @@ export function NutritionEstimate({ calories, proteinG }: { calories: number; pr
         <span className="font-medium">~{calories} cal</span>
         <span aria-hidden className="text-line">•</span>
         <span className="font-medium">~{proteinG} g protein</span>
-        <button type="button" onClick={() => setWhy(!why)} aria-expanded={why} className="min-h-8 px-1 text-muted underline decoration-dotted">
+        <button type="button" onClick={() => setWhy(!why)} aria-expanded={why} className="-my-3 min-h-11 px-2 text-muted underline decoration-dotted">
           How?
         </button>
       </p>
