@@ -13,10 +13,18 @@
     "test": "vitest run",
     "bench:recommend": "vitest run --config vitest.bench.config.ts",
     "check:interpret": "vitest run --config vitest.interpret.config.ts",
-    "check:open": "vitest run --config vitest.interpret.config.ts scripts/open-recommend-check.ts"
+    "check:open": "vitest run --config vitest.interpret.config.ts scripts/open-recommend-check.ts",
+    "ios:sync": "node scripts/ios-sync.mjs",
+    "ios:open": "npx cap open ios"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "next": "^15.5.0",
@@ -25,6 +33,8 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
     "@electric-sql/pglite": "^0.5.8",
     "@eslint/eslintrc": "^3.1.0",
     "@tailwindcss/postcss": "^4.0.0",

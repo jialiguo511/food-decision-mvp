@@ -4,11 +4,16 @@
 // result is held in memory for that request and never stored: not in
 // state that outlives the request, not in the Profile, not in localStorage.
 
+import { isNativeApp } from "./native";
 import type { LocationErrorCode, SearchLocation } from "./types";
+
+/** In the iOS app the switch is in iOS Settings, not a browser's. */
+export const APP_LOCATION_DENIED =
+  "Location is off for this app, so we can't look for places near you. You can turn it on in iPhone Settings → What to Eat → Location, or get food ideas by type instead.";
 
 export class LocationError extends Error {
   constructor(readonly code: LocationErrorCode) {
-    super(LOCATION_MESSAGES[code]);
+    super(code === "location_denied" && isNativeApp() ? APP_LOCATION_DENIED : LOCATION_MESSAGES[code]);
     this.name = "LocationError";
   }
 }

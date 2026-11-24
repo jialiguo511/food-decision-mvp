@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { BRAND } from "@/lib/brand";
+import NativeBridge from "@/components/NativeBridge";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +27,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#fdfaf5",
+  // Without "cover", iOS reports every env(safe-area-inset-*) as 0, so the notch and home
+  // indicator areas are never padded (home-screen web app and the iOS app alike).
+  viewportFit: "cover",
+  themeColor: "#fbf7f0",
 };
 
 export default function RootLayout({
@@ -34,7 +38,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <NativeBridge />
+        {children}
+      </body>
     </html>
   );
 }
