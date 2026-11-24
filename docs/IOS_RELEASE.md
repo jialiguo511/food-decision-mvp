@@ -95,10 +95,25 @@ Not changed, deliberately: Get food craving categories, onboarding, the three-ca
 | state | status |
 |---|---|
 | **1. Technical build** | Debug Simulator build and unsigned Release device build **succeed** (Xcode 27.2). |
-| **2. Simulator testing** | see the run log below. |
+| **2. Simulator testing** | **done for what runs without a real sign-in** — iPhone 17, iOS 27.2, app loading the local dev server (run log below). |
 | **3. Physical device** | **not done** — needs your Apple team for signing and a device. |
 | **4. TestFlight** | **not done** — needs the steps below. Internal testers need no review; external testers need Beta App Review. |
 | **5. App Store** | **not ready** — 4.2 decision (above), review notes, screenshots, privacy label. |
+
+**Simulator run log (2026-11-24, iPhone 17 / iOS 27.2, Debug build, dev server):**
+
+| check | result |
+|---|---|
+| Cold start → launch screen → sign-in page | ✅ cream launch screen with the mark; sign-in page within the safe areas |
+| In-app navigation (sign-in → About) | ✅ |
+| Decision flow on the fixture Home (`/dev/home`, stand-in data): sentence → nearby place cards, Cook questions | ✅ native bridge active (launch screen hidden by the page, lifecycle listeners registered) |
+| External link (Maps on a place card) | ✅ opens a Safari sheet with a close button; closing returns to the app |
+| Cold start with the server down | ✅ bundled "Can't reach the kitchen" screen; **Try again** loads the app once the server is back |
+| Background → reopen from the icon | ✅ returns to the same question with its answer kept |
+| Force-quit → reopen | ✅ starts cleanly |
+| Bugs found and fixed during the run | launch screen could stay up forever on the offline page; white flash before first paint (WebView background now cream); offline button font; `appStartPath` stops the app at launch, so it was removed |
+
+**Not tested on the Simulator:** sign-in with a real emailed code, session persistence across a restart, Saved / Me while signed in, location permission prompt (the fixture Home fakes location), real recommendations, account deletion. All need a real account and a deployed backend; they belong to the device / TestFlight pass.
 
 **Steps to a TestFlight build (yours unless noted):**
 1. Apple Developer: create the App ID (bundle id — `com.whatshouldieat.app` is a placeholder; it is permanent once uploaded) and the App Store Connect app record.

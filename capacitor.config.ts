@@ -13,6 +13,8 @@ const config: CapacitorConfig = {
   appId: process.env.CAP_APP_ID ?? "com.whatshouldieat.app",
   appName: "What to Eat",
   webDir: "mobile/www",
+  // The WebView's own colour before a page paints: cream, never a white flash on a slow load.
+  backgroundColor: "#FBF7F0",
   ios: {
     contentInset: "never",
     // Pages ask for the user's location only after a tap; nothing else in the WebView is native.
@@ -24,8 +26,6 @@ const config: CapacitorConfig = {
         // Plain http is allowed only for a localhost dev server.
         cleartext: serverUrl.startsWith("http://localhost"),
         errorPath: "offline.html",
-        // Simulator testing only: e.g. CAP_START_PATH=/dev/home opens the fixture Home (dev server).
-        ...(process.env.CAP_START_PATH ? { appStartPath: process.env.CAP_START_PATH } : {}),
       }
     : undefined,
   plugins: {

@@ -159,7 +159,8 @@ const PROFILE = toProfileFormValues(null);
 export default function Harness() {
   const defaults = returning ? rememberedDefaults([cookContext({ cook_minutes: 30, effort: "some", shopping: "can_buy", budget_override_usd: 10 })]) : baseDefaults();
   return (
-    <main className="mx-auto max-w-md px-5 py-6">
+    // Same top/bottom safe-area padding as AppShell, so the harness looks right inside the iOS app.
+    <main className="mx-auto max-w-md px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <HomeFlow
         ownerId="dev"
         defaults={defaults}
