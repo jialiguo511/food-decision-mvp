@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isNativeApp } from "@/lib/native";
+import { IS_BUNDLED_APP } from "@/ios/config";
 import Button, { buttonClass } from "@/components/ui/Button";
 import type { RecommendUiError } from "@/lib/types";
 import { brokenRules, errorCopy } from "./errorCopy";
@@ -94,6 +95,9 @@ function contextualCopy(code: RecommendUiError["code"]) {
   if (code === "network_error" && typeof navigator !== "undefined" && navigator.onLine === false) {
     return { ...copy, title: "You're offline.", body: "Your answers are kept. Reconnect to Wi-Fi or mobile data, then press Try again." };
   }
+  if (code === "unauthenticated" && IS_BUNDLED_APP) {
+    return { ...copy, retry: false, body: "Your sign-in has ended. Sign in again to keep going — your profile and saved meals are kept." };
+  }
   if (code === "location_denied" && isNativeApp()) {
     return { ...copy, body: "Turn on location in iPhone Settings → What to Eat → Location, or get food ideas by type instead." };
   }
@@ -140,7 +144,12 @@ export function ErrorState({
             Get food ideas by type
           </Button>
         )}
-        {error.code === "unauthenticated" && (
+        {error.code === "unauthenticated" && IS_BUNDLED_APP && (
+          <a href="/login" className={buttonClass("primary")}>
+            Sign in again
+          </a>
+        )}
+        {error.code === "unauthenticated" && !IS_BUNDLED_APP && (
           // A new tab on purpose: this page keeps the answers; the sign-in cookie is shared, so Try again works afterwards.
           <a href="/login" target="_blank" rel="noopener" className={buttonClass("primary")}>
             Sign in (opens a new tab)
