@@ -2,7 +2,15 @@
 
 Branch `feat/ios-app`. Preview (stable branch URL, redeploys on every push):
 `https://food-decision-mvp-git-feat-ios-app-jialiguo511.vercel.app`.
-The app is the **prototype hosted shell** (docs/IOS_RELEASE.md): its screens load from that URL.
+The app is the **bundled UI** (docs/IOS_RELEASE.md → "Bundled UI — v1.0"): screens ship in the
+binary and call that backend. Build it with:
+
+```bash
+APP_API_BASE=https://food-decision-mvp-git-feat-ios-app-jialiguo511.vercel.app NEXT_PUBLIC_TURNSTILE_SITE_KEY=<public site key> npm run ios:build
+```
+
+For App Store release, `APP_API_BASE` must be the production origin, and production must run this
+branch's backend first (bearer auth, `/api/app/*`, CORS, version gate).
 
 > The Preview uses the **same Supabase project as production** (checked 2026-11-24). Anything you do
 > on it with a real account is real data in the live database. No migrations are needed for this
@@ -46,7 +54,7 @@ branch `feat/ios-app`; never paste these anywhere else)
   push an empty commit.
 
 **F. Tell me the bundle id and Team ID.** I set them in the Xcode project (no secrets involved), run
-`CAP_SERVER_URL=<preview> npm run ios:sync`, and rebuild.
+`npm run ios:build` (above), and rebuild.
 
 **G. Xcode, on this Mac** (needs your Apple ID signed in: Xcode → Settings → Accounts)
 1. `npm run ios:open` → target **App** → *Signing & Capabilities* → Team = yours, "Automatically

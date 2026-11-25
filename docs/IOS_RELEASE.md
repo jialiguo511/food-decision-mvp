@@ -27,8 +27,9 @@ stay out: carbohydrate/fat targets and fixed weekly planning are excluded by `PR
 
 ## Prototype built: Capacitor shell around the hosted app (`feat/ios-app`)
 
-> **Status: PROTOTYPE.** The hosted shell is for TestFlight beta testing only. It is not the
-> approved App Store architecture — see "Production architecture" below, which needs your decision.
+> **Status: SUPERSEDED as the release path (2026-11-24).** The bundled UI (below, "Bundled UI —
+> v1.0") is the release architecture. The hosted shell still builds (`npm run ios:sync`) and stays
+> the fallback.
 
 - **Capacitor 8** project in `ios/` (iPhone only, portrait). The WebView loads `CAP_SERVER_URL`
   (`npm run ios:sync`): `http://localhost:3000` for the Simulator, a Vercel Preview for a device.
@@ -163,6 +164,49 @@ URL with the one-time token. `loggingBehavior: "none"` now; re-checked: nothing 
 **Manual configuration: none.** The Preview hostname is already allowed in Turnstile; the
 `localhost` entry added for the earlier test is no longer needed and can be removed. Production
 auth settings, Turnstile and CAPTCHA were not changed.
+
+## Bundled UI — v1.0 (built 2026-11-24)
+
+**Build:** `APP_API_BASE=<backend origin> NEXT_PUBLIC_TURNSTILE_SITE_KEY=<public key> npm run ios:build`
+→ static export of the `*.ios.tsx` screens into `mobile/app` → `ios/App/App/public`; no `server.url`.
+Version in `ios/app-version.json` (sent as `X-App-Version`).
+
+| layer | what | where |
+|---|---|---|
+| Session | supabase-js session in the iOS Keychain (`…ThisDeviceOnly`); refreshed automatically | `src/ios/keychainStorage.ts`, `KeychainPlugin.swift` |
+| Sign-in | Email code; Turnstile via the hosted check bridge; Apple behind `NEXT_PUBLIC_APPLE_SIGNIN` | `src/ios/Turnstile.tsx`, `/app/check` |
+| Requests | relative `/api/*` → backend with bearer + version; no cookies | `src/ios/fetchBridge.ts` |
+| Server auth | `createClient()` accepts the bearer; `getUser()` validates it with Supabase; RLS unchanged | `lib/supabase/server.ts` |
+| CORS / CSRF | only `capacitor://localhost`, only on `/api/*`; app origin passes the cross-site check only with a bearer and no cookie | `middleware.ts`, `lib/sameOrigin.ts` |
+| Reads | shared loaders used by web pages and `GET /api/app/{home,saved,profile}` | `lib/app/*` |
+| Writes | `POST /api/app/actions/<name>`: allowlist of the existing Server Actions, per-argument shape checks | `lib/app/actions.ts` |
+| Version gate | `MIN_IOS_APP_VERSION` (default 1.0.0); older apps get 426 → "Update required" | `middleware.ts`, `src/ios/AppRoot.tsx` |
+| Screens | same components as the web (HomeFlow, SavedView, ProfileView, login, About) | `src/app/**/page.ios.tsx` |
+| Native | static-export router (each screen's own HTML), Keychain, web-auth sheet, Apple, geolocation, browser | `ios/App/App/*.swift` |
+
+**Verified on the iPhone 17 Simulator, real Preview backend, fresh test account `+wse-test3`:**
+
+| flow | result |
+|---|---|
+| UI loads from the bundle (no `server.url`; opens offline) | ✅ |
+| Sign-in: check bridge → Email code (founder typed it) | ✅ (first try rejected: check token had aged; expiry now handled) |
+| First-run setup write (Tree nuts + Vegan) | ✅ |
+| Cook via sentence → 3 real cards, vegan respected | ✅ |
+| Get food → Pickup: native location prompt → real places + Google photos | ✅ |
+| Save place → Saved → Remove; empty-state "Find a place nearby" opens Get food | ✅ |
+| Snack Salty + Crunchy | ✅ |
+| Me: profile edit + save (Peanuts added, equipment) | ✅ |
+| Force-quit → reopen: Keychain session restored, last results shown | ✅ |
+| Backend unreachable → "You're offline" + Try again (app still opens) | ✅ |
+| Version 0.9.0 build → "Update required" | ✅ |
+| Sign out → sign-in screen | ✅ after a fix (scene used the wrong controller → redirect loop) |
+| Returning user sign-in → last results | ✅ |
+| Delete account → back to sign-in | ✅ (test3 only) |
+| Two-account authz (B vs A: save, choose, remove, profile; no token; bad action/args; foreign origin) | ✅ automated, real Postgres + RLS (`appApi.realdb.test.ts`) |
+
+**Not verified:** a physical iPhone; Apple sign-in; Delivery ⇄ Eat nearby in the bundled build (same
+code path as Pickup, verified in the hosted run); session expiry after ~1 h without refresh;
+keyboard behaviour beyond the Home sentence box.
 
 ## Plan — migrating Home, Saved and Me to the bundled UI (not started; needs your go)
 
