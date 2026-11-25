@@ -11,6 +11,8 @@ import { API_BASE } from "@/ios/config";
 
 export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || "";
 
+const TOKEN_LIFETIME_MS = 4 * 60 * 1000;
+
 type WebAuthPlugin = { start(o: { url: string; allowedHost: string }): Promise<{ url: string }> };
 const WebAuth = registerPlugin<WebAuthPlugin>("WebAuth");
 
@@ -27,6 +29,17 @@ export default function Turnstile({ onToken, resetKey }: { onToken: (token: stri
     setState("idle");
     onToken(null);
   }, [resetKey, onToken]);
+
+  // Cloudflare tokens expire after 5 minutes. Never show "done" for a token Supabase would refuse:
+  // after 4 minutes it is dropped and the check is offered again.
+  useEffect(() => {
+    if (state !== "done") return;
+    const id = window.setTimeout(() => {
+      onToken(null);
+      setState("idle");
+    }, TOKEN_LIFETIME_MS);
+    return () => window.clearTimeout(id);
+  }, [state, onToken]);
 
   async function run() {
     setState("open");
