@@ -13,11 +13,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const signInWithOtp = vi.fn(async (arg: unknown) => ({ arg, error: null as null | { message: string; status?: number; code?: string } }));
 const verifyOtp = vi.fn(async (arg: unknown) => ({ arg, error: null as null | { message: string; status?: number; code?: string } }));
+const signInWithPassword = vi.fn(async (arg: unknown) => ({ arg, error: null as null | { message: string; status?: number; code?: string } }));
 let search = "";
 
 vi.mock("@/lib/env", () => ({ isSupabaseConfigured: true, SUPABASE_URL: "http://x", SUPABASE_ANON_KEY: "x".repeat(30) }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(search) }));
-vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({ auth: { signInWithOtp, verifyOtp } }) }));
+vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({ auth: { signInWithOtp, verifyOtp, signInWithPassword } }) }));
 
 import LoginPage from "./page";
 
@@ -45,6 +46,8 @@ beforeEach(() => {
   search = "";
   signInWithOtp.mockClear();
   verifyOtp.mockClear();
+  signInWithPassword.mockClear();
+  signInWithPassword.mockResolvedValue({ arg: null, error: null });
   verifyOtp.mockResolvedValue({ arg: null, error: null });
   assign.mockClear();
   vi.stubGlobal("location", { ...window.location, origin: "http://localhost:3000", assign });
@@ -117,3 +120,43 @@ describe("sign-in page", () => {
     expect(text()).toMatch(/code/i);
   });
 });
+
+describe("password sign-in (App Store review account)", () => {
+  const openPassword = () =>
+    act(async () => {
+      const b = [...container.querySelectorAll("button")].find((x) => x.textContent === "Use a password instead")!;
+      b.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+  it("the email code stays the default; the password form is one tap away", async () => {
+    expect(container.querySelector("#pw-password")).toBeNull();
+    await openPassword();
+    expect(container.querySelector("#pw-password")?.getAttribute("type")).toBe("password");
+    expect(container.querySelector("#pw-password")?.getAttribute("autocomplete")).toBe("current-password");
+  });
+
+  it("uses Supabase's own signInWithPassword and loads the app", async () => {
+    await openPassword();
+    type("#pw-email", " reviewer@example.com ");
+    type("#pw-password", "a-long-password");
+    await submit('form[aria-label="Sign in with a password"]');
+    expect(signInWithPassword).toHaveBeenCalledWith({ email: "reviewer@example.com", password: "a-long-password" });
+    expect(signInOk()).toBe(true);
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it("a wrong password never says whether the account exists, and doesn't navigate", async () => {
+    signInWithPassword.mockResolvedValueOnce({ arg: null, error: { message: "Invalid login credentials", status: 400, code: "invalid_credentials" } });
+    await openPassword();
+    type("#pw-email", "someone@example.com");
+    type("#pw-password", "nope");
+    await submit('form[aria-label="Sign in with a password"]');
+    expect(text()).toMatch(/email and password didn't work/);
+    expect(assign).not.toHaveBeenCalled();
+  });
+});
+
+function signInOk() {
+  return assign.mock.calls.some((c) => c[0] === "/today");
+}

@@ -6,6 +6,7 @@ import Link from "next/link";
 import SetupNotice from "@/components/SetupNotice";
 import Turnstile, { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 import AppleSignInButton from "./AppleSignInButton";
+import PasswordSignIn from "./PasswordSignIn";
 import { API_BASE, IS_BUNDLED_APP } from "@/ios/config";
 import { BRAND } from "@/lib/brand";
 import { isSupabaseConfigured } from "@/lib/env";
@@ -42,6 +43,8 @@ function LoginForm() {
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<"idle" | "checking" | "error">("idle");
   const [codeError, setCodeError] = useState("");
+  /** The email + password form (accounts that have a password, e.g. App Store review). */
+  const [passwordMode, setPasswordMode] = useState(false);
   /** Set when someone came back from Apple sign-in to use their email account instead. */
   const [appleNotice, setAppleNotice] = useState<string | null>(null);
 
@@ -124,7 +127,9 @@ function LoginForm() {
         </p>
       )}
 
-      {state === "sent" ? (
+      {passwordMode && state !== "sent" ? (
+        <PasswordSignIn onBack={() => setPasswordMode(false)} />
+      ) : state === "sent" ? (
         <div className="mt-8 rounded-2xl border border-line bg-card p-5" role="status">
           <p className="text-sm">
             We emailed a sign-in code to <span className="font-medium">{email}</span>. Type it below to sign in here. (The email also has a link, but it signs you in
@@ -244,6 +249,9 @@ function LoginForm() {
             </Link>
             .
           </p>
+          <button type="button" onClick={() => setPasswordMode(true)} className="min-h-11 text-sm text-muted underline">
+            Use a password instead
+          </button>
         </form>
         </>
       )}
