@@ -6,7 +6,7 @@
 | App name (≤ 30) | What Should I Eat? — check availability in App Store Connect; fallback "What Should I Eat – Meals" |
 | Home-screen name | What to Eat (`capacitor.config.ts` appName, Info.plist `CFBundleDisplayName`) |
 | Subtitle (≤ 30) | Three meal ideas, right now |
-| Bundle ID | your choice, permanent — see TESTFLIGHT.md §2 (placeholder `com.whatshouldieat.app`) |
+| Bundle ID | your choice, permanent — see TESTFLIGHT.md §2 (placeholder `com.jialiguo.whatshouldieat`) |
 | Version / build | 1.0.0 (1) — `ios/app-version.json`, Xcode MARKETING_VERSION / build number |
 | Primary category | Food & Drink |
 | Secondary | (none, or Lifestyle) — avoid Health & Fitness/Medical to keep review away from health claims |
@@ -35,7 +35,7 @@ time and budget.
 meal ideas,what to eat,dinner,recipes,food decision,quick meals,vegetarian,allergy,takeout,snack
 
 ## URLs
-- Privacy policy: `https://<production>/about` (must describe the processors below and Sign in with Apple once enabled)
+- Privacy policy: `https://food-decision-mvp.vercel.app/about` — the updated text is on `feat/ios-app`; it reaches this URL only when production is updated (your approval)
 - Support: `https://<production>/feedback` (needs sign-in — add a support email to App Store Connect too)
 - Marketing (optional): `https://<production>/demo`
 
@@ -50,20 +50,31 @@ Taken from a real signed-in session on the iPhone 18 Pro Max Simulator against t
 6. `06-saved.png` / `07-me.png` — Saved, Me
 Remove "Public Beta" from screenshots for the App Store listing (see risks); fine for TestFlight.
 
-## App Privacy ("nutrition label") — my reading of the code
-| data type | collected | linked to user | tracking | purpose |
-|---|---|---|---|---|
-| Email address | yes | yes | no | App functionality (sign-in) |
-| Health & fitness (optional: age, sex, height, weight, activity, goal) | yes, if entered | yes | no | App functionality |
-| Other user content (food preferences, allergies, diet, saved recipes/places, "did you eat it") | yes | yes | no | App functionality |
-| Product interaction (named events with fixed values) | yes | yes | no | Analytics |
-| Precise location | sent for one nearby search, **not stored** — Apple's definition excludes data not retained; confirm before answering "not collected" | — | no | App functionality |
-| User ID | yes | yes | no | App functionality |
-No ads, no third-party tracking SDKs, no data sold.
+## App Privacy ("nutrition label") — corrected 2026-11-24
 
-Processors to name in the privacy policy: Supabase (auth, database), Vercel (hosting), Anthropic
-(the request and preferences), Google Places (location for one search), OpenAI and Pexels (dish
-descriptions for pictures), Cloudflare Turnstile (bot check), Apple (Sign in with Apple, later).
+Apple counts data as "collected" when it leaves the device and can be accessed by you **or a
+third-party partner** beyond the moment of the request. Third parties (Anthropic, Google) receive
+some of it, so the conservative answers are:
+
+| Apple category | collected | linked to user | tracking | purpose | what it is |
+|---|---|---|---|---|---|
+| Contact Info → Email Address | yes | yes | no | App Functionality | sign-in (Supabase, Resend) |
+| Health & Fitness → Health | yes (only if entered) | yes | no | App Functionality | optional age, sex, height, weight, activity, goal, calorie/protein targets |
+| Location → Precise Location | **yes** | **no** | no | App Functionality | coordinates sent to Google Places for one nearby search; not stored by us |
+| User Content → Other User Content | yes | yes | no | App Functionality | allergies, diet, foods avoided, equipment, staples, request answers, saved items, "did you eat it", feedback messages |
+| User Content → Other User Content (typed sentence) | yes | no | no | App Functionality | sent to Anthropic to read it; not stored by us |
+| Identifiers → User ID | yes | yes | no | App Functionality | account id |
+| Usage Data → Product Interaction | yes | yes | no | Analytics | named events with fixed values only |
+
+Not collected: financial info, contacts, browsing history, search history, diagnostics/crash data,
+photos, audio, purchases, sensitive info. No tracking, no ads, no data sold.
+
+The earlier draft answered location "not collected"; that relied on our server not storing it, but
+Google receives it, so declare it. Same for the typed sentence (Anthropic).
+
+Third parties to name in the privacy policy (all named in `/about` as of this branch): Supabase,
+Vercel, Resend, Anthropic, Google Maps Platform, OpenAI, Pexels, Cloudflare Turnstile; Apple once
+Sign in with Apple is turned on.
 
 ## Review notes (App Review / Beta App Review)
 - Sign in: email + one-time code. Provide a reviewer address you can read and forward codes from,

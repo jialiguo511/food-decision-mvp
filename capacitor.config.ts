@@ -5,12 +5,12 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // for a device build. `mobile/www` is bundled in the app: the launch page and the can't-connect
 // page (`errorPath`), so a phone with no network never shows a blank screen.
 //
-// The bundle id is a placeholder until the App Store Connect record exists; it cannot be changed
-// after the first TestFlight upload.
+// Bundle id com.jialiguo.whatshouldieat (chosen 2026-11-24). It cannot be changed after the first
+// upload to App Store Connect.
 const serverUrl = process.env.CAP_SERVER_URL;
 
 const config: CapacitorConfig = {
-  appId: process.env.CAP_APP_ID ?? "com.whatshouldieat.app",
+  appId: process.env.CAP_APP_ID ?? "com.jialiguo.whatshouldieat",
   appName: "What to Eat",
   // Capacitor's debug log prints every plugin result — including the sign-in check bridge's
   // callback URL with its one-time token (seen in the spike). Nothing native is logged.
