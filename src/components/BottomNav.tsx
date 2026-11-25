@@ -2,6 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+
+/** True while a text field has focus — on a phone, the on-screen keyboard is up. iOS lifts a fixed
+ *  bar above the keyboard, where it covers the field being typed in; it is hidden instead. */
+function useTyping(): boolean {
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const isField = (el: EventTarget | null) =>
+      el instanceof HTMLElement && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "range"].includes((el as HTMLInputElement).type)) || el.isContentEditable);
+    const onIn = (e: FocusEvent) => setTyping(isField(e.target));
+    const onOut = () => window.setTimeout(() => setTyping(isField(document.activeElement)), 0);
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, []);
+  return typing;
+}
 
 // What is in the nav is what exists. Home / Saved / Me are the three tabs of the
 // web beta. Plan (/plan) and Groceries (/groceries) are still part of the
@@ -21,9 +41,10 @@ const TABS = [
  *  the safe area, so it never covers content. */
 export default function BottomNav() {
   const pathname = usePathname();
+  const typing = useTyping();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 backdrop-blur" aria-label="Main">
+    <nav className={`fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 backdrop-blur ${typing ? "hidden" : ""}`} aria-label="Main">
       <div className="mx-auto flex max-w-md">
         {TABS.map((tab) => {
           const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);

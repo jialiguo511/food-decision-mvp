@@ -29,6 +29,9 @@ import ProfileSection from "./ProfileSection";
  *  rest, which waits for "Save profile"), so it arrives as a slot. */
 export default function ProfileForm({ initial, staples, allergyStatus }: { initial: ProfileFormValues; staples: React.ReactNode; allergyStatus: AllergyStatus }) {
   const [values, setValues] = useState<ProfileFormValues>(initial);
+  // Edits not yet saved. An allergy typed in and then left behind by switching tabs used to be lost
+  // without a word (found in the release regression), so unsaved changes show a Save bar.
+  const [dirty, setDirty] = useState(false);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<null | { ok: boolean; message: string }>(null);
   // "Not set" and "no known allergies" are different answers (lib/allergyStatus.ts).
@@ -48,11 +51,13 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
   function set<K extends keyof ProfileFormValues>(key: K, value: ProfileFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
     setStatus(null);
+    setDirty(true);
   }
 
   function submit() {
     startTransition(async () => {
       const result = await saveProfile(values);
+      if (result.ok) setDirty(false);
       setStatus(
         result.ok
           ? { ok: true, message: "Saved" }
@@ -69,7 +74,7 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
   );
 
   return (
-    <div className="space-y-8">
+    <div className={`space-y-8 ${dirty ? "pb-20" : ""}`}>
       <ProfileSection id="food-preferences" title="Food preferences" caption="Always used in your suggestions">
         <FoodTermsCard
           title="Allergies"
@@ -169,6 +174,18 @@ export default function ProfileForm({ initial, staples, allergyStatus }: { initi
         >
           {pending ? "Saving…" : "Save profile"}
         </button>
+        {dirty && (
+          // Only while there is something to save; sits just above the tab bar and leaves room below
+          // the form (pb on the wrapper) so it never covers the last card.
+          <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 px-5 pb-2" role="region" aria-label="Unsaved changes">
+            <div className="mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-2 shadow-lg">
+              <span className="text-sm font-medium">Unsaved changes</span>
+              <button type="button" onClick={submit} disabled={pending} className="min-h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-white disabled:opacity-60">
+                {pending ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
         {status && (
           <p
             role="status"
