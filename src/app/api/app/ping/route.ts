@@ -9,6 +9,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from "@/lib/env
 
 export const dynamic = "force-dynamic";
 
+// Preflight is answered by middleware for the app origin; this stays for completeness.
 export function OPTIONS(request: Request) {
   const cors = appCorsHeaders(request.headers.get("origin"));
   return new Response(null, { status: Object.keys(cors).length ? 204 : 403, headers: cors });

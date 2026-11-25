@@ -1,3 +1,5 @@
+import { bearerToken, isAppOrigin } from "./appOrigin";
+
 // Defence in depth for the routes that spend money. The session cookie is SameSite=Lax, which
 // already keeps other sites from sending it on a POST; this adds a check that doesn't depend on
 // that: a browser always sends `Origin` on a cross-site POST, so a request whose Origin is some
@@ -8,6 +10,9 @@
 export function isCrossSite(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return false;
+  // The bundled iOS app: allowed only with its bearer token and no cookie — a request a browser
+  // can't be tricked into sending, so there is nothing to forge.
+  if (isAppOrigin(origin) && bearerToken(request.headers.get("authorization")) && !request.headers.get("cookie")) return false;
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   if (!host) return false;
   try {

@@ -18,3 +18,33 @@ describe("bundled-app origin (proof of concept)", () => {
     expect(bearerToken(null)).toBeNull();
   });
 });
+
+import { minAppVersion, versionLessThan } from "./appOrigin";
+import { isCrossSite } from "./sameOrigin";
+
+describe("app version gate", () => {
+  it("compares dotted versions numerically; malformed counts as oldest", () => {
+    expect(versionLessThan("1.0.0", "1.0.1")).toBe(true);
+    expect(versionLessThan("1.10.0", "1.2.0")).toBe(false);
+    expect(versionLessThan("1.2.0", "1.2.0")).toBe(false);
+    expect(versionLessThan("", "1.0.0")).toBe(true);
+    expect(versionLessThan("x", "1.0.0")).toBe(true);
+  });
+  it("reads MIN_IOS_APP_VERSION, defaulting to 1.0.0", () => {
+    expect(minAppVersion({})).toBe("1.0.0");
+    expect(minAppVersion({ MIN_IOS_APP_VERSION: "1.3.0" })).toBe("1.3.0");
+    expect(minAppVersion({ MIN_IOS_APP_VERSION: "latest" })).toBe("1.0.0");
+  });
+});
+
+describe("cross-site guard and the app origin", () => {
+  const req = (headers: Record<string, string>) => new Request("https://site.example/api/recommend", { method: "POST", headers: { host: "site.example", ...headers } });
+  const TOKEN = "Bearer aaaaaaaaaaaaaaaaaaaaaaaa.bbb.ccc";
+  it("lets the app through only with a bearer token and no cookie", () => {
+    expect(isCrossSite(req({ origin: "capacitor://localhost", authorization: TOKEN }))).toBe(false);
+    expect(isCrossSite(req({ origin: "capacitor://localhost" }))).toBe(true);
+    expect(isCrossSite(req({ origin: "capacitor://localhost", authorization: TOKEN, cookie: "sb=1" }))).toBe(true);
+    expect(isCrossSite(req({ origin: "https://evil.example", authorization: TOKEN }))).toBe(true);
+    expect(isCrossSite(req({ origin: "https://site.example" }))).toBe(false);
+  });
+});

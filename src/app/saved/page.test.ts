@@ -18,6 +18,8 @@ vi.mock("@/lib/env", () => ({ isSupabaseConfigured: true, SUPABASE_URL: "", SUPA
 vi.mock("next/navigation", () => ({ redirect: () => undefined, useRouter: () => ({ refresh: () => undefined }), usePathname: () => "/saved" }));
 
 import SavedPage from "./page";
+import SavedView from "./SavedView";
+import EmptyState from "@/components/ui/EmptyState";
 import SavedPlaceCard from "./SavedPlaceCard";
 import SavedRecipeCard from "./SavedRecipeCard";
 
@@ -45,7 +47,17 @@ const text = (tree: ReactNode) => {
   collect(tree);
   return out.join(" ");
 };
-const render = (tab?: string) => SavedPage({ searchParams: Promise.resolve(tab ? { tab } : {}) });
+// The page now renders <SavedView data=…> (shared with the iOS app); expand it so these tests read
+// the same output as before. EmptyState is expanded too, for its text.
+function expand(node: ReactNode): ReactNode {
+  if (Array.isArray(node)) return node.map(expand);
+  if (!node || typeof node !== "object" || !("props" in node)) return node;
+  const el = node as AnyEl;
+  if (el.type === SavedView || el.type === EmptyState) return expand((el.type as (p: unknown) => ReactNode)(el.props));
+  const children = el.props.children === undefined ? undefined : expand(el.props.children);
+  return { ...el, props: { ...el.props, children } } as AnyEl;
+}
+const render = async (tab?: string) => expand(await SavedPage({ searchParams: Promise.resolve(tab ? { tab } : {}) }));
 
 const row = (user: string, extra: Record<string, unknown>) => ({ user_id: user, ...extra });
 
