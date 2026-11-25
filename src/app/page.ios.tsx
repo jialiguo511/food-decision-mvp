@@ -6,6 +6,8 @@ import { useEffect } from "react";
 
 export default function Start() {
   const router = useRouter();
-  useEffect(() => router.replace("/today"), [router]);
+  useEffect(() => {
+    router.replace("/today");
+  }, [router]);
   return null;
 }
