@@ -6,6 +6,7 @@ import Link from "next/link";
 import SetupNotice from "@/components/SetupNotice";
 import Turnstile, { TURNSTILE_SITE_KEY } from "@/components/Turnstile";
 import AppleSignInButton from "./AppleSignInButton";
+import { API_BASE, IS_BUNDLED_APP } from "@/ios/config";
 import { BRAND } from "@/lib/brand";
 import { isSupabaseConfigured } from "@/lib/env";
 import { callbackErrorMessage, cleanCode, isPlausibleCode, resendSecondsLeft, sendLinkErrorMessage, verifyCodeErrorMessage } from "@/lib/loginErrors";
@@ -73,7 +74,9 @@ function LoginForm() {
       options: {
         // The confirmation page (docs/RELEASE.md §6.7). The email template builds the link from this
         // address; an older-style redirect arriving here is handed on to /auth/callback.
-        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        // In the bundled iOS app this page is at capacitor://localhost; the emailed link belongs to the
+        // real site the app talks to.
+        emailRedirectTo: `${IS_BUNDLED_APP ? API_BASE : window.location.origin}/auth/confirm`,
         ...(captcha ? { captchaToken: captcha } : {}),
       },
     });

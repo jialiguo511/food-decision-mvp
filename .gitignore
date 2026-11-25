@@ -20,3 +20,5 @@ bench-results/
 mobile/www/app-url.js
 mobile/poc/config.js
 mobile/poc/supabase.js
+build/
+mobile/app/

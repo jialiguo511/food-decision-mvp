@@ -15,7 +15,8 @@
     "check:interpret": "vitest run --config vitest.interpret.config.ts",
     "check:open": "vitest run --config vitest.interpret.config.ts scripts/open-recommend-check.ts",
     "ios:sync": "node scripts/ios-sync.mjs",
-    "ios:open": "npx cap open ios"
+    "ios:open": "npx cap open ios",
+    "ios:build": "node scripts/ios-build.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

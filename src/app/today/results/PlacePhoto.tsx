@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { IS_BUNDLED_APP } from "@/ios/config";
 import MediaFrame, { FramePlaceholder } from "./MediaFrame";
 import { useMediaWanted } from "./useMediaWanted";
 
@@ -17,6 +18,7 @@ export default function PlacePhoto({ sessionId, index, hasPhoto, author }: { ses
   const box = useRef<HTMLDivElement>(null);
   const wanted = useMediaWanted(box, index);
   const [state, setState] = useState<"loading" | "loaded" | "failed">("loading");
+  const src = useAuthedImage(wanted && hasPhoto ? `/api/place-photo?session_id=${encodeURIComponent(sessionId)}&index=${index}` : null, () => setState("failed"));
 
   if (!hasPhoto) return <Band />;
   return (
@@ -30,10 +32,10 @@ export default function PlacePhoto({ sessionId, index, hasPhoto, author }: { ses
       {state === "failed" ? (
         <FramePlaceholder size="large" text="No photo for this place" />
       ) : (
-        wanted && (
+        src && (
           // eslint-disable-next-line @next/next/no-img-element -- same-origin proxy of a provider image
           <img
-            src={`/api/place-photo?session_id=${encodeURIComponent(sessionId)}&index=${index}`}
+            src={src}
             alt=""
             onLoad={() => setState("loaded")}
             onError={() => setState("failed")}
@@ -43,6 +45,33 @@ export default function PlacePhoto({ sessionId, index, hasPhoto, author }: { ses
       )}
     </MediaFrame>
   );
+}
+
+/** The photo address to show. On the web the browser's cookie authorises the proxy, so it is the path
+ *  itself. In the bundled iOS app an <img> can't carry the sign-in token, so the photo is fetched (the
+ *  fetch bridge adds the token) and shown from a local object URL, released when the card goes. */
+function useAuthedImage(path: string | null, onFail: () => void): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!IS_BUNDLED_APP || !path) return;
+    let live = true;
+    let made: string | null = null;
+    void fetch(path)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((blob) => {
+        if (!live) return;
+        made = URL.createObjectURL(blob);
+        setObjectUrl(made);
+      })
+      .catch(() => live && onFail());
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+    // onFail is a fresh closure each render; the request depends on the path only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+  return IS_BUNDLED_APP ? objectUrl : path;
 }
 
 function Band() {

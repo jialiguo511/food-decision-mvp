@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 // Response headers for every route. Deliberately conservative: each one here was
@@ -46,4 +47,40 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// ---------------------------------------------------------------------------------------------
+// The bundled iOS build (scripts/ios-build.mjs sets BUILD_TARGET=ios). A static export of the
+// `*.ios.tsx` screens only — no API routes, middleware or Server Actions in it; those stay on the
+// server the app calls. Client modules keep their imports; these files are swapped at build time
+// for app versions with the same exports.
+// ---------------------------------------------------------------------------------------------
+const IOS_SWAPS: [RegExp, string][] = [
+  [/[\\/]src[\\/]app[\\/]today[\\/]actions\.ts$/, "src/ios/shims/today.actions.ts"],
+  [/[\\/]src[\\/]app[\\/]today[\\/]events\.actions\.ts$/, "src/ios/shims/events.actions.ts"],
+  [/[\\/]src[\\/]app[\\/]saved[\\/]actions\.ts$/, "src/ios/shims/saved.actions.ts"],
+  [/[\\/]src[\\/]app[\\/]profile[\\/]actions\.ts$/, "src/ios/shims/profile.actions.ts"],
+  [/[\\/]src[\\/]app[\\/]profile[\\/]account\.actions\.ts$/, "src/ios/shims/account.actions.ts"],
+  [/[\\/]src[\\/]app[\\/]feedback[\\/]actions\.ts$/, "src/ios/shims/feedback.actions.ts"],
+  [/[\\/]src[\\/]lib[\\/]supabase[\\/]client\.ts$/, "src/ios/supabaseClient.ts"],
+  [/[\\/]src[\\/]components[\\/]Turnstile\.tsx$/, "src/ios/Turnstile.tsx"],
+];
+
+const iosConfig: NextConfig = {
+  output: "export",
+  distDir: "build/ios-next",
+  pageExtensions: ["ios.tsx", "ios.ts"],
+  poweredByHeader: false,
+  webpack(config, { webpack }) {
+    for (const [pattern, target] of IOS_SWAPS) {
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(pattern, (resource: { request: string; createData?: { resource?: string } }) => {
+          const absolute = path.resolve(process.cwd(), target);
+          if (resource.createData?.resource) resource.createData.resource = absolute;
+          else resource.request = absolute;
+        }),
+      );
+    }
+    return config;
+  },
+};
+
+export default process.env.BUILD_TARGET === "ios" ? iosConfig : nextConfig;

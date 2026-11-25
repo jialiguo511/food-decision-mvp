@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import EmptyState from "@/components/ui/EmptyState";
-import type { SavedData } from "@/lib/app/saved";
+import type { SavedData } from "@/lib/app/savedTypes";
 import SavedPlaceCard from "./SavedPlaceCard";
 import SavedRecipeCard from "./SavedRecipeCard";
 

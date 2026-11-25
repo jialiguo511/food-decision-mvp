@@ -36,7 +36,7 @@ execFileSync("npx", ["cap", "sync", "ios"], { stdio: "inherit", env: process.env
 registerLocalPlugins();
 
 function registerLocalPlugins() {
-  const LOCAL_PLUGINS = ["AppleSignInPlugin", "WebAuthPlugin"];
+  const LOCAL_PLUGINS = ["AppleSignInPlugin", "WebAuthPlugin", "KeychainPlugin"];
   const generated = "ios/App/App/capacitor.config.json";
   const config = JSON.parse(readFileSync(generated, "utf8"));
   config.packageClassList = [...new Set([...(config.packageClassList ?? []), ...LOCAL_PLUGINS])];

@@ -5,17 +5,10 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { PLACE_PROVIDER } from "@/lib/places/feedback";
 import { loadPlaceFeedback } from "@/lib/places/feedbackQuery";
 import { toProfileInput } from "@/lib/profile";
-import { parseSavedPlaceRow, parseSavedRecipe, recipeProfileFlags, savedGuidanceIsAllowed, type SavedPlace } from "@/lib/saved/saved";
-import type { CookRecommendation } from "@/lib/types";
+import { parseSavedPlaceRow, parseSavedRecipe, recipeProfileFlags, savedGuidanceIsAllowed } from "@/lib/saved/saved";
+import type { SavedData, SavedTab } from "./savedTypes";
 
-export type SavedTab = "recipes" | "places";
-export type SavedData =
-  | { tab: "recipes"; recipes: { id: string; recipe: CookRecommendation; savedAt: string | null; flags: ReturnType<typeof recipeProfileFlags> }[] }
-  | { tab: "places"; places: { place: SavedPlace; showGuidance: boolean }[] };
-
-export function parseSavedTab(value: unknown): SavedTab {
-  return value === "places" ? "places" : "recipes";
-}
+export { parseSavedTab, type SavedData, type SavedTab } from "./savedTypes";
 
 export async function loadSaved(supabase: SupabaseClient, user: Pick<User, "id">, tab: SavedTab): Promise<SavedData> {
   // The CURRENT profile, for re-checking history against. A missing row is a normal state.
