@@ -24,7 +24,7 @@ export default function AboutPage() {
       <p className="mt-4 w-fit rounded-full border border-accent/30 bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">{BRAND.stage}</p>
       <h1 className="mt-3 text-[28px] font-semibold leading-tight tracking-tight">About this beta</h1>
       <p className="mt-2 text-muted">
-        {BRAND.name} is a small, early web app that helps you decide what to eat right now. It gives you three options at a time, fitted to what you tell it.
+        {BRAND.name} is a small, early app (on the web and on iPhone) that helps you decide what to eat right now. It gives you three options at a time, fitted to what you tell it.
         It&apos;s a personal project in a public beta — anyone can try it, and things will change and break.
       </p>
 
@@ -79,6 +79,9 @@ export default function AboutPage() {
           it, and your login). Shared dish pictures that were generated while you used the app stay — they show a dish, not you.
         </p>
         <p className="mt-2">
+          Everything above is kept until you reset your data or delete your account.
+        </p>
+        <p className="mt-2">
           The app doesn&apos;t build a hidden profile of what you pick: today it only remembers your last answers per mode so “Last time” can offer them, and you can
           see and change them on the screen.
         </p>
@@ -92,20 +95,22 @@ export default function AboutPage() {
             age, height, weight, and health notes are not sent.
           </li>
           <li>
-            <strong>Google Maps Platform (Places).</strong> Only when you ask for places nearby: your approximate location, used for that one search and not
-            stored or logged by us. Place photos are fetched from Google.
+            <strong>Google Maps Platform (Places).</strong> Only when you ask for places nearby: your current location (map coordinates), sent for that one
+            search and not stored or logged by us. On iPhone, the app asks iOS for permission first and you can turn it off in Settings. Place photos are
+            fetched from Google by our server.
           </li>
           <li>
-            <strong>OpenAI and Pexels (recipe pictures).</strong> A dish name, main ingredients and cooking method — nothing about you. Generated pictures are
+            <strong>OpenAI and Pexels (dish pictures).</strong> A dish name, main ingredients and cooking method, or the title of a food idea — nothing about you. Generated pictures are
             shared between users because they depict a dish, not a person.
           </li>
           <li>
-            <strong>Supabase (sign-in and database) and our host.</strong> They store and serve the data above.
+            <strong>Supabase (sign-in and database), Vercel (hosting) and our email provider (Resend, which delivers sign-in codes).</strong> They store,
+            serve or deliver the data above; the email provider receives your email address.
           </li>
         </ul>
         <p className="mt-2">
           Each of those services has its own terms and privacy policy. There are no ads and no third-party analytics or tracking scripts in this app; the app itself
-          sets only a sign-in cookie.{TURNSTILE_SITE_KEY ? " On the sign-in page, a Cloudflare Turnstile check may run to tell people from scripts; it is Cloudflare's service and is covered by their privacy policy." : ""}
+          sets only a sign-in cookie (in the iPhone app, your sign-in is kept in the iOS Keychain on your device instead).{TURNSTILE_SITE_KEY ? " On the sign-in page, a Cloudflare Turnstile check may run to tell people from scripts; it is Cloudflare's service and is covered by their privacy policy." : ""}
         </p>
       </Section>
 
